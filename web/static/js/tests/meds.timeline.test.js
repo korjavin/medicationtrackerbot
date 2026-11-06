@@ -242,16 +242,22 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(list.querySelector('.wg-skel')).toBeNull();
     });
 
-    it('TL1 · focus card: the latest pending dose with Take as the sun, +N more pending, then the next dose due today', async () => {
+    it('TL1 · focus card, later on top: the next dose due today, then the latest pending dose with Take as the sun and +N more pending', async () => {
         const { document } = env;
         await load(normalDay());
         const focus = card(document);
         expect(focus.classList.contains('wg-card--accent')).toBe(true);
         expect(document.querySelectorAll('#med-timeline-list .wg-card--accent')).toHaveLength(1);
+        // Iris 17054: same card, order flipped — NEXT TODAY on top, PENDING
+        // (with its "+N more pending") below.
         const focusLabels = Array.from(focus.querySelectorAll('.wg-tl-focus__label'));
-        expect(focusLabels.map((l) => text(l.querySelector('.wg-label')))).toEqual(['Pending', 'Next today']);
-        expect(text(focusLabels[0].querySelector('.wg-meta'))).toBe('+2 more pending');
-        const [now, next] = focus.querySelectorAll('.wg-timeline__row');
+        expect(focusLabels.map((l) => text(l.querySelector('.wg-label')))).toEqual(['Next today', 'Pending']);
+        expect(focusLabels[0].querySelector('.wg-meta')).toBeNull();
+        expect(text(focusLabels[1].querySelector('.wg-meta'))).toBe('+2 more pending');
+        const [next, now] = focus.querySelectorAll('.wg-timeline__row');
+        // Pending's Take stays the only yellow control on the page.
+        expect(document.querySelectorAll('#med-timeline-list .wg-btn--primary')).toHaveLength(1);
+        expect(now.querySelector('.wg-btn--primary')).not.toBeNull();
         // Today 08:20: due and snoozed at the same instant → due wins.
         expect(now.dataset.state).toBe('due');
         expect(text(now.querySelector('.wg-row__title'))).toBe('08:20');
@@ -271,7 +277,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         const { document } = env;
         env.window.Date.now = () => Date.parse('2026-10-23T18:30:00.000Z'); // 20:30 Berlin, 60 min ahead
         await load(normalDay());
-        const next = card(document).querySelectorAll('.wg-timeline__row')[1];
+        const next = card(document).querySelectorAll('.wg-timeline__row')[0];
         expect(text(next.querySelector('.wg-chip--pending'))).toBe('in 1h');
         const take = next.querySelector('.wg-row__trail button');
         expect(text(take)).toBe('Take 2');
@@ -295,6 +301,46 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
                 expect(document.querySelectorAll(`#med-timeline-list .wg-timeline__row[data-occ-ids~="${id}"]`)).toHaveLength(1);
             });
         });
+    });
+
+    // bd med-5y49: the page runs future on top, and inside every day the later
+    // dose sits above the earlier one — Today's blocks, an unfolded future day,
+    // a History day. Min-based reads stay min-based.
+    it('within a day the later dose sits higher: Today\'s Pending / Later today / Done, an unfolded future day, a History day', async () => {
+        const { document } = env;
+        const titles = (rowsIn) => rowsIn.map((r) => text(r.querySelector('.wg-row__title')));
+        await load([
+            berlin(1, '2026-10-22', '08:20', 'taken', { takenAt: '2026-10-22T06:25:00.000Z' }),
+            berlin(2, '2026-10-22', '21:30', 'taken', { takenAt: '2026-10-22T19:35:00.000Z' }),
+            berlin(1, '2026-10-23', '07:00', 'taken', { takenAt: '2026-10-23T05:05:00.000Z' }),
+            berlin(2, '2026-10-23', '08:20', 'due'),
+            berlin(3, '2026-10-23', '09:00', 'skipped'),
+            berlin(1, '2026-10-23', '11:00', 'due'),
+            berlin(4, '2026-10-23', '13:00', 'due'),
+            berlin(1, '2026-10-23', '18:00', 'upcoming'),
+            berlin(2, '2026-10-23', '20:00', 'upcoming'),
+            berlin(3, '2026-10-23', '21:30', 'upcoming'),
+            berlin(1, '2026-10-24', '08:20', 'upcoming'),
+            berlin(2, '2026-10-24', '21:30', 'upcoming'),
+        ]);
+        const list = document.getElementById('med-timeline-list');
+        expect(text(list.querySelector('section .wg-tl-more'))).toBe('Show 3 more days ahead');
+        expect(list.firstElementChild.classList.contains('wg-timeline__future')).toBe(true);
+        // The card: Next today (the earliest dose still ahead) above Pending
+        // (the latest pending dose).
+        expect(titles(Array.from(card(document).querySelectorAll('.wg-timeline__row')))).toEqual(['18:00', '13:00']);
+        const today = document.querySelector('.wg-timeline__today');
+        expect(labels(today)).toEqual(['Pending', 'Later today', 'Done']);
+        expect(titles(blockRows(today, 'Pending'))).toEqual(['11:00', '08:20']);
+        expect(titles(blockRows(today, 'Later today'))).toEqual(['21:30', '20:00']);
+        expect(titles(blockRows(today, 'Done'))).toEqual(['09:00', '07:00']);
+        // The folded row still names the day's first dose; unfolded, later on top.
+        const tomorrow = () => document.querySelector('.wg-tl-day[data-local-date="2026-10-24"]');
+        expect(text(tomorrow().querySelector('.wg-row__meta'))).toBe('2 doses · first 08:20');
+        tomorrow().click();
+        expect(titles(Array.from(document.querySelectorAll('.wg-timeline__future .wg-timeline__row')))).toEqual(['21:30', '08:20']);
+        const yesterday = document.querySelector('section[data-local-date="2026-10-22"]');
+        expect(titles(Array.from(yesterday.querySelectorAll('.wg-timeline__row')))).toEqual(['21:30', '08:20']);
     });
 
     it('History days summarise themselves and list newest first', async () => {
@@ -324,7 +370,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         await load(fixture);
         expect(plannedDays(document)).toEqual(['2026-10-24']);
         const focus = card(document);
-        const [now, next] = focus.querySelectorAll('.wg-timeline__row');
+        const [next, now] = focus.querySelectorAll('.wg-timeline__row');
         expect(now.dataset.occIds).toBe(fixture[0].occId);
         expect(text(now.querySelector('.wg-row__title'))).toBe('20:00');
         expect(text(now.querySelector('.wg-chip--pending'))).toBe('Yesterday');
@@ -459,7 +505,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         const { document } = env;
         await load([berlin(1, '2026-10-22', '09:00', 'due'), berlin(1, '2026-10-23', '21:00', 'upcoming')]);
         expect(text(document.getElementById('med-timeline-list')).toLowerCase()).not.toContain('missed');
-        expect(card(document).querySelector('.wg-timeline__row').dataset.state).toBe('due');
+        expect(Array.from(card(document).querySelectorAll('.wg-timeline__row')).map((r) => r.dataset.state)).toEqual(['upcoming', 'due']);
     });
 
     describe('folded future days (TL1 / TL2)', () => {
@@ -476,14 +522,15 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             day().click();
             expect(day().getAttribute('aria-expanded')).toBe('true');
             const planned = Array.from(document.querySelectorAll('.wg-timeline__future .wg-timeline__row'));
-            expect(planned.map((r) => text(r.querySelector('.wg-row__title')))).toEqual(['08:20', '13:00', '21:30']);
+            // Later on top inside the day too (bd med-5y49).
+            expect(planned.map((r) => text(r.querySelector('.wg-row__title')))).toEqual(['21:30', '13:00', '08:20']);
             planned.forEach((r) => {
                 expect(r.dataset.state).toBe('upcoming');
                 expect(r.querySelector('button')).toBeNull();
                 expect(r.querySelector('.wg-chip')).toBeNull();
                 expect(r.getAttribute('role')).toBeNull();
             });
-            expect(text(planned[0].querySelector('.wg-row__meta'))).toBe('Allopurinol 300 mg · Lercanidipin 10 mg');
+            expect(text(planned[2].querySelector('.wg-row__meta'))).toBe('Allopurinol 300 mg · Lercanidipin 10 mg');
 
             day().click();
             expect(day().getAttribute('aria-expanded')).toBe('false');
@@ -500,7 +547,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             ]);
             document.querySelector('.wg-tl-day[data-local-date="2026-10-24"]').click();
             const planned = Array.from(document.querySelectorAll('.wg-timeline__future .wg-timeline__row'));
-            expect(planned.map((r) => r.dataset.state)).toEqual(['taken', 'skipped', 'snoozed', 'upcoming']);
+            expect(planned.map((r) => r.dataset.state)).toEqual(['upcoming', 'snoozed', 'skipped', 'taken']);
             planned.forEach((r) => {
                 expect(r.getAttribute('role')).toBeNull();
                 expect(r.getAttribute('tabindex')).toBeNull();
@@ -729,7 +776,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             const fixture = normalDay();
             const server = await serve(fixture);
             const spy = vi.spyOn(env.window.DataStore, 'applyOptimistic');
-            const [focusRow] = card(env.document).querySelectorAll('.wg-timeline__row');
+            const [, focusRow] = card(env.document).querySelectorAll('.wg-timeline__row');
             const occIds = focusRow.dataset.occIds.split(' ');
             const release = server.hold();
             focusRow.querySelector('.wg-btn--primary').click();
@@ -739,14 +786,14 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             // Flipped while the POST is in flight — no reload: the taken dose
             // is in Done, the snoozed 08:20 (latest left) is the card now.
             expect(blockRows(today(), 'Done').some((r) => r.dataset.occIds.split(' ').includes(occIds[0]))).toBe(true);
-            const [nextUp] = card(env.document).querySelectorAll('.wg-timeline__row');
+            const [, nextUp] = card(env.document).querySelectorAll('.wg-timeline__row');
             expect(nextUp.dataset.state).toBe('snoozed');
             expect(text(card(env.document).querySelector('.wg-tl-focus__label .wg-meta'))).toBe('+1 more pending');
             release();
             await settle();
             await settle();
             expect(fixture.find((r) => r.occId === occIds[0]).state).toBe('taken');
-            expect(card(env.document).querySelector('.wg-timeline__row').dataset.state).toBe('snoozed');
+            expect(card(env.document).querySelectorAll('.wg-timeline__row')[1].dataset.state).toBe('snoozed');
         });
 
         it('Take on "Next today" inside the window takes that dose through the same act route, and clears it from Today\'s next-intake card', async () => {
@@ -757,7 +804,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             }, ['medications', 'history']);
             const fixture = normalDay();
             const server = await serve(fixture);
-            const next = card(env.document).querySelectorAll('.wg-timeline__row')[1];
+            const next = card(env.document).querySelectorAll('.wg-timeline__row')[0];
             const occIds = next.dataset.occIds.split(' ');
             button(next, 'Take 2').click();
             await vi.waitFor(() => expect(server.posts).toHaveLength(1));
@@ -771,7 +818,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         it('"Next today" outside the window: a row tap opens the take sheet with "Due at 21:30. Mark taken now?", nothing posted until Take', async () => {
             const fixture = normalDay();
             const server = await serve(fixture);
-            const next = card(env.document).querySelectorAll('.wg-timeline__row')[1];
+            const next = card(env.document).querySelectorAll('.wg-timeline__row')[0];
             const occIds = next.dataset.occIds.split(' ');
             expect(next.querySelector('button')).toBeNull();
             next.click();

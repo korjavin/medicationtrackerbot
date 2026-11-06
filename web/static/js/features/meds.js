@@ -590,7 +590,9 @@ function _tlAgo(ms) {
 
 const _TL_STATE_ORDER = { due: 0, snoozed: 1, upcoming: 2, taken: 3, skipped: 4 };
 
-// Groups ascending by planned instant; same instant → pending before done.
+// Groups latest first, the page's one order (future on top, and inside a day
+// the later dose above the earlier, bd med-5y49); same instant → pending
+// before done. Min-based reads (the next dose, "first 08:20") take the last.
 function _tlGroups(rows) {
     const byKey = new Map();
     rows.forEach((r) => {
@@ -600,7 +602,7 @@ function _tlGroups(rows) {
         }
         byKey.get(key).rows.push(r);
     });
-    return Array.from(byKey.values()).sort((a, b) => (a.at - b.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]));
+    return Array.from(byKey.values()).sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state]));
 }
 
 // Name from the medications list (String ids — a vault can hold a number on
@@ -981,7 +983,7 @@ function _tlFutureSection(groups, ctx) {
         lead.appendChild(_medsIcon('calendar'));
         const body = _medsEl('span', 'wg-row__body');
         body.appendChild(_medsEl('span', 'wg-row__title', i === 1 ? `Tomorrow · ${_tlDayName(date)}` : _tlDayName(date)));
-        body.appendChild(_medsEl('span', 'wg-row__meta', `${day.length} dose${day.length === 1 ? '' : 's'} · first ${day[0].localTime}`));
+        body.appendChild(_medsEl('span', 'wg-row__meta', `${day.length} dose${day.length === 1 ? '' : 's'} · first ${day[day.length - 1].localTime}`));
         row.append(lead, body, _medsEl('span', 'wg-tag', 'Planned'), _medsIcon(open ? 'chev-u' : 'chev-d', 'wg-row__chev'));
         const toggle = () => {
             if (open) state.open.delete(date);
@@ -1031,10 +1033,11 @@ function _tlFocusLabel(text, meta) {
     return label;
 }
 
-// TL1 / TL4 · the focus card, the one accent card: exactly one pending dose
-// (a day chip when it isn't today's) whose Take is the sun, "+N more pending"
-// as a count only, then the next dose due today with a raised Take (only
-// within MEDS_NEXT_TAKE_WINDOW_MS of its slot; earlier a tap opens the sheet). TL3 ·
+// TL1 / TL4 · the focus card, the one accent card, later on top (Iris 17054):
+// the next dose due today with a raised Take (only within
+// MEDS_NEXT_TAKE_WINDOW_MS of its slot; earlier a tap opens the sheet), then
+// exactly one pending dose (a day chip when it isn't today's) whose Take is
+// the sun, "+N more pending" as a count only. TL3 ·
 // nothing pending and nothing left today: no accent, no buttons, the next dose.
 function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
     const card = _medsEl('section', 'wg-card wg-tl-focus');
@@ -1056,14 +1059,6 @@ function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
         return card;
     }
     card.classList.add('wg-card--accent');
-    if (focus) {
-        card.appendChild(_tlFocusLabel('Pending', more ? `+${more} more pending` : ''));
-        const today = focus.localDate === ctx.todayDate;
-        const row = _tlRow(focus, ctx, { chip: today });
-        if (!today) row.querySelector('.wg-row__meta').appendChild(window.WGChip.create({ text: _tlDaysAgo(focus.localDate, ctx), state: 'pending', small: true }));
-        row.querySelector('.wg-row__trail .wg-btn:not(.wg-btn--ghost)').classList.add('wg-btn--primary');
-        card.appendChild(row);
-    }
     if (next) {
         card.appendChild(_tlFocusLabel('Next today'));
         const ahead = next.at - ctx.nowMs;
@@ -1083,6 +1078,14 @@ function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
             row.appendChild(trail);
             card.appendChild(row);
         }
+    }
+    if (focus) {
+        card.appendChild(_tlFocusLabel('Pending', more ? `+${more} more pending` : ''));
+        const today = focus.localDate === ctx.todayDate;
+        const row = _tlRow(focus, ctx, { chip: today });
+        if (!today) row.querySelector('.wg-row__meta').appendChild(window.WGChip.create({ text: _tlDaysAgo(focus.localDate, ctx), state: 'pending', small: true }));
+        row.querySelector('.wg-row__trail .wg-btn:not(.wg-btn--ghost)').classList.add('wg-btn--primary');
+        card.appendChild(row);
     }
     return card;
 }
@@ -1118,7 +1121,7 @@ function _tlTodaySection(groups, ctx, card) {
     const today = groups.filter((g) => g.localDate === ctx.todayDate);
     _tlBlock(section, 'Pending', today.filter(_tlIsPending), ctx);
     _tlBlock(section, 'Later today', today.filter((g) => g.state === 'upcoming'), ctx);
-    _tlBlock(section, 'Done', today.filter(_tlIsDone).reverse(), ctx);
+    _tlBlock(section, 'Done', today.filter(_tlIsDone), ctx);
     return section;
 }
 
@@ -1137,9 +1140,7 @@ function _tlPastSection(date, groups, occ, ctx) {
     // Take / Skip, and the card's dose is not listed here (Iris 5020).
     const listed = groups.reduce((n, g) => n + (g.state === 'due' || g.state === 'snoozed' ? g.rows.length : 0), 0);
     if (listed >= 2) section.appendChild(_tlBulkActions(date));
-    if (groups.length) {
-        section.appendChild(_tlList(groups.slice().sort((a, b) => (b.at - a.at) || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state])), ctx));
-    }
+    if (groups.length) section.appendChild(_tlList(groups, ctx));
     return section;
 }
 
@@ -1177,9 +1178,10 @@ function renderTimeline({ anchor = false } = {}) {
     const rows = all.filter((r) => r.localDate >= first && r.localDate <= last);
     const groups = _tlGroups(rows);
     const { focus, more } = _tlFocus(rows, state.pending, ctx);
-    const next = groups.find((g) => g.localDate === ctx.todayDate && g.state === 'upcoming' && g.at > nowMs) || null;
+    // Groups run latest first: the earliest is the last.
+    const next = groups.filter((g) => g.localDate === ctx.todayDate && g.state === 'upcoming' && g.at > nowMs).pop() || null;
     // The TL3 "Next:" line may lie past the shown days: any read row will do.
-    const upcoming = _tlGroups(all.filter((r) => r.state === 'upcoming' && Date.parse(r.plannedAt) > nowMs))[0] || null;
+    const upcoming = _tlGroups(all.filter((r) => r.state === 'upcoming' && Date.parse(r.plannedAt) > nowMs)).pop() || null;
     const inCard = new Set([focus, next].filter(Boolean).flatMap((g) => g.rows.map((r) => String(r.occId))));
     const listGroups = _tlGroups(rows.filter((r) => !inCard.has(String(r.occId))));
 

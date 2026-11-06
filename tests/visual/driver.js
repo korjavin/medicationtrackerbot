@@ -128,7 +128,19 @@
     }
 
     function seedVault(fixture) {
-        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(fixture)))), new Date()));
+        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(withTwoDoseDay(fixture))))), new Date()));
+    }
+
+    // Meds timeline day order (bd med-5y49): the golden fixture's one 09:00
+    // dose a day can't show "later on top" inside a day. A second daily slot
+    // at 21:00 (the fixture already holds an undone 21:00 row) gives every
+    // day two doses: meds-timeline-next-early shows Next today 09:00 above
+    // Pending, an unfolded future day 21:00 above 09:00. Visual seed only;
+    // tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withTwoDoseDay(vault) {
+        const med = vault && vault.data && vault.data.medications && (vault.data.medications.items || [])[0];
+        if (med) med.schedule = '{"type":"daily","times":["09:00","21:00"]}';
+        return vault;
     }
 
     // Plans tab PL1 (bd med-jqrf.2): a paused plan, so workouts-plans shows the
