@@ -435,6 +435,10 @@ export default async function euRegister(ctx) {
   await ctx.step('account: simulated peer writes EU setting to cloud; native pull applies it without reload', async () => {
     await page.evaluate(() => window.switchTab('settings'));
     await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
+    // Write an explicit US record even on a new account (selecting the default is a no-op).
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'EU register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register');
     await page.locator('#med-register-choose').click();
     await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'US register' }).click();
     await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'US register');
@@ -457,10 +461,15 @@ export default async function euRegister(ctx) {
       // a failure response leaves no blocked request that could race the gesture.
       window.__qaBlockPeerPull = true;
       window.__qaNativePullsBlocked = 0;
+      window.__qaNativePullsAllowed = 0;
+      window.__qaSameDocument = 'account-peer-before-pull';
       window.fetch = (...args) => {
-        if (window.__qaBlockPeerPull && String(args[0]).startsWith('/api/sync/ops?')) {
-          window.__qaNativePullsBlocked++;
-          return Promise.resolve(new Response('', { status: 503 }));
+        if (String(args[0]).startsWith('/api/sync/ops?')) {
+          if (window.__qaBlockPeerPull) {
+            window.__qaNativePullsBlocked++;
+            return Promise.resolve(new Response('', { status: 503 }));
+          }
+          window.__qaNativePullsAllowed++;
         }
         return rawFetch(...args);
       };
@@ -498,6 +507,8 @@ export default async function euRegister(ctx) {
     await page.locator('#med-name').dispatchEvent('change');
     await chipIs('EU · Candesartan Cilexetil');
     await ctx.stableShot('account-eu-chip');
+    r.accountObservation = await page.evaluate(() => ({ sameDocument: window.__qaSameDocument, pulls: window.__qaNativePullsAllowed, blocked: window.__qaNativePullsBlocked }));
+    if (r.accountObservation.sameDocument !== 'account-peer-before-pull' || !r.accountObservation.pulls) throw new Error('account did not pull in the same document');
     r.accountPulledEU = true;
   });
   r.completedAssetCancels = r.failedAssetRequests.filter(completedCancel);
