@@ -239,6 +239,21 @@ export default async function healthConnect(ctx) {
       const occupied = new Set([...prior.vault.map((s) => s.day), ...(prior.provider.samples || []).map((s) => new Date(s.end).toISOString().slice(0, 10))]);
       const sleepDays = [2, 3, 4, 5, 6].find((days) => !occupied.has(new Date(beforeClock - days * 86400_000).toISOString().slice(0, 10)));
       if (!sleepDays) throw new Error('no distinct readable fixture sleep day');
+      const manualOffset = [1, 2, 3, 4, 5, 6].find((days) => days !== sleepDays && !occupied.has(new Date(beforeClock - days * 86400_000).toISOString().slice(0, 10)));
+      if (!manualOffset) throw new Error('no distinct manual comparison sleep day');
+      // A bounded hand-authored canonical comparison fixture, not an SDK import or a claim
+      // that Sleep has a manual editor. The golden sleep is Mi Band, so cannot stand in for it.
+      const manualDay = new Date(beforeClock - manualOffset * 86400_000).toISOString().slice(0, 10);
+      prior.overview = await ctx.page.evaluate(async (day) => {
+        const end = Date.parse(`${day}T06:00:00Z`);
+        await (await import('/js/sync.js')).localRecordsPort().put('sleep', {
+          recordId: `sleep-hk-${day}`, clientTs: Date.now(), deleted: false, day,
+          start_time: new Date(end - 7 * 3600_000).toISOString(), end_time: new Date(end).toISOString(),
+          timezone_offset: 0, total_minutes: 420, source: 'unknown', user_modified: true,
+          notes: 'B3 hand-authored comparison',
+        });
+        return window.apiCall('/api/health/overview');
+      }, manualDay);
       const request = `b3-${Date.now()}`;
       const kg = 130 + Math.floor(Math.random() * 200) / 10;
       const sys = SECOND[0] + 2;
@@ -303,10 +318,14 @@ export default async function healthConnect(ctx) {
       await ctx.stableShot('b3-weight-source-label');
       await ctx.page.evaluate(() => window.switchTab('health'));
       await ctx.page.locator('.wg-sleep-card__sources').getByText(/Health import/).waitFor();
+      await ctx.page.locator('.wg-sleep-card__sources').getByText(/Mi Band/).waitFor();
+      if (await ctx.page.locator('#health-import-miband, #importexport-nxk-btn').count()) throw new Error('removed Mi Band import control reappeared');
       const overview = await ctx.page.evaluate(() => window.apiCall('/api/health/overview'));
       const stats = overview.sleep_stats_7d;
+      const retainedMiBand = prior.vault.filter((s) => s.source === 'miband');
+      if (!retainedMiBand.length || retainedMiBand.some((old) => !data.vitals.sleep.some((s) => JSON.stringify(s) === JSON.stringify(old)))) throw new Error('SDK import lost/changed retained Mi Band night');
       if (!stats.some((s) => s.date === day && s.sources.includes('apple_health') && s.total_mins === 480)) throw new Error('matching SDK sleep day/source absent from rendered overview');
-      const manualDays = prior.overview.sleep_stats_7d.filter((s) => !s.sources.includes('apple_health') && s.total_mins > 0);
+      const manualDays = prior.overview.sleep_stats_7d.filter((s) => s.date === manualDay && s.sources.length === 1 && s.sources[0] === 'unknown' && s.total_mins === 420);
       if (!manualDays.length || manualDays.some((m) => !stats.some((s) => s.date === m.date && !s.sources.includes('apple_health')))) throw new Error('manual sleep comparison day lost or mislabeled');
       // Sleep's source hint aggregates the visible days; it is not a per-row label.
       await ctx.stableShot('b3-sleep-sources');
@@ -317,7 +336,8 @@ export default async function healthConnect(ctx) {
       const matches = (d) => ({ bp: d.bp.readings.filter((s) => s.source_id === bp.id), weight: d.weight.logs.filter((s) => s.source_id === weight.id), sleep: d.vitals.sleep.filter((s) => s.source_id === day) });
       if (JSON.stringify(matches(again)) !== JSON.stringify(matches(data)) || Object.values(matches(again)).some((rows) => rows.length !== 1)) throw new Error('explicit rescan duplicated/changed imported fixture');
       r.b3 = { access, before, after, inserted, providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
-        day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date), dedupe: true,
+        day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date),
+        manualSleepBoundary: 'hand-authored canonical fixture; no Sleep editor claimed', dedupe: true,
         provenance: 'same package, SDK-assigned dataOrigin' };
     });
 
