@@ -785,8 +785,9 @@ original good bytes to their original generation/cache keys, disables actual rad
 failed Food DB read, then taps Reload. Exactly one new offline B document must recover the saved
 note through the real SW, with no account-host receipts. Radio state is verified and restored in
 `finally`. Metadata/hashes, cache paths, document counts, diagnostics and screenshots are retained.
-The empty-state body offers Reload, but its false title “No cached data yet” remains **manual-partial**
-under med-31gk (epic R4); this tests-only change does not alter product copy or weaken the invariant.
+The real failed-read empty state must say “Some saved data did not load” / “Reload to fix.” and
+contain no no-data copy. This uses the separately authorized shared fix med-31gk (#1597); B2
+changes tests/fixtures only and does not alter product copy or weaken the invariant.
 
 Playwright attaches to the shell's WebView on the runner (the CDP fallback is
 not needed). The emulator is flaky right after boot (Play services restarts can

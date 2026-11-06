@@ -44,14 +44,16 @@ export async function checkSaved(page, note) {
 
 export async function foreground(ctx, page, r) {
   const snapshot = () => page.evaluate(() => ({ state: document.visibilityState,
-    focused: document.hasFocus(), at: Date.now(), timeOrigin: performance.timeOrigin }));
+    focused: document.hasFocus(), at: Date.now(), timeOrigin: performance.timeOrigin,
+    banners: document.querySelectorAll('#cloud-update-banner').length }));
   const observation = { before: await snapshot(), homeStarted: Date.now() };
   await ctx.shell('input keyevent KEYCODE_HOME');
-  await ctx.sleep(1000);
+  await ctx.sleep(3000);
   observation.away = await snapshot();
   observation.returnStarted = Date.now();
   await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
   await page.waitForFunction(() => document.visibilityState === 'visible');
+  await ctx.sleep(1000); // observe native delivery before the explicit check stimulus
   observation.returned = await snapshot();
   // Run42159109277 observed no subsequent version/SW receipt after Home/return;
   // that alone does not establish why. Record native events separately from

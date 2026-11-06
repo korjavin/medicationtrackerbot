@@ -109,7 +109,7 @@ export default async function degradedBoot(ctx) {
     data: (await ctx.shell('settings get global mobile_data')).trim(),
   };
   try {
-    await ctx.step('actual radios off: failed read offers Reload; title gap med-31gk recorded', async () => {
+    await ctx.step('actual radios off: failed read says Reload instead of no data', async () => {
       await ctx.shell('cmd connectivity airplane-mode enable');
       await ctx.shell('svc wifi disable');
       await ctx.shell('svc data disable');
@@ -122,13 +122,13 @@ export default async function degradedBoot(ctx) {
         window.switchTab('food');
       });
       await page.locator('.food-tab[data-tab="fooddb"]').click();
-      // Assert the invariant's Reload guidance, compatible with med-31gk's separately
-      // authorized title/body split. The false title is recorded below until that ships.
       await page.locator('#fooddb-list .wg-empty').filter({ hasText: /Reload/ }).waitFor({ timeout: 30_000 });
       r.emptyState = await page.locator('#fooddb-list').innerText();
-      // R4 / Archie17508: this known product defect is OUTSIDE the tests-only go.
-      r.manualGap = { bead: 'med-31gk', title: 'No cached data yet', observed: r.emptyState.includes('No cached data yet') };
-      await ctx.stableShot('offline-error-reload-title-gap');
+      r.emptyTitle = await page.locator('#fooddb-list .wg-empty__title').innerText();
+      r.emptyBody = await page.locator('#fooddb-list .wg-empty__body').innerText();
+      if (r.emptyTitle !== 'Some saved data did not load' || r.emptyBody !== 'Reload to fix.' || /no (?:cached )?data/i.test(r.emptyState)) throw new Error(`failure empty state violates Reload invariant: ${r.emptyState}`);
+      r.titleFix = 'med-31gk merge43e2c0354'; // separate authorized shared-runtime fix
+      await ctx.stableShot('offline-error-reload-guidance');
     });
     await ctx.step('real Reload: exactly one offline B document, good module/cache/controller and saved data', async () => {
       let loads = 0;
