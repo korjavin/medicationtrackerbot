@@ -494,6 +494,17 @@ never turns it off (below).
   when retrying read-blocked kinds. Already queued ids retain their successfully
   completed dedupe snapshot rather than being discarded as time passes. This
   bound never changes import eligibility.
+  **Copy writes in batches** (med-8f4s.15): on a shell with `readableFrom`, each
+  pass of up to 50 ledger ids sends its writes as one `health.write({entries})`,
+  one Health Connect call per batch (removes stay per id; a lone write and the
+  live hook use the single form; an older shell without `readableFrom` keeps
+  the per-id path), and the ledger and `wg.health.copied` are written once per
+  pass. A thrown batch keeps every id; an entry answered `"denied"` is kept and
+  its kind held back; any other entry error, or a single write rejected `bad
+  write…`/`unknown…`/`invalid…`, is permanent: a Copy id leaves the job and
+  the ledger, counted in `failed` ("N entries couldn't be copied." on HW9/HW9b,
+  never a step toward stuck), while a live-hook id is kept and retried. A
+  pulse-less bp in a Copy marks no hr (no no-op remove).
   Rows older than `readableFrom` (Android without the past-data permission:
   the conservative rolling last 30 days) are not eligible and not counted; when any
   are cut, the dialog names them in a warn-icon hint line, never a red error ("N
@@ -501,7 +512,7 @@ never turns it off (below).
   data to check them."; "1 entry ... to check it.") with "Allow past
   data", which shows the read sheet once more and recounts. Both count fresh,
   then mark every eligible id into the ledger exactly as the hook would (same
-  recordIds, same clientTs versions, a bp marks its hr) and let the drain
+  recordIds, same clientTs versions, a bp with a pulse marks its hr) and let the drain
   deliver it: the shells' own-id upsert replaces. **What this device wrote is
   remembered:** each successful write of a bp/weight/workout (copy or live)
   records its id in device-local `wg.health.copied` `{ kind: { recordId:
@@ -536,7 +547,7 @@ never turns it off (below).
   rather than copy from part of the list. **Apple Health cannot signal a denied read** (it answers empty), so
   there that kind copies without the duplicate check. A read that fails aborts
   the count with the "Couldn't reach …" toast; nothing is marked. The open copy
-  is device-local `wg.health.backfill` `{ startedAt, total, ids, blocked }`;
+  is device-local `wg.health.backfill` `{ startedAt, total, ids, blocked, fails?, failed? }`;
   progress counts entries (an entry is done when its bp/weight/workout ledger
   id clears). While it is open and the page is visible, a pass that delivered
   is followed by the next 1.5 s later; a pass where every call failed (Health

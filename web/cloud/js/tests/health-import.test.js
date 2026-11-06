@@ -1480,11 +1480,26 @@ describe('Health write-back', () => {
     let records;
     let api;
 
+    // A shell writer from a per-entry `single` (bd med-8f4s.15): the single
+    // form answers it; { entries } answers one result per entry, in order (a
+    // string from `single` is that entry's error); a throw fails the whole call.
+    const answer = (single = async () => true) => async (a) => {
+        if (!a.entries) {
+            // The single form rejects with what a batch answers as a string.
+            const r = await single(a);
+            if (typeof r === 'string') throw new Error(r);
+            return r;
+        }
+        const out = [];
+        for (const e of a.entries) out.push(await single(e));
+        return out;
+    };
+    const shellWrite = (single) => vi.fn(answer(single));
     const writeHealth = () => ({
         isSupported: () => true,
         canWrite: async () => true,
         writeAccess: vi.fn(async () => ({ granted: ['bp', 'weight', 'hr'] })),
-        write: vi.fn(async () => true),
+        write: shellWrite(),
         remove: vi.fn(async () => true),
     });
     const ALL = ['bp', 'weight', 'hr', 'workout'];
@@ -1492,8 +1507,10 @@ describe('Health write-back', () => {
     const HR = ['bp', 'weight', 'hr'];
     const dirty = () => JSON.parse(storage.getItem('wg.health.dirty') || '{}');
     const ledgerSize = () => Object.values(dirty()).reduce((n, m) => n + Object.keys(m).length, 0);
+    // Every write body sent, a batch's entries one by one.
+    const wrote = () => health.write.mock.calls.flatMap(([a]) => a.entries || [a]);
     const calls = () => [
-        ...health.write.mock.calls.map(([a]) => ({ op: 'write', ...a })),
+        ...wrote().map((a) => ({ op: 'write', ...a })),
         ...health.remove.mock.calls.map(([a]) => ({ op: 'remove', ...a })),
     ];
     const raw = async (type, id) => (await records.listRaw(type)).find((r) => r.recordId === id);
@@ -1653,6 +1670,19 @@ describe('Health write-back', () => {
         expect(new Set(health.write.mock.calls.filter(([a]) => a.type === 'hr').map(([a]) => a.id)))
             .toEqual(new Set(rows.map((r) => `${r.recordId}/pulse`)));
         expect(ledgerSize()).toBe(0);
+    });
+
+    it('a batch reply shorter than its entries: the missing ones stay queued, moved back (bd med-8f4s.15)', async () => {
+        for (const id of ['w-a', 'w-b', 'w-c']) await records.put('weight', { recordId: id, clientTs: 4, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', weight: 80 });
+        health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: 0 }));
+        health.write = vi.fn(async () => [true]);
+        const diag = vi.fn();
+        const wb = startHealthWriteBack({ health, storage, records, diag });
+        storage.setItem('wg.health.dirty', JSON.stringify({ weight: { 'w-a': 4, 'w-b': 4, 'w-c': 4 } }));
+        expect(await wb.drain()).toBe(1);
+        expect(health.write).toHaveBeenCalledWith({ entries: [expect.objectContaining({ id: 'w-a' }), expect.objectContaining({ id: 'w-b' }), expect.objectContaining({ id: 'w-c' })] });
+        expect(dirty()).toEqual({ weight: { 'w-b': 4, 'w-c': 4 } });
+        expect(diag).toHaveBeenCalledWith('[health] write batch reply 1 of 3');
     });
 
     it('120 dirty ids (absent from the vault) drain over three passes, none dropped', async () => {
@@ -2480,7 +2510,8 @@ describe('Health write-back', () => {
                     ],
                 };
             };
-            const COPIED = ['write bp bp-a', 'write hr bp-a/pulse', 'write bp bp-c', 'remove hr bp-c/pulse', 'write bp bp-e', 'write hr bp-e/pulse', 'write weight w-2', 'write workout session-s2'];
+            // bp-c has no pulse: no hr call at all (bd med-8f4s.15 item 5).
+            const COPIED = ['write bp bp-a', 'write hr bp-a/pulse', 'write bp bp-c', 'write bp bp-e', 'write hr bp-e/pulse', 'write weight w-2', 'write workout session-s2'];
             const sent = () => calls().map((c) => `${c.op} ${c.type} ${c.id}`);
 
             beforeEach(async () => {
@@ -2502,10 +2533,13 @@ describe('Health write-back', () => {
                 await finished();
                 expect(job()).toEqual({ startedAt: expect.any(Number), total: 5, blocked: {}, ids: { bp: ['bp-a', 'bp-c', 'bp-e'], weight: ['w-2'], workout: ['session-s2'] } });
                 expect(sent().sort()).toEqual([...COPIED].sort());
+                // One batched call for the pass (bd med-8f4s.15).
+                expect(health.write).toHaveBeenCalledTimes(1);
+                expect(health.write.mock.calls[0][0].entries).toHaveLength(COPIED.length);
                 const version = async (type, id) => (await raw(type, id)).clientTs;
-                expect(health.write).toHaveBeenCalledWith({ type: 'bp', id: 'bp-a', version: await version('bp', 'bp-a'), at: at('2026-10-01T07:30:00Z'), systolic: 128, diastolic: 84 });
-                expect(health.write).toHaveBeenCalledWith({ type: 'hr', id: 'bp-a/pulse', version: await version('bp', 'bp-a'), at: at('2026-10-01T07:30:00Z'), bpm: 66 });
-                expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'workout', id: 'session-s2', version: await version('workoutsession', 'session-s2'), activity: 50 }));
+                expect(wrote()).toContainEqual({ type: 'bp', id: 'bp-a', version: await version('bp', 'bp-a'), at: at('2026-10-01T07:30:00Z'), systolic: 128, diastolic: 84 });
+                expect(wrote()).toContainEqual({ type: 'hr', id: 'bp-a/pulse', version: await version('bp', 'bp-a'), at: at('2026-10-01T07:30:00Z'), bpm: 66 });
+                expect(wrote()).toContainEqual(expect.objectContaining({ type: 'workout', id: 'session-s2', version: await version('workoutsession', 'session-s2'), activity: 50 }));
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
                 // The dedupe read: no import anchor in, none saved; one read loop per kind.
                 expect(query.mock.calls.every(([q]) => q.anchor === undefined || /^p\d+$/.test(q.anchor))).toBe(true);
@@ -2571,7 +2605,7 @@ describe('Health write-back', () => {
                 expect(rowText()[1]).toBe('Health Connect is busy. 0 of 5 so far; it continues when the app is open.');
                 expect(copyRow().querySelector('progress')).toBeNull();
 
-                health.write.mockImplementation(async () => true);
+                health.write.mockImplementation(answer());
                 health.remove.mockImplementation(async () => true);
                 foreground();
                 await finished();
@@ -2581,20 +2615,23 @@ describe('Health write-back', () => {
 
             it('(c) Health Connect\'s rate limit pauses the copy (HW8b) even when a few calls get through; no hammering, not a step to stuck', async () => {
                 allowConsoleNoise();
-                // The store's quota lets two calls through, then refuses (emulator run 42038548012).
-                let allowance = 2;
+                // Two passes' worth: the first batch gets through, the second hits the quota.
+                for (let i = 0; i < 60; i++) await bp(`bp-n${i}`, new Date(at('2026-09-01T07:00:00Z') + i * 3600e3).toISOString(), 110, 70);
+                let allowance = 1;
                 const quota = async () => {
                     if (allowance <= 0) throw new Error('android.health.connect.HealthConnectException: API call quota exceeded, availableQuota: 0.62 requested: 1');
                     allowance--;
                     return true;
                 };
-                health.write = vi.fn(quota);
+                // The quota is per call: a refused batch throws as a whole.
+                health.write = vi.fn(async (a) => { await quota(); return answer()(a); });
                 health.remove = vi.fn(quota);
                 await open();
                 await tap();
                 await vi.waitFor(() => expect(rowText()[0]).toBe('Copy paused'));
-                expect(rowText()[1]).toMatch(/^Health Connect is busy\. \d of 5 so far; it continues when the app is open\.$/);
+                expect(rowText()[1]).toMatch(/^Health Connect is busy\. [1-9]\d* of 65 so far; it continues when the app is open\.$/);
                 expect(job().fails || 0).toBe(0);
+                expect(health.write).toHaveBeenCalledTimes(2);
                 // Paused for the minute-scale back-off: no further calls meanwhile.
                 const n = health.write.mock.calls.length + health.remove.mock.calls.length;
                 await new Promise((r) => setTimeout(r, 100));
@@ -2603,7 +2640,7 @@ describe('Health write-back', () => {
                 allowance = 100;
                 foreground();
                 await finished();
-                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+                expect(rowText()).toEqual(['Copied to Health Connect', '65 entries.']);
             });
 
             it('(c) a pass where every call hits the rate limit is no step to stuck (Argus 16138 #1)', async () => {
@@ -2660,40 +2697,97 @@ describe('Health write-back', () => {
 
                 // The page dies; a new one over the same storage and vault.
                 document.body.innerHTML = home;
-                const next = { ...health, write: vi.fn(async () => true), remove: vi.fn(async () => true) };
+                const next = { ...health, write: shellWrite(), remove: vi.fn(async () => true) };
                 await open(next);
                 await finished();
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
-                expect(next.write.mock.calls.map(([a]) => a.id).sort()).toEqual(['bp-a', 'bp-a/pulse', 'bp-c', 'bp-e', 'bp-e/pulse', 'session-s2', 'w-2']);
+                expect(next.write.mock.calls.flatMap(([a]) => a.entries || [a]).map((a) => a.id).sort()).toEqual(['bp-a', 'bp-a/pulse', 'bp-c', 'bp-e', 'bp-e/pulse', 'session-s2', 'w-2']);
                 expect(confirm).toHaveBeenCalledTimes(1);
             });
 
-            it('(c) 60 entries go out over several passes of at most 50 calls', async () => {
-                for (let i = 0; i < 60; i++) await bp(`bp-n${i}`, new Date(at('2026-09-01T07:00:00Z') + i * 3600e3).toISOString(), 110, 70);
-                let inFlight = 0;
-                let peak = 0;
-                health.write = vi.fn(async () => {
-                    peak = Math.max(peak, ++inFlight);
-                    await tick();
-                    inFlight--;
-                    return true;
-                });
+            it('(c) 120 entries go out as ceil(ids/50) batched calls, the copied map written once per pass (bd med-8f4s.15 (a))', async () => {
+                // 60 bp with pulse + 60 weights, plus the seed's 5 entries and 2 pulses: 187 ids.
+                for (let i = 0; i < 60; i++) {
+                    const iso = new Date(at('2026-09-01T07:00:00Z') + i * 3600e3).toISOString();
+                    await bp(`bp-n${i}`, iso, 110, 70, { pulse: 60 + (i % 20) });
+                    await records.put('weight', { recordId: `w-n${i}`, clientTs: 1, deleted: false, measured_at: iso, weight: 60 + i / 10 });
+                }
+                const setItem = storage.setItem.bind(storage);
+                let copiedWrites = 0;
+                storage.setItem = (k, v) => {
+                    if (k === 'wg.health.copied') copiedWrites++;
+                    return setItem(k, v);
+                };
                 await open();
                 await tap();
                 await finished();
-                expect(rowText()).toEqual(['Copied to Health Connect', '65 entries.']);
-                expect(peak).toBeLessThanOrEqual(50);
+                expect(rowText()).toEqual(['Copied to Health Connect', '125 entries.']);
+                expect(health.write).toHaveBeenCalledTimes(Math.ceil(187 / 50));
+                expect(health.write.mock.calls.every(([a]) => Array.isArray(a.entries) && a.entries.length <= 50)).toBe(true);
+                expect(health.remove).not.toHaveBeenCalled();
+                expect(copiedWrites).toBe(health.write.mock.calls.length);
+                expect(ledgerSize()).toBe(0);
+                const copied = JSON.parse(storage.getItem('wg.health.copied'));
+                expect(Object.values(copied).reduce((n, m) => n + Object.keys(m).length, 0)).toBe(125);
+            });
+
+            it('(c) one entry the store rejects in a batch reply: the rest clear, it leaves the job and is named (bd med-8f4s.15 (b), item 6)', async () => {
+                allowConsoleNoise();
+                health.write = shellWrite(async (a) => (a.id === 'bp-c' ? 'bad write: systolic' : true));
+                await open();
+                await tap();
+                await finished();
+                expect(health.write).toHaveBeenCalledTimes(1);
+                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied."]);
+                expect(job()).toMatchObject({ failed: 1, ids: { bp: ['bp-a', 'bp-e'] } });
+                expect(ledgerSize()).toBe(0);
+                expect(JSON.parse(storage.getItem('wg.health.copied')).bp).not.toHaveProperty('bp-c');
+            });
+
+            it('(c) an entry answered "denied" (Android) is kept, moved back and its kind held until the next access read', async () => {
+                allowConsoleNoise();
+                let refuse = true;
+                health.write = shellWrite(async (a) => (a.type === 'weight' && refuse ? 'denied' : true));
+                await open();
+                await tap();
+                // The batch delivers the rest; the next pass sends w-2 alone (single form), refused again.
+                await vi.waitFor(() => expect(rowText()[0]).toBe('Copy paused'));
+                expect(health.write.mock.calls.map(([a]) => (a.entries ? a.entries.length : a.id))).toEqual([7, 'w-2']);
+                expect(Object.keys(dirty().weight)).toEqual(['w-2']);
+                expect(job().failed).toBeUndefined();
+                refuse = false;
+                foreground();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']));
                 expect(ledgerSize()).toBe(0);
             });
 
-            it('(c) an entry the store never takes: once the back-off fails again at its cap, across relaunches, leaving Settings frees Copy and keeps it queued', async () => {
+            it('(c) a thrown single write the store always rejects drops the Copy id; a live id keeps the retry rule', async () => {
                 allowConsoleNoise();
-                const rejectC = async (a) => { if (a.id === 'bp-c') throw new Error('invalid'); return true; };
+                // One entry left: the single form (and an old-shell pass) takes the same rule.
+                storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-c': 1 } }));
+                storage.setItem('wg.health.backfill', JSON.stringify({ startedAt: 1, total: 1, ids: { bp: ['bp-c'] }, blocked: {} }));
+                const write = vi.fn(async () => { throw new Error('invalid blood pressure'); });
+                await open({ ...health, write });
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]));
+                expect(write.mock.calls.map(([a]) => a.entries)).toEqual([undefined]);
+                expect(dirty().bp).toEqual({});
+                expect(job()).toMatchObject({ failed: 1, ids: { bp: [] } });
+                // An edit outside the Copy, rejected the same way, stays queued.
+                await api('/api/bp/bp-f', 'PUT', { systolic: 141 });
+                await vi.waitFor(() => expect(write).toHaveBeenCalledWith(expect.objectContaining({ id: 'bp-f', systolic: 141 })));
+                await tick();
+                expect(Object.keys(dirty().bp)).toEqual(['bp-f']);
+            });
+
+            it('(c) a whole-call failure the store repeats: once the back-off fails again at its cap, across relaunches, leaving Settings frees Copy and keeps it queued', async () => {
+                allowConsoleNoise();
+                // A batch carrying bp-c fails as a whole, every time.
+                const rejectC = answer(async (a) => { if (a.id === 'bp-c') throw new Error('busy'); return true; });
                 health.write = vi.fn(rejectC);
                 // Slow enough on the first page to stop it at 2 or 3 failed passes.
                 await open(health, { copyBackoffMs: 60 });
                 await tap();
-                await vi.waitFor(() => expect(rowText()).toEqual(['Copy paused', 'Health Connect is busy. 4 of 5 so far; it continues when the app is open.']));
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copy paused', 'Health Connect is busy. 0 of 5 so far; it continues when the app is open.']));
                 await vi.waitFor(() => expect(job().fails).toBeGreaterThanOrEqual(2), { interval: 5 });
                 expect(job().fails).toBeLessThan(6);
                 // A relaunch keeps the count (Argus 16051): it goes on, never back to 1.
@@ -2703,7 +2797,7 @@ describe('Health write-back', () => {
                 document.body.innerHTML = home;
                 const next = { ...health, write: vi.fn(rejectC) };
                 await open(next, { copyBackoffMs: 1 });
-                await vi.waitFor(() => expect(next.write).toHaveBeenCalledWith(expect.objectContaining({ id: 'bp-c' })));
+                await vi.waitFor(() => expect(next.write.mock.calls.flatMap(([a]) => a.entries || [a])).toContainEqual(expect.objectContaining({ id: 'bp-c' })));
                 await vi.waitFor(() => expect(job().fails).toBeGreaterThan(before));
                 // 1, 2, 4, 8, 15, then a failure at the cap.
                 await vi.waitFor(() => expect(job().fails).toBeGreaterThanOrEqual(6));
@@ -2713,16 +2807,17 @@ describe('Health write-back', () => {
                 await tick();
                 expect(rowText()).toEqual(['Copy past entries', null]);
                 expect(storage.getItem('wg.health.backfill')).toBe('null');
-                expect(Object.keys(dirty().bp)).toEqual(['bp-c']);
+                expect(Object.keys(dirty().bp).sort()).toEqual(['bp-a', 'bp-c', 'bp-e']);
             });
 
             it('(c) a pulse that failed once is retried while the row already shows the result', async () => {
                 allowConsoleNoise();
                 let failed = false;
-                health.write = vi.fn(async (a) => {
+                // Refused once ("denied": held to the next access read), then taken.
+                health.write = shellWrite(async (a) => {
                     if (a.id === 'bp-a/pulse' && !failed) {
                         failed = true;
-                        throw new Error('busy');
+                        return 'denied';
                     }
                     return true;
                 });
@@ -2730,7 +2825,7 @@ describe('Health write-back', () => {
                 await tap();
                 await finished();
                 await vi.waitFor(() => expect(dirty().hr || {}).toEqual({}));
-                expect(health.write.mock.calls.filter(([a]) => a.id === 'bp-a/pulse')).toHaveLength(2);
+                expect(wrote().filter((a) => a.id === 'bp-a/pulse')).toHaveLength(2);
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
             });
 
@@ -2752,7 +2847,7 @@ describe('Health write-back', () => {
                 await tap();
                 await finished();
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
-                expect(Object.keys(dirty().hr).sort()).toEqual(['bp-a', 'bp-c', 'bp-e']);
+                expect(Object.keys(dirty().hr).sort()).toEqual(['bp-a', 'bp-e']); // bp-c has no pulse
                 expect(writeDesc()).toBe("Writing blood pressure, weight and workouts only. Pulse (heart rate) isn't allowed: allow it in Health Connect → App permissions.");
             });
 
