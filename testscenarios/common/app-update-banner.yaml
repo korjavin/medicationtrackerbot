@@ -11,7 +11,7 @@ invariants:
   - When the running build matches the server, no banner shows
   - Reload opens the new build (the version in Settings changes)
 covered_by:
-  web: manual  # partial: web/cloud/js/tests/update-check.test.js (prompts at most once, quiet when the build matches, Reload drives the service worker swap); missing: landing on the new build (the Settings version changes) needs two served builds (med-sz4k.2)
+  web: tests/visual/playwright/flows.mjs#app-update-banner
   android: manual  # no two-served-build banner/Reload run yet (med-sz4k.4.2); a Play-installed update still needs a real device
   ios: manual
 source: [med-kk1q.6]

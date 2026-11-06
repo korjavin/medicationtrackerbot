@@ -17,12 +17,9 @@
 // keyboard and the visualViewport shrink/pan it causes, safe-area insets and
 // the shell's native bands, iOS fonts. med-pe9g would not have shown up here.
 import { createServer } from 'node:http';
-import { execFileSync, spawn } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
+import { cloudServer, cloudSignup as signup, driverInit as loadDriver } from './cloud.mjs';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const root = join(repo, 'ios/LocalApp');
@@ -118,35 +115,10 @@ async function nativeSteps(page, steps) {
 }
 
 // --- cloud mode -----------------------------------------------------------
-// The real server on *.localhost (Chromium resolves it to loopback, and it is a
-// secure context, so WebAuthn and Secure cookies work over plain http — the
-// local dev loop of docs/cloud-mode.md). No external services: no food DB, no
-// Telegram, no trial keys.
-const PORT = process.env.CLOUD_PORT || '18080';
-// Placeholder store ids so the invite landing renders its "Get the app" buttons.
-const cloudEnv = { ...process.env, CLOUD_BASE_DOMAIN: 'localhost', PORT, CLOUD_DB_PATH: join(tmpdir(), `visual-cloud-${process.pid}.db`),
-  SESSION_SECRET: randomBytes(32).toString('base64'), IOS_APP_STORE_ID: '1234567890', ANDROID_PACKAGE: 'com.example.medtracker' };
-async function startCloud() {
-  const bin = process.env.CLOUD_BIN;
-  if (!bin) throw new Error('CLOUD_BIN is required in cloud mode');
-  const log = createWriteStream(join(out, 'cloud-server.log'));
-  const proc = spawn(bin, [], { env: cloudEnv, stdio: ['ignore', 'pipe', 'pipe'] });
-  proc.stdout.pipe(log); proc.stderr.pipe(log);
-  for (let i = 0; i < 120; i++) {
-    if (proc.exitCode !== null) throw new Error(`cmd/cloud exited ${proc.exitCode} (see cloud-server.log)`);
-    try { await fetch(`http://localhost:${PORT}/`); return proc; } catch { await new Promise((r) => setTimeout(r, 500)); }
-  }
-  throw new Error('cmd/cloud did not start listening');
-}
-
-// `cloud admin invite` against the same DB; its claim URL is the landing form
-// https://localhost/i/<sub>#<t> (bd med-ta2n.16).
-function mintInvite() {
-  const text = execFileSync(process.env.CLOUD_BIN, ['admin', 'invite'], { env: cloudEnv, encoding: 'utf8' });
-  const m = /https:\/\/localhost\/i\/([a-z0-9-]+)#([a-f0-9]+)/.exec(text);
-  if (!m) throw new Error(`no claim URL in: ${text.slice(0, 200)}`);
-  return { sub: m[1], origin: `http://${m[1]}.localhost:${PORT}`, token: m[2] };
-}
+// The real server on *.localhost (cloud.mjs).
+const cloudSrv = mode === 'cloud' ? cloudServer({ out }) : null;
+const PORT = cloudSrv && cloudSrv.port;
+const mintInvite = () => cloudSrv.mintInvite();
 
 // The base-domain invite landing (bd med-ta2n.10): L1 on iPhone 390 (WebKit)
 // and Pixel 7, L3 (the per-tab flag "Get the app" sets — the tap itself would
@@ -209,53 +181,13 @@ async function inviteLandingShots() {
   }
 }
 
-// The signup wizard as a person runs it (e2e/vault-roundtrip.mjs's flow): claim
-// (with &kit=1, as from Settings) → sign in (PRF passkey) → Emergency Kit offer
-// → vault open. The authenticator is per page (CDP), so the cloud run keeps one
-// page per device. shot(name) captures the two ceremony screens (bd med-ta2n.8).
-async function cloudSignup(context, page, shot) {
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal',
-    hasResidentKey: true, hasUserVerification: true, hasPrf: true, isUserVerified: true, automaticPresenceSimulation: true } });
-  const { origin, token } = mintInvite();
-  await page.goto(`${origin}/#claim=${token}&kit=1`, { waitUntil: 'domcontentloaded' });
-  await page.waitForURL(/\/unlock/, { timeout: 30000 });
-  await page.locator('#create-passkey').waitFor({ timeout: 30000 });
-  await shot('signup-signin');
-  await page.click('#create-passkey', { timeout: 30000 });
-  // The W5 kit offer: Save kit, then Done (an offer, no acknowledgement).
-  await page.locator('#kit-done').waitFor({ timeout: 30000 });
-  await shot('signup-kit-offer');
-  const download = page.waitForEvent('download').catch(() => null);
-  await page.click('#kit-download');
-  await download;
-  await page.click('#kit-done');
-  const skip = page.locator('#install-skip');
-  await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady) || document.querySelector('#install-skip'), null, { timeout: 60000 });
-  if (await skip.count()) await skip.click();
-  await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady), null, { timeout: 60000 });
-  await page.evaluate(() => window.MedTrackerCloudReady);
-  if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud && window.MedTrackerCloud.ctx)))) throw new Error('signup did not open the vault');
-  return origin;
-}
+// cloud.mjs's signup; the cloud run keeps one page per device.
+const cloudSignup = (context, page, shot) => signup(context, page, cloudSrv, shot);
 
-// The driver, its scene list and the golden vault, injected rather than served:
-// the cloud never carries /qa/*. __wgQACloud lets the driver seed a non-local
-// vault (a fresh, empty test account only — the driver still refuses to import
-// over content).
-const driverInit = mode === 'cloud' ? [
-  'window.__wgQACloud = true;',
-  `window.__wgQAFiles = ${JSON.stringify({
-    '/qa/scenes.json': JSON.parse(await readFile(join(repo, 'tests/visual/scenes.json'), 'utf8')),
-    '/qa/vault-v1.json': JSON.parse(await readFile(join(repo, 'tests/fixtures/vault-v1.json'), 'utf8')),
-  })};`,
-  await readFile(join(repo, 'tests/visual/driver.js'), 'utf8'),
-].join('\n') : null;
+const driverInit = mode === 'cloud' ? await loadDriver(repo) : null;
 
 let base = null;
-let cloud = null;
-if (mode === 'cloud') cloud = await startCloud();
+if (mode === 'cloud') await cloudSrv.start();
 else {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -367,7 +299,7 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
 }
 for (const b of browsers.values()) await b.close();
 server.close();
-if (cloud) cloud.kill();
+if (cloudSrv) await cloudSrv.stop();
 
 const md = [
   mode === 'cloud' ? '## Web visual — cloud mode (cmd/cloud + Chromium)' : '## Web visual — QA local bundle (WebKit iPhone, Chromium desktop / Pixel 7)', '',
