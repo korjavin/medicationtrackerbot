@@ -27,6 +27,7 @@ final class HealthDiagnosticTests: XCTestCase {
         let deadline = Date().addingTimeInterval(120)
         while result.label.hasPrefix("pending"), Date() < deadline {
             var acted = false
+            let screen = app.frame
             pass: for host in [app, springboard] {
                 acted = true
                 // One action per pass, then let the sheet settle: toggles read
@@ -35,31 +36,23 @@ final class HealthDiagnosticTests: XCTestCase {
                 // (bd med-8f4s.3: write rows).
                 let all = host.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
-                if all.exists && all.isHittable {
-                    all.tap()
-                    break pass
-                }
-                let off = host.switches.allElementsBoundByIndex.filter { $0.isHittable && $0.value as? String == "0" }
+                if tapIfLive(all, on: host, within: screen) { break pass }
+                let off = host.switches.allElementsBoundByIndex.compactMap { live($0, within: screen) }
+                    .filter { $0.value as? String == "0" }
                 if !off.isEmpty {
-                    off.forEach { $0.tap() }
+                    off.forEach { tap($0, on: host) }
                     break
                 }
                 // iOS 26 confirms with "Allow"; the iOS 27 sheet with
                 // "Continue", then a data-range page whose "Allow" stays
                 // disabled until a window is picked (bd med-8f4s.18). Pick
                 // all history: full access, so readableFrom is 0.
-                let confirm = ["Allow", "Continue"].map { host.buttons[$0].firstMatch }
-                    .first { $0.exists && $0.isEnabled && $0.isHittable }
-                if let confirm {
-                    confirm.tap()
+                if ["Allow", "Continue"].contains(where: { tapIfLive(host.buttons[$0].firstMatch, on: host, within: screen) }) {
                     break
                 }
                 let history = host.descendants(matching: .any)
                     .matching(NSPredicate(format: "label BEGINSWITH %@", "All Recorded Data")).firstMatch
-                if history.exists && history.isHittable {
-                    history.tap()
-                    break
-                }
+                if tapIfLive(history, on: host, within: screen) { break }
                 acted = false
             }
             // Nothing to tap: the iOS 27 write+read sheet keeps its toggles
@@ -83,6 +76,29 @@ final class HealthDiagnosticTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
         return json
+    }
+
+    // The sheet's controls vanish when it advances or dismisses, so an
+    // exists-then-isEnabled/isHittable/tap sequence can race it and XCTest
+    // records "Failed to get matching snapshot" (bd med-8f4s.18, run
+    // 42152753328: "Allow"). Resolve once with the throwing snapshot() and
+    // tap that frame: a vanished control is just skipped this pass; whether
+    // the sheet was answered is still decided by the app's report below.
+    private static func live(_ element: XCUIElement, within screen: CGRect) -> XCUIElementSnapshot? {
+        guard let snap = try? element.snapshot(), snap.isEnabled, !snap.frame.isEmpty,
+              screen.contains(CGPoint(x: snap.frame.midX, y: snap.frame.midY)) else { return nil }
+        return snap
+    }
+
+    private static func tap(_ snap: XCUIElementSnapshot, on host: XCUIApplication) {
+        host.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: snap.frame.midX, dy: snap.frame.midY)).tap()
+    }
+
+    private static func tapIfLive(_ element: XCUIElement, on host: XCUIApplication, within screen: CGRect) -> Bool {
+        guard let snap = live(element, within: screen) else { return false }
+        tap(snap, on: host)
+        return true
     }
 }
 
