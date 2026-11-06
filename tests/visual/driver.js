@@ -1492,6 +1492,8 @@
                 if (records.some((r) => ![...r.addedNodes, ...r.removedNodes].every(own) || (r.type === 'characterData' && !own(r.target.parentNode || r.target))))
                     again();
             }).observe(document.body, { subtree: true, childList: true, characterData: true });
+            // A native drag scrolls the page: target rects move with it.
+            document.addEventListener('scroll', again, true);
         }
         // Tab / sub-tab switches flip classes and [hidden]: re-check readiness.
         if (window.MutationObserver) {

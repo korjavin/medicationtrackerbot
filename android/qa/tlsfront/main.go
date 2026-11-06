@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -226,12 +227,29 @@ type gateReceipt struct {
 	Method string    `json:"method"`
 	Path   string    `json:"path"`
 	Status int       `json:"status"` // 0 while unanswered (an open stream)
+	// Tags: a sync push's record_type_tag list ("note:<id>"), which the server
+	// stores in the clear anyway: proves which write an answered push carried.
+	Tags []string `json:"tags,omitempty"`
 }
 
 func (g *listenGate) receive(r *http.Request) int {
+	var tags []string
+	if r.Method == http.MethodPost && r.URL.Path == "/api/sync/ops" {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var req struct {
+			Ops []struct {
+				Tag string `json:"record_type_tag"`
+			} `json:"ops"`
+		}
+		_ = json.Unmarshal(body, &req)
+		for _, op := range req.Ops {
+			tags = append(tags, op.Tag)
+		}
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.receipts = append(g.receipts, gateReceipt{At: time.Now().UTC(), Host: r.Host, Method: r.Method, Path: r.URL.Path})
+	g.receipts = append(g.receipts, gateReceipt{At: time.Now().UTC(), Host: r.Host, Method: r.Method, Path: r.URL.Path, Tags: tags})
 	return len(g.receipts) - 1
 }
 

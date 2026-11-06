@@ -8,7 +8,7 @@ import XCTest
 /// `-wgQASoftAuthn`) → every section renders online → Food browsed back a day
 /// → the fake server stops answering → terminate → relaunch → Food opens on
 /// today and every section renders from the phone; a note written offline
-/// syncs once the server answers again.
+/// reaches the server (its own sync op, by record tag) once it answers again.
 ///
 /// The Simulator has no airplane mode: "offline" is tlsfront's closed port
 /// (ios/qa/fake-server.sh `-control`), so the app's connection attempts are
@@ -121,19 +121,28 @@ final class FlowQAOfflineAccountTests: XCTestCase {
                        "the fake server received requests while stopped: \(QA.json(Array(receivedOffline.dropFirst(receivedBefore))))")
         app.terminate()
 
-        // The server answers again: the queued note reaches it on the next open.
+        // The server answers again: the queued note itself reaches it on the
+        // next open. A push's record_type_tag ("note:<id>", tlsfront keeps it)
+        // names the record: notes.js mints a new note's id above every note id
+        // on the phone, so the offline note is the one note id, never pushed
+        // before the stop, above all of them, in a push answered 200. Another
+        // queued op (any type) answered 200 does not pass.
+        let seedNotes = Set(try QA.receipts(host: host).prefix(receivedBefore).flatMap(Self.noteIds))
+        XCTAssertFalse(seedNotes.isEmpty, "online, no pushed note was observed (the moved notes' ops carry no tags?)")
         _ = try QA.fakeServer("POST", "/start")
         launch(app, [])
         XCTAssertTrue(openApp(app, timeout: 90), "back online, the account showed no tab bar")
         let end = Date().addingTimeInterval(60)
-        var pushed: [[String: Any]] = []
+        var newNotes: Set<Int64> = []
         repeat {
-            pushed = try QA.receipts(host: host).dropFirst(receivedBefore)
-                .filter { $0["method"] as? String == "POST" && $0["path"] as? String == "/api/sync/ops" && $0["status"] as? Int == 200 }
-            if !pushed.isEmpty { break }
+            newNotes = Set(try QA.receipts(host: host).dropFirst(receivedBefore)
+                .filter { $0["status"] as? Int == 200 }.flatMap(Self.noteIds)).subtracting(seedNotes)
+            if !newNotes.isEmpty { break }
             Thread.sleep(forTimeInterval: 1)
         } while Date() < end
-        XCTAssertFalse(pushed.isEmpty, "back online, no sync push was answered 200")
+        XCTAssertEqual(newNotes.count, 1, "back online, the pushes answered 200 carry \(newNotes.count) new note ops, not the one offline note: \(newNotes.sorted())")
+        XCTAssertGreaterThan(newNotes.first ?? 0, seedNotes.max() ?? .max,
+                             "the new pushed note \(newNotes.sorted()) is not the newest note (moved notes up to \(seedNotes.max() ?? 0))")
         visit(app, ("Health", ["Vitals", "Notes"], note), phase: "reconnected")
         shot("offline-account", "reconnected-note")
         attach("offline-account", ["host": host, "receivedBeforeStop": receivedBefore, "online": online, "offline": offline,
@@ -199,6 +208,12 @@ final class FlowQAOfflineAccountTests: XCTestCase {
             XCTAssertLessThan(seconds, 5, "\(phase): \(name) took \(seconds) s to show its saved data")
         }
         return seconds
+    }
+
+    /// The note ids a receipt's sync push carried (tlsfront `tags`).
+    private static func noteIds(_ receipt: [String: Any]) -> [Int64] {
+        guard receipt["method"] as? String == "POST", receipt["path"] as? String == "/api/sync/ops" else { return [] }
+        return ((receipt["tags"] as? [String]) ?? []).compactMap { $0.hasPrefix("note:") ? Int64($0.dropFirst(5)) : nil }
     }
 
     private func webText(_ app: XCUIApplication, _ text: String) -> XCUIElement {

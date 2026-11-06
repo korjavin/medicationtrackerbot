@@ -181,7 +181,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   321 kcal manual meal → Food's day total and Today's Fuel tile include it; the
   twice-daily schedule edited to 09:00/21:00 with 08:00 taken (kept, no 09:00
   today) and untaken (09:00 replaces it), 21:00 replacing 20:00; a BP logged
-  then edited, a weight logged then deleted (the row's More menu → Delete); a reopen keeps
+  then edited, a weight logged then deleted (a finger drag scrolls the row up,
+  then its More menu → Delete, asserted above the tab bar); a reopen keeps
   the take, the edit and the delete. Assertions read the report's `flow`
   (driver.js `flowState`: the rows as shown, plus `targets`, each named
   element's on-screen rect for a coordinate tap); the fake server must have
@@ -193,7 +194,9 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   → every section shows the moved records online → Food back one day →
   tlsfront stops (`POST /stop`) → terminate → relaunch: no load error, Food
   opens on today, every section shows its records within 5 s, a note is
-  written → tlsfront starts → the next open's sync push is answered 200.
+  written → tlsfront starts → the next open pushes that note's own op
+  (`note:<id>`, the one note id newer than every moved note, recorded from
+  the push body's `record_type_tag` list by tlsfront) and it is answered 200.
   The Simulator has no airplane mode: "offline" is a closed port, so the app's
   attempts are refused before any request reaches the server and are not
   observed; zero received requests over the offline interval is the server's

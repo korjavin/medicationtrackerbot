@@ -297,7 +297,7 @@ enum QA {
 
     /// One call to tlsfront's control on the runner (https://qa.test:8768,
     /// the same CA the Simulator trusts): GET /receipts, POST /stop, POST
-    /// /start. Returns {listening, receipts: [{at, host, method, path, status}]}.
+    /// /start. Returns {listening, receipts: [{at, host, method, path, status, tags}]} (tags: a sync push's record_type_tags).
     static func fakeServer(_ method: String = "GET", _ path: String = "/receipts") throws -> [String: Any] {
         var req = URLRequest(url: URL(string: "https://qa.test:8768\(path)")!, timeoutInterval: 15)
         req.httpMethod = method

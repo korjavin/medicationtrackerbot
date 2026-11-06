@@ -104,9 +104,16 @@ final class FlowQACoreLocalTests: XCTestCase {
         save(app, "the new weight", modal: "weight-modal", until: { Self.rows($0, "weight").contains { $0.contains("77.7") } })
         // The row's More menu (wg-row-actions.js): the same Delete as the
         // touch swipe, which an XCUITest press-drag lands as a tap (it opened
-        // the editor in CI).
+        // the editor in CI). The new row sits low on the page and its menu
+        // opens below it, past the tab bar (QA 42195050818: Delete at y 782 of
+        // 763): scroll it up first, as a user's finger would.
+        scrollUp(app, "row")
         (ok, f) = QA.tapTarget(app, "more", until: { QA.target($0, "delete") != nil })
         XCTAssertTrue(ok, "the 77.7 kg row's More menu did not open: \(QA.json(f))")
+        let menuDelete = QA.target(f, "delete") ?? .zero
+        let tabTop = QA.target(f, "tabbar")?.minY ?? app.webViews.firstMatch.frame.height
+        shot("core-local", "weight-menu-open")
+        XCTAssertLessThanOrEqual(menuDelete.maxY, tabTop, "the open menu's Delete \(menuDelete) is not above the tab bar (\(tabTop)): \(QA.json(f))")
         (ok, f) = QA.tapTarget(app, "delete", until: { !Self.rows($0, "weight").contains { $0.contains("77.7") } })
         XCTAssertTrue(ok, "Delete did not remove the 77.7 kg entry: \(QA.json(f))")
         shot("core-local", "weight-deleted")
@@ -169,6 +176,20 @@ final class FlowQACoreLocalTests: XCTestCase {
         app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: count) + text)
         let (typed, after) = QA.waitFlow(app, timeout: 5) { Self.value($0, field) == text }
         XCTAssertTrue(typed, "\(field) holds \(Self.value(after ?? [:], field) ?? "nil"), not \(text)")
+    }
+
+    /// A slow finger drag that scrolls the page until the named target's top
+    /// sits near the top of the web view (as far as the page scrolls), held
+    /// at the end so no fling follows; waits for the report to show it moved.
+    private func scrollUp(_ app: XCUIApplication, _ name: String) {
+        let web = app.webViews.firstMatch.frame
+        guard let rect = QA.target(QA.flow(app), name) else { return XCTFail("no \(name) to scroll: \(QA.json(QA.flow(app)))") }
+        let by = rect.minY - web.height * 0.2
+        guard by > 0 else { return }
+        let from = QA.coordinate(app, CGRect(x: 0, y: 0, width: web.width, height: web.height * 0.75), at: CGPoint(x: 0.5, y: 1))
+        from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -by)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        let (moved, f) = QA.waitFlow(app, timeout: 5) { (QA.target($0, name)?.minY ?? rect.minY) < rect.minY - 20 }
+        XCTAssertTrue(moved, "the drag did not scroll \(name) up from \(rect): \(QA.json(f))")
     }
 
     /// Save, then the sheet is gone (and `until` holds).
