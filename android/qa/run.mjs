@@ -12,7 +12,7 @@ import { join } from 'node:path';
 // core-local is invite-free before smoke; offline-account claims one invite, dispatch-only/no retry.
 // reminders-offline (bd med-nt9p.55) follows smoke and reopens its account (alone, it claims the invite).
 // It must stay LAST: its final step reboots the emulator, which ends the UiAutomator driver (bd med-nt9p.57).
-const SCENARIOS = ['firstrun', 'native-dark', 'native-lock','native-fontscale', 'back-exit', 'back-stack', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'invite-link', 'local-smoke', 'core-local', 'smoke', 'reminders-offline'];
+const SCENARIOS = ['firstrun', 'native-dark', 'native-lock','native-fontscale', 'back-exit', 'back-stack', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'invite-link', 'local-smoke', 'core-local', 'file-backup', 'smoke', 'reminders-offline'];
 const LOCAL_ORIGIN = 'https://appassets.androidplatform.net';
 const [want = 'all', out = 'out'] = process.argv.slice(2);
 const pkg = process.env.QA_PKG || 'com.example.medtracker';
