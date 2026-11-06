@@ -1271,9 +1271,18 @@
         const width = vv ? vv.width : window.innerWidth;
         const height = vv ? vv.height : window.innerHeight;
         const x0 = Math.max(r.left, 0);
-        const y0 = Math.max(r.top, top);
+        let y0 = Math.max(r.top, top);
         const x1 = Math.min(r.right, width);
-        const y1 = Math.min(r.bottom, top + height);
+        let y1 = Math.min(r.bottom, top + height);
+        // Fixed/sticky bars (tab bar, app bar, subnav, banners) paint over the
+        // element; sample only what they leave uncovered (bd med-2sh9).
+        for (const bar of document.querySelectorAll('.wg-tabbar, .wg-appbar, .wg-subnav, .wg-banners')) {
+            if (!/fixed|sticky/.test(getComputedStyle(bar).position)) continue;
+            const b = bar.getBoundingClientRect();
+            if (b.right <= x0 || b.left >= x1 || b.bottom <= y0 || b.top >= y1) continue;
+            if (b.top + b.bottom < y0 + y1) y0 = Math.max(y0, b.bottom);
+            else y1 = Math.min(y1, b.top);
+        }
         if (x1 - x0 < 4 || y1 - y0 < 4) return null;
         const s = (vv && vv.scale) || 1;
         const round = (n) => Math.round(n * s);
