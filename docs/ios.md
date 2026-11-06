@@ -584,16 +584,24 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
 - **Copy past entries (bd med-8f4s.14; web .11/.15, Android twin .13):**
   `health.writeAccess` answers `readableFrom: 0` before iOS 27 — HealthKit
   reads every sample there, so the page's Copy dedupe read is never bounded
-  (the web offers Copy only when the field is present). On iOS 27+ the field
-  is **omitted** (R5, pure gate `Health.readableFromField(osMajor:)`, checked
-  in `HealthWriteBackTests`): iOS 27 lets the person grant only a recent
-  history window, and its boundary
-  (`HKHealthStore.earliestAuthorizedSampleDate(for:)`, iOS 27 SDK) cannot be
-  asked while the runner builds on Xcode 26 / SDK 26 — claiming 0 there could
-  miss an older other-source sample and Copy a duplicate. So on iOS 27 Copy
-  past entries is dark (no offer, no row; a saved job's marked ids still
-  drain; live writes, `granted`, `supported` unaffected) until
-  med-8f4s.18 reports the real boundary. A shell that reports it
+  (the web offers Copy only when the field is present). iOS 27 lets the
+  person grant only a recent history window per type (bd med-8f4s.18): the
+  shell asks `HKHealthStore.earliestAuthorizedSampleDate(for:)` on every
+  `writeAccess` call (the window can change in Settings > Health) over the
+  write kinds' read types and reports the **latest** boundary in ms
+  (`Health.readableFromMs`, the conservative cut: the wire carries one number
+  and the web applies it to every kind). HealthKit evaluates the boundary
+  against a sample's **end** date; full access or denied types have no entry,
+  so an empty answer is 0. If the call throws the field is **omitted** (Copy
+  dark, no guessed window; live writes, `granted`, `supported` unaffected).
+  The call needs the iOS 27 SDK, so every `ios.yml` job (diagnostic, build
+  and TestFlight archive, visual, qa) runs on the `xcode-27` runner image
+  (release Xcode, image default; deployment target stays 18.0, the call sits
+  behind `#available(iOS 27, *)`). `HealthWriteBackTests` checks the helper
+  (`[:]` → 0, two types → the later date), the pure OS gate
+  `Health.readableFrom(osMajor:earliest:)` (26 → 0 with no runtime for it in
+  CI, 27 with the call throwing → omitted) and `readableFrom: 0` with full
+  access on the image's iOS 27 runtime. A shell that reports it
   also takes the batch: `health.write {entries: [body, ...]}`, each body a
   single write's args (kinds may mix), answers an array with one result per
   entry in order — `true`, or that entry's own malformed-body refusal

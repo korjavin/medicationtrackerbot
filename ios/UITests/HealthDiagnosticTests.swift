@@ -26,23 +26,38 @@ final class HealthDiagnosticTests: XCTestCase {
         // names its step, so a stall shows where).
         let deadline = Date().addingTimeInterval(120)
         while result.label.hasPrefix("pending"), Date() < deadline {
-            for host in [app, springboard] {
+            var acted = false
+            let screen = app.frame
+            pass: for host in [app, springboard] {
+                acted = true
                 // One action per pass, then let the sheet settle: toggles read
-                // right after "Turn On All" still say "0", and tapping them
-                // would switch rows back off (bd med-8f4s.3: write rows).
-                let all = host.staticTexts["Turn On All"].firstMatch
-                if all.exists && all.isHittable {
-                    all.tap()
-                    break
-                }
-                let off = host.switches.allElementsBoundByIndex.filter { $0.isHittable && $0.value as? String == "0" }
+                // right after "Turn On All" (iOS 27: "Select All N Topics")
+                // still say "0", and tapping them would switch rows back off
+                // (bd med-8f4s.3: write rows).
+                let all = host.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
+                if tapIfSettled(all, within: screen) { break pass }
+                let off = host.switches.allElementsBoundByIndex
+                    .filter { live($0, within: screen)?.value as? String == "0" }
                 if !off.isEmpty {
-                    off.forEach { $0.tap() }
+                    off.forEach { _ = tapIfSettled($0, within: screen) }
                     break
                 }
-                let button = host.buttons["Allow"].firstMatch
-                if button.exists && button.isEnabled && button.isHittable { button.tap() }
+                // iOS 26 confirms with "Allow"; the iOS 27 sheet with
+                // "Continue", then a data-range page whose "Allow" stays
+                // disabled until a window is picked (bd med-8f4s.18). Pick
+                // all history: full access, so readableFrom is 0.
+                if ["Allow", "Continue"].contains(where: { tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
+                    break
+                }
+                let history = host.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label BEGINSWITH %@", "All Recorded Data")).firstMatch
+                if tapIfSettled(history, within: screen) { break }
+                acted = false
             }
+            // Nothing to tap: the iOS 27 write+read sheet keeps its toggles
+            // and "Continue" below the fold, so scroll it (it covers the app).
+            if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -62,12 +77,39 @@ final class HealthDiagnosticTests: XCTestCase {
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
         return json
     }
+
+    // The sheet's controls vanish when it advances or dismisses, so an
+    // exists-then-isEnabled/isHittable sequence can race it and XCTest records
+    // "Failed to get matching snapshot" (bd med-8f4s.18, run 42152753328:
+    // "Allow"). Read state from one throwing snapshot() instead; a vanished
+    // control is just skipped this pass, and whether the sheet was answered is
+    // still decided by the app's report above.
+    private static func live(_ element: XCUIElement, within screen: CGRect) -> XCUIElementSnapshot? {
+        guard let snap = try? element.snapshot(), snap.isEnabled, !snap.frame.isEmpty,
+              screen.contains(CGPoint(x: snap.frame.midX, y: snap.frame.midY)) else { return nil }
+        return snap
+    }
+
+    // Tap through the element, not a coordinate built from the snapshot frame:
+    // that tap landed off the control in the hosted Health sheet (qa run
+    // 42162700133: 120s on an untouched first page, "Select All" never
+    // applied), while element.tap() resolves XCTest's own hit point (qa run
+    // 42152745433 passed). Tap only once two snapshots 0.3s apart agree, so a
+    // control mid-transition is skipped instead of vanishing under the tap.
+    private static func tapIfSettled(_ element: XCUIElement, within screen: CGRect) -> Bool {
+        guard let first = live(element, within: screen) else { return false }
+        Thread.sleep(forTimeInterval: 0.3)
+        guard let settled = live(element, within: screen), settled.frame == first.frame else { return false }
+        element.tap()
+        return true
+    }
 }
 
 /// The Health write-back through Health.handle (bd med-8f4s.3; hr .8; workout
 /// .10): write, replace, own-id import filter, an imported row's id deletes
-/// nothing, delete leaves nothing; (.14) readableFrom 0 before iOS 27 and
-/// readableFromField(osMajor:) for 26 and 27 (R5: omitted on 27+), equal/lower-version
+/// nothing, delete leaves nothing; (.18) readableFrom 0 with full access and
+/// readableFromMs ([:] → 0, two types → the later date in ms), the OS gate
+/// readableFrom(osMajor:) (26 → 0, 27 threw → omitted), equal/lower-version
 /// replays resolve true (a store error verified by held(), whose true/false
 /// cases are checked), the entries batch. Runs in the qa job (HealthDiagnosticView's
 /// write-back mode).

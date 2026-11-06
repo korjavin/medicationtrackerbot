@@ -57,7 +57,7 @@ permissions:
 jobs:
   health-diagnostic:
     if: github.event_name == 'workflow_dispatch' && inputs.health_diagnostic
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +120,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     env:
       # Non-secret config lives in repo variables so the deployment domain and
@@ -354,7 +354,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-visual-${{ github.ref }}-${{ matrix.width }}
       cancel-in-progress: true
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -464,7 +464,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-qa-${{ github.ref }}
       cancel-in-progress: true
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

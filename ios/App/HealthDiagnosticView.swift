@@ -131,15 +131,16 @@ struct HealthDiagnosticView: View {
                 .map { store.authorizationStatus(for: $0).rawValue }
             result["granted"] = granted
             check("supported", access["supported"] as? [String] == ["bp", "weight", "hr", "workout"], access["supported"] ?? "absent")
-            // The OS gate (R5), pure: omitted on iOS 27+, 0 before; the reply follows this OS.
-            check("readableFromField 26 is 0", Health.readableFromField(osMajor: 26) == 0)
-            check("readableFromField 27 omits", Health.readableFromField(osMajor: 27) == nil)
-            let os = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
-            if os < 27 {
-                check("readableFrom 0", (access["readableFrom"] as? NSNumber)?.intValue == 0, access["readableFrom"] ?? "absent")
-            } else {
-                check("readableFrom omitted on iOS \(os)", access["readableFrom"] == nil, access["readableFrom"] ?? "absent")
-            }
+            // readableFromMs (.18), pure: no boundary (full access) is 0; two
+            // limited types → the later date in ms. The OS gate, pure: below
+            // iOS 27 → 0 (no runtime for it in CI, Archie 17031); 27 with the
+            // call throwing → omitted. The reply on this runtime (full access
+            // granted above) is 0.
+            check("readableFromMs [:] is 0", Health.readableFromMs([:]) == 0)
+            check("readableFrom below iOS 27 is 0", Health.readableFrom(osMajor: 26, earliest: nil) == 0)
+            check("readableFrom iOS 27 call threw omits", Health.readableFrom(osMajor: 27, earliest: nil) == nil)
+            check("readableFromMs takes the later date", Health.readableFromMs([Health.bodyMass: Date(timeIntervalSince1970: 1_000), Health.heartRate: Date(timeIntervalSince1970: 2_000.5)]) == 2_000_500)
+            check("readableFrom 0", (access["readableFrom"] as? NSNumber)?.intValue == 0, access["readableFrom"] ?? "absent")
             check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
             // Heart rate and workouts are plain types: unlike bp they must grant here.
             check("hr writable", granted.contains("hr"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
