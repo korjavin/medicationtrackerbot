@@ -636,7 +636,9 @@ jobs:
           path: shots/
           retention-days: 14
           if-no-files-found: warn
-          overwrite: true # "Re-run failed jobs" uploads the part again
+          # No overwrite: a re-run's attempt adds its own ios-qa-<part> and the
+          # failed attempt's evidence stays; the gate's download takes the
+          # newest per name (download-artifact v4, latest).
 
   # The full flow-QA gate: green only when every part ran and passed; joins
   # the parts' shots into the one `ios-qa` artifact. A dispatch with

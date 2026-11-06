@@ -137,7 +137,11 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   failure message) and uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
   a failed test's UI hierarchy (`<Class>-<test>-hierarchy.txt`) and
   `webcontent-rss-<part>.log`. The gate merges them into the one artifact
-  `ios-qa` (full runs only): `gh run download <run> -n ios-qa -D /tmp/ios-qa`.
+  `ios-qa` (full runs only; the newest attempt of each part):
+  `gh run download <run> -n ios-qa -D /tmp/ios-qa`. After "Re-run failed
+  jobs" each attempt keeps its own `ios-qa-<part>` (the failed attempt's
+  shots stay), so `-n ios-qa-<part>` matches two: take the merged `ios-qa`,
+  or the attempt's `ios-qa-<part>` from the run's artifact list.
 - **Flows:** `testLocalFirstRun` — cold launch with no account and an empty
   store → straight into local mode's web W1 picker with its "Have an invite?"
   footer, no native screen (bd med-ta2n.17; shot `local-first-run-cold-launch`)
