@@ -117,7 +117,8 @@ export default async function offlineAccount(ctx) {
           await ctx.sleep(500);
           if (!(await ctx.inForeground())) throw new Error('Back from Units left app');
         }
-        if (phase === 'offline') await ctx.shot(`offline-${name}`);
+        // Keep the DOM render timing above separate from the emulator's delayed GPU capture.
+        if (phase === 'offline') r.sections[phase][name].paintSettleSeconds = await ctx.stableShot(`offline-${name}`);
       });
     }
     // Compare real stored values too: a heading or a section's unrelated row cannot prove its seed.
