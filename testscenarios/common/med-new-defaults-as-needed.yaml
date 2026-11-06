@@ -1,5 +1,5 @@
 id: med-new-defaults-as-needed
-title: A new medication starts as As needed; choosing Daily asks for a time
+title: The manual New medication editor starts as As needed; choosing Daily asks for a time
 platforms: [web, android, ios]
 preconditions:
   - Meds tab, no medication open
@@ -11,9 +11,8 @@ invariants:
   - The blank editor has As needed selected and no time rows shown
   - Picking Daily shows one empty time row; saving stores a daily schedule with that time
   - Every existing medication opens on its own schedule type and times
-  - Creation through the shim and MCP keeps the schedule it is given (not as_needed); AI, onboarding and Telegram adds are not asserted in automation
 covered_by:
-  web: web/static/js/tests/meds.modal.test.js  # partial: editor default/Daily/edit; create-keeps-schedule in web/static/js/tests/cloud.shim-contract.meds.test.js and web/cloud/js/tests/mcp-responder.test.js; AI/onboarding/Telegram paths manual
+  web: web/static/js/tests/meds.modal.test.js
   android: manual
   ios: manual
 source: [med-cb7i]
