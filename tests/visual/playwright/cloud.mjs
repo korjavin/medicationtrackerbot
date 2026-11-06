@@ -60,15 +60,21 @@ export function cloudServer({ out, port = process.env.CLOUD_PORT || '18080' }) {
   };
 }
 
+// A platform passkey authenticator with PRF (Chromium's virtual one, over CDP).
+// It belongs to the page, so a device is one page.
+export async function addPasskeyAuthenticator(context, page) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal',
+    hasResidentKey: true, hasUserVerification: true, hasPrf: true, isUserVerified: true, automaticPresenceSimulation: true } });
+}
+
 // The signup wizard as a person runs it (e2e/vault-roundtrip.mjs's flow): claim
 // (with &kit=1, as from Settings) → sign in (PRF passkey) → Emergency Kit offer
 // → vault open. The authenticator is per page (CDP), so a run keeps one page
 // per account. shot(name) captures the two ceremony screens (bd med-ta2n.8).
 export async function cloudSignup(context, page, server, shot = async () => {}) {
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal',
-    hasResidentKey: true, hasUserVerification: true, hasPrf: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  await addPasskeyAuthenticator(context, page);
   const { origin, token } = server.mintInvite();
   await page.goto(`${origin}/#claim=${token}&kit=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL(/\/unlock/, { timeout: 30000 });

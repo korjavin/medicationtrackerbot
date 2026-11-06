@@ -45,7 +45,8 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 
 - `ios-visual`: `shots/<device>/<scene>.png` plus `<scene>.json` (probe report) for `iPhone 16e` (390pt) and `iPhone 17 Pro Max` (440pt); `shots/compare/summary.md`, `summary.json` and `diff/<device>/<scene>.png` against master's latest dispatched run.
 - `ios-visual-web`: the same scenes from Playwright WebKit (390 and 440pt), Chromium desktop and Pixel 7, and the cloud tier. `ios-visual-web-compare`: the diff against master's `ios-visual-web`.
-- `visual-web-cloud`: the cloud tier's shots plus `visual-web-flows/summary.md`, the asserting flows of `tests/visual/playwright/flows.mjs` (offline-cold-open, app-update-banner, boot-degraded-reload: real service worker, two stamped builds). Unlike the shots, a failed flow fails the `cloud` job; `<flow>-failed.png` is the page at the failure. Run locally: `node tests/visual/playwright/flows.mjs <outDir>` (go on PATH).
+- `visual-web-cloud`: the cloud tier's shots.
+- `visual-web-flows`: `summary.md` of the asserting flows in `tests/visual/playwright/flows.mjs`. One device: offline-cold-open, app-update-banner, boot-degraded-reload (real service worker, two stamped builds). Two devices on one account: eu-register-check, pull-to-refresh. They run in their own `flows` job, which every PR touching `web/`, the cloud server or store, `cmd/cloud`, the Go module or `tests/visual` triggers. Unlike the shots, a failed flow fails the job; `<flow>-failed.png` (and `-failed-b.png` for the second device) is the page at the failure. Run locally: `node tests/visual/playwright/flows.mjs <outDir>` (go on PATH).
 - Read `summary.md` first. Never diff web PNGs against Simulator PNGs. Linux WebKit is not WKWebView: no focus-zoom, keyboard, safe areas or shell bands; only the Simulator tier would have caught `med-pe9g`.
 
 ## Reading probes (`<scene>.json`)
