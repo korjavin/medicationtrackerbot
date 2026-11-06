@@ -666,7 +666,9 @@ jobs:
           path: shots/
           retention-days: 14
           if-no-files-found: warn
-          overwrite: true # "Re-run failed jobs" re-runs this gate too
+          # The one merged ios-qa per run: a re-run of the gate replaces it, so
+          # `gh run download -n ios-qa` always matches one (the newest parts).
+          overwrite: true
 
       - name: Gate
         env:
