@@ -12,6 +12,8 @@
 // Steps / Heart Rate / SpO2 cards must be populated (screenshot vitals-cards).
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
+import { healthRecordId } from '../../../web/domain/healthsource.js';
+
 export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
 const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION', 'EXERCISE'];
 
@@ -284,6 +286,9 @@ export default async function healthConnect(ctx) {
       }
       const sleepSample = provider.sleep.samples.find((s) => s.uuid === night.id);
       if (sleepSample.source !== pkg || sleepSample.start !== night.start || sleepSample.end !== night.end) throw new Error('SDK-assigned sleep origin/window mismatch');
+      r.b3 = { stage: 'SDK rows verified', access, before, after, inserted, sleepOrigin: sleepSample.source,
+        providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
+        provenance: 'same package, SDK-assigned dataOrigin' };
       await ctx.page.locator('[data-nav-to="settings"]:visible').first().click();
       await toggle(); await sleep(1000); await toggle();
       const imported = async () => ctx.page.evaluate(async () => JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data);
@@ -299,13 +304,16 @@ export default async function healthConnect(ctx) {
       const importedSleep = data.vitals.sleep.find((s) => s.source_id === day);
       if (importedBp?.source !== 'apple_health' || importedBp.systolic !== sys || importedWeight?.source !== 'apple_health' || importedWeight.weight !== kg ||
         importedSleep?.source !== 'apple_health' || Date.parse(importedSleep.start_time) !== night.start || Date.parse(importedSleep.end_time) !== night.end || importedSleep.total_minutes !== 480) throw new Error('exact SDK fixture not imported');
-      const identities = await ctx.page.evaluate(async ({ bpId, weightId }) => {
+      // Public BP/weight responses expose record `id`, not the vault-only source_id.
+      // Use the owning domain identity transform to join the exact SDK UUID to the UI.
+      const identities = await ctx.page.evaluate(async ({ bpId, weightId, sys, kg }) => {
         const rows = (r, kind) => Array.isArray(r) ? r : (r.items || r.data || r[kind] || []);
         const bp = rows(await window.apiCall('/api/bp?days=60'), 'readings');
         const weight = rows(await window.apiCall('/api/weight?days=0&limit=1000'), 'logs');
-        return { bp: bp.find((s) => s.source_id === bpId)?.id, weight: weight.find((s) => s.source_id === weightId)?.id,
+        return { bp: bp.find((s) => s.id === bpId && s.source === 'apple_health' && s.systolic === sys)?.id,
+          weight: weight.find((s) => s.id === weightId && s.source === 'apple_health' && s.weight === kg)?.id,
           manualBp: bp.find((s) => s.source !== 'apple_health')?.id, manualWeight: weight.find((s) => s.source !== 'apple_health')?.id };
-      }, { bpId: bp.id, weightId: weight.id });
+      }, { bpId: healthRecordId('bp', bp.id), weightId: healthRecordId('weight', weight.id), sys, kg });
       if (Object.values(identities).some((id) => id == null) || Object.keys(identities).length !== 4) throw new Error('missing imported/manual UI identities');
       await ctx.page.evaluate(() => window.switchTab('bp'));
       const bpRow = ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${identities.bp}"]`);
@@ -340,10 +348,10 @@ export default async function healthConnect(ctx) {
       const again = await imported();
       const matches = (d) => ({ bp: d.bp.readings.filter((s) => s.source_id === bp.id), weight: d.weight.logs.filter((s) => s.source_id === weight.id), sleep: d.vitals.sleep.filter((s) => s.source_id === day) });
       if (JSON.stringify(matches(again)) !== JSON.stringify(matches(data)) || Object.values(matches(again)).some((rows) => rows.length !== 1)) throw new Error('explicit rescan duplicated/changed imported fixture');
-      r.b3 = { access, before, after, inserted, providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
+      Object.assign(r.b3, { stage: 'complete',
         day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date),
         manualSleepBoundary: 'hand-authored non-Health day row at an unused canonical day ID; no Sleep editor claimed', dedupe: true,
-        sleepOrigin: sleepSample.source, provenance: 'same package, SDK-assigned dataOrigin' };
+      });
     });
 
     await ctx.step('another app saves #2 while in the background → back in the foreground → #2 arrives', async () => {
