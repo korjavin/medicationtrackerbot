@@ -1,6 +1,7 @@
 // B3: real Keyguard PIN and authenticated Settings controls, never wgQALock.
 // Disposable emulator only. Every credential mutation is enclosed by verified cleanup.
 export const retry = false;
+const CREDENTIAL_FIELD = { clazz: 'android.widget.EditText', pkg: /^com\.android\.(systemui|settings)$/ };
 
 export default async function localLock(ctx) {
   const { shell, pkg, device, sleep } = ctx;
@@ -18,11 +19,11 @@ export default async function localLock(ctx) {
   const before = await page.evaluate(() => window.apiCall('/api/medications'));
   const credential = async (pin = '1234') => {
     // BiometricPrompt falls back to Android's real credential activity on this image.
-    await ctx.waitFor({ clazz: 'android.widget.EditText' }, 20_000);
-    const field = await device.info({ clazz: 'android.widget.EditText' });
+    await ctx.waitFor(CREDENTIAL_FIELD, 20_000);
+    const field = await device.info(CREDENTIAL_FIELD);
     (r.credentialPrompts ||= []).push({ pkg: field.pkg, res: field.res, clazz: field.clazz });
     if (!field.pkg || field.pkg === pkg) throw new Error('credential entry is not in the Android system UI');
-    await device.fill({ clazz: 'android.widget.EditText' }, '');
+    await device.fill(CREDENTIAL_FIELD, '');
     await shell(`input text ${pin}`);
     await shell('input keyevent KEYCODE_ENTER');
     await sleep(1500);
@@ -55,7 +56,7 @@ export default async function localLock(ctx) {
       await shell('input keyevent KEYCODE_HOME');
       await sleep(3000);
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
-      await ctx.waitFor({ clazz: 'android.widget.EditText' }, 20_000);
+      await ctx.waitFor(CREDENTIAL_FIELD, 20_000);
       await ctx.shot('system-unlock-prompt');
       // On Android the first Back can dismiss the PIN keyboard. A second is the
       // actual credential cancellation; stop as soon as the native N3 button returns.
@@ -66,7 +67,7 @@ export default async function localLock(ctx) {
       await sleep(4000);
       await ctx.waitFor({ text: 'Unlock' }, 2000);
       const web = await device.wait({ clazz: 'android.webkit.WebView' }, { timeout: 1000 }).then(() => true, () => false);
-      const prompt = await device.wait({ clazz: 'android.widget.EditText' }, { timeout: 1000 }).then(() => true, () => false);
+      const prompt = await device.wait(CREDENTIAL_FIELD, { timeout: 1000 }).then(() => true, () => false);
       if (web || prompt) throw new Error(`cancel revealed WebView or re-prompted: ${web}/${prompt}`);
       r.cancel = { n3: true, webViewAbsent: !web, noPromptLoopAfterMs: 4000 };
       await ctx.shot('cancelled-n3');
@@ -74,13 +75,13 @@ export default async function localLock(ctx) {
     await ctx.step('explicit Unlock retries; wrong PIN conceals data; correct PIN preserves records', async () => {
       await device.tap({ text: 'Unlock' });
       await credential('9999');
-      await ctx.waitFor({ clazz: 'android.widget.EditText' }, 5000);
+      await ctx.waitFor(CREDENTIAL_FIELD, 5000);
       const web = await device.wait({ clazz: 'android.webkit.WebView' }, { timeout: 1000 }).then(() => true, () => false);
       if (web) throw new Error('wrong PIN revealed data');
       await ctx.shot('wrong-pin');
       r.wrongPin = { systemCredentialRetained: true, webViewAbsent: true };
       // Android clears a wrong PIN; select-all also handles images that retain it.
-      await device.fill({ clazz: 'android.widget.EditText' }, '1234');
+      await device.fill(CREDENTIAL_FIELD, '1234');
       await shell('input keyevent KEYCODE_ENTER');
       await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 20_000);
       page = await ctx.attachPage();
@@ -106,7 +107,7 @@ export default async function localLock(ctx) {
             await shell('input keyevent KEYCODE_BACK');
             await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
             // On an earlier assertion failure the native lock may still hold.
-            const prompt = await device.wait({ clazz: 'android.widget.EditText' }, { timeout: 2000 }).then(() => true, () => false);
+            const prompt = await device.wait(CREDENTIAL_FIELD, { timeout: 2000 }).then(() => true, () => false);
             if (prompt) await credential();
             else if (await device.wait({ text: 'Unlock' }, { timeout: 1000 }).then(() => true, () => false)) {
               await device.tap({ text: 'Unlock' });

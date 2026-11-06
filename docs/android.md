@@ -775,7 +775,9 @@ ending more than three hours before import. READ/WRITE grants come from the prov
 not just `pm grant`; SDK insertion IDs and native time bracket each fixture. Import uses the
 existing explicit toggle rescan on a real-clock plain page, then matches provider UUIDs/values and
 the distinct sleep day, checks BP/weight row source labels, sleep's per-day source aggregation,
-unlabeled manual comparisons, and rescan deduplication. The accepted stand-in is **same package,
+unlabeled BP/weight manual entries, a hand-authored non-Health sleep day-row comparison, and rescan
+deduplication. The day row uses an unused canonical day ID because legacy conversion labels all
+non-Health legacy sessions Mi Band; this fixture does not claim a manual Sleep editor. The accepted stand-in is **same package,
 SDK-assigned dataOrigin**, with a null clientRecordId. It cannot prove another app's actual origin,
 real-user Health data or the system permission sheet. WRITE_SLEEP is debug-only; production
 writable kinds are unchanged. The integrated .15 Copy/quota/poison/partial-grant cases remain in

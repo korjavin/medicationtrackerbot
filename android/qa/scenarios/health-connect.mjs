@@ -241,8 +241,11 @@ export default async function healthConnect(ctx) {
       if (!sleepDays) throw new Error('no distinct readable fixture sleep day');
       const manualOffset = [1, 2, 3, 4, 5, 6].find((days) => days !== sleepDays && !occupied.has(new Date(beforeClock - days * 86400_000).toISOString().slice(0, 10)));
       if (!manualOffset) throw new Error('no distinct manual comparison sleep day');
-      // A bounded hand-authored canonical comparison fixture, not an SDK import or a claim
-      // that Sleep has a manual editor. The golden sleep is Mi Band, so cannot stand in for it.
+      // A bounded hand-authored non-Health DAY ROW, not a claim of a Sleep editor.
+      // Use the canonical day id intentionally: healthsource.unifySleep projects EVERY
+      // non-Health legacy session as Mi Band, hiding the unknown-source comparison.
+      // This unused day differs from all golden/provider/SDK days, so no Health row can
+      // overwrite it in this fixture. The golden Mi Band night is asserted separately.
       const manualDay = new Date(beforeClock - manualOffset * 86400_000).toISOString().slice(0, 10);
       prior.overview = await ctx.page.evaluate(async (day) => {
         const end = Date.parse(`${day}T06:00:00Z`);
@@ -339,7 +342,7 @@ export default async function healthConnect(ctx) {
       if (JSON.stringify(matches(again)) !== JSON.stringify(matches(data)) || Object.values(matches(again)).some((rows) => rows.length !== 1)) throw new Error('explicit rescan duplicated/changed imported fixture');
       r.b3 = { access, before, after, inserted, providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
         day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date),
-        manualSleepBoundary: 'hand-authored canonical fixture; no Sleep editor claimed', dedupe: true,
+        manualSleepBoundary: 'hand-authored non-Health day row at an unused canonical day ID; no Sleep editor claimed', dedupe: true,
         sleepOrigin: sleepSample.source, provenance: 'same package, SDK-assigned dataOrigin' };
     });
 

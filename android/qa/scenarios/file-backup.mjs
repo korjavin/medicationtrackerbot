@@ -58,7 +58,7 @@ export default async function fileBackup(ctx) {
     const settled = await snapshot(page);
     equal(settled, first, 'baseline did not settle');
     if (settled.format !== fixture.format || settled.version !== fixture.version) throw new Error('canonical baseline is not the committed vault format/version');
-    const missing = Object.keys(fixture.data).filter((key) => key !== 'api_tokens' && !(key in settled.data));
+    const missing = Object.keys(fixture.data).filter((key) => !(key in settled.data));
     // Legacy vitals.stress is deliberately ignored by vaultToRecords; passthrough gamification
     // and api_tokens ARE supported and compared in full. No timezone/core-only normalization.
     if (missing.length) throw new Error(`missing fixture sections: ${missing}`);
@@ -147,8 +147,16 @@ export default async function fileBackup(ctx) {
     };
     await ctx.step('receiver sentinel → SAME saved file via native picker → typed REPLACE with no Merge', async () => {
       // Fixture setup only: makes replacement observable on a nonempty receiver.
-      const sentinel = await page.evaluate(() => window.apiCall('/api/bp', 'POST', { systolic: 222, diastolic: 111, notes: 'B3 receiver-only sentinel' }));
+      const sentinel = await page.evaluate(async () => {
+        const row = await window.apiCall('/api/bp', 'POST', { systolic: 222, diastolic: 111,
+          measured_at: new Date().toISOString(), notes: 'B3 receiver-only sentinel' });
+        const data = JSON.parse(await window.CloudVault.exportAll()).data;
+        if (!row?.id || !data.bp.readings.some((b) => b.notes === 'B3 receiver-only sentinel' && b.systolic === 222 && b.diastolic === 111 &&
+          Number.isFinite(Date.parse(b.measured_at)) && Date.parse(b.measured_at) === Date.parse(row.measured_at))) throw new Error('receiver sentinel was not saved/readable before Replace');
+        return { id: row.id, measuredAt: row.measured_at, readableBeforeReplace: true };
+      });
       r.sentinelId = sentinel.id;
+      r.sentinelBeforeReplace = sentinel;
       await pick(saved.name);
       await page.click('#importexport-import-btn');
       await page.locator('.mt-confirm-modal__input').waitFor({ state: 'visible' });
