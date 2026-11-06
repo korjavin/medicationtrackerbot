@@ -1203,6 +1203,11 @@ function renderTimeline({ anchor = false } = {}) {
 
     if (state.outOfDate) list.appendChild(_tlOutOfDateNote(state.outOfDate, ctx));
     list.appendChild(_tlFutureSection(listGroups.filter((g) => g.localDate > ctx.todayDate), ctx));
+    // MT6 lands on the med's rows in Today: unfold Later today when it holds one.
+    const mt6Med = anchor && state.outOfDate && state.outOfDate.medId;
+    if (mt6Med && listGroups.some((g) => g.localDate === ctx.todayDate && g.state === 'upcoming' && g.rows.some((r) => String(r.medId) === mt6Med))) {
+        state.open.add(ctx.todayDate);
+    }
     const todaySection = _tlTodaySection(listGroups, ctx, { focus, more, next, upcoming });
     list.appendChild(todaySection);
     let lastDay = null;

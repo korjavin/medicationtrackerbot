@@ -1077,6 +1077,27 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(document.querySelector('.wg-timeline__stale')).toBeNull();
     });
 
+    // bd med-5y49: Later today is folded on a fresh visit; an MT6 landing on a
+    // med whose only listed Today dose is in it unfolds it and lands there.
+    it('MT6 lands on a med whose only listed Today dose is in the folded Later today', async () => {
+        const { window, document } = env;
+        const scrolled = [];
+        window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this); };
+        window.medications = MEDS;
+        const fixture = [
+            berlin(1, '2026-10-23', '08:20', 'due'),
+            berlin(2, '2026-10-23', '18:00', 'upcoming'),
+            berlin(4, '2026-10-23', '21:30', 'upcoming'),
+        ];
+        serveDoses(window, fixture);
+        window.showMedsReminderOutOfDate({ medId: 4, scheduled: '2026-10-23T11:00:00.000Z', tz: 'Europe/Berlin' });
+        await vi.waitFor(() => expect(scrolled.some((el) => el.classList.contains('wg-timeline__row'))).toBe(true));
+        const target = scrolled.filter((el) => el.classList.contains('wg-timeline__row')).pop();
+        expect(target.dataset.occIds).toBe(fixture[2].occId);
+        expect(target.closest('.wg-timeline__later')).not.toBeNull();
+        expect(document.querySelector('.wg-timeline__later .wg-tl-day').getAttribute('aria-expanded')).toBe('true');
+    });
+
     // A Telegram tap drained in the background never switches section: MT6
     // waits for the next Timeline open and a toast names what was not logged.
     it('MT6 from a background drain: a scoped toast, no section switch, Open lands on the note', async () => {
