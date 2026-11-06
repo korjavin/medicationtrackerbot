@@ -117,8 +117,8 @@ export default async function euRegister(ctx) {
   // local-app.mjs also records ERR_ABORTED as cancellation. Here the exception is narrower:
   // only a 200 app load with a validated ready catalogue AND an exact fresh cached copy of the
   // bundled bytes can classify that signal as cancellation. Preserve the raw event; infer no cause.
-  const completedCancel = (q) => q.phase === 'first' && q.error === 'net::ERR_ABORTED'
-    && new URL(q.url).pathname === ASSET && r.firstBodyComplete;
+  const completedCancel = (q) => q.error === 'net::ERR_ABORTED' && new URL(q.url).pathname === ASSET
+    && ((q.phase === 'first' && r.firstBodyComplete) || (q.phase === 'progress' && r.progressBodyComplete));
   const failedAppRequests = () => r.failedAssetRequests.filter((q) => q.phase !== 'instrumentation' && !completedCancel(q));
 
   await shell(`pm clear ${pkg}`);
@@ -204,6 +204,7 @@ export default async function euRegister(ctx) {
     });
     await freshPage();
     counting = 'progress';
+    r.observationStage = 'progress-app-check';
     // Hold the real bundled response after its first bytes: the real loader, progress and
     // Save handler still run. This makes their overlap observable on fast emulators.
     await page.evaluate(() => {
@@ -246,6 +247,20 @@ export default async function euRegister(ctx) {
       for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
       return false;
     }, ASSET, { timeout: 60_000 });
+    r.progressCache = await page.evaluate(async (asset) => {
+      for (const n of await caches.keys()) {
+        if (!n.startsWith('medtracker-ema-')) continue;
+        const response = await (await caches.open(n)).match(asset);
+        if (!response) continue;
+        const hash = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+        return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+      return null;
+    }, ASSET);
+    r.progressReady = await page.evaluate(timedCheck, 'Candecor');
+    r.progressBodyComplete = r.progressCache === r.bundledAssetSha256 && r.progressReady.status === 'ready' && r.progressReady.candidates === 2
+      && r.assetResponses.some((res) => res.phase === 'progress' && new URL(res.url).origin === ctx.LOCAL_ORIGIN && res.status === 200);
+    if (!r.progressBodyComplete) throw new Error('progress load did not complete with the exact bundled register');
   });
 
   await ctx.step('first EU check on the emulator (bundled asset, parse, index, cache write)', async () => {
@@ -488,12 +503,13 @@ export default async function euRegister(ctx) {
     await sleep(2000);
     r.beforePull = await page.evaluate(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register);
     if (r.beforePull !== 'us') throw new Error('peer setting applied before the native pull');
-    await page.evaluate(() => { window.switchTab('today'); window.scrollTo(0, 0); window.__qaBlockPeerPull = false; window.__qaPullSeen = false; new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
+    await page.evaluate(() => { window.switchTab('today'); window.scrollTo(0, 0); window.__qaPullSeen = false; new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
     const { bounds } = await ctx.device.info({ clazz: 'android.webkit.WebView' });
     const x = Math.round(bounds.x + bounds.width / 2);
     const y = Math.round(bounds.y + bounds.height * 0.3);
     await shell(`input motionevent DOWN ${x} ${y}`);
     for (let i = 1; i <= 10; i++) await shell(`input motionevent MOVE ${x} ${y + i * 50}`);
+    await page.evaluate(() => { window.__qaBlockPeerPull = false; });
     await shell(`input motionevent UP ${x} ${y + 500}`);
     await page.waitForFunction(() => window.__qaPullSeen, null, { timeout: 20_000 });
     await page.waitForFunction(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register === 'eu', null, { timeout: 30_000 });
