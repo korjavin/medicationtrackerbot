@@ -9,11 +9,16 @@ export default async function offlineAccount(ctx) {
   if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
   const receipts = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
   await ctx.shell(`pm clear ${ctx.pkg}`);
+  await ctx.shell(`pm grant ${ctx.pkg} android.permission.POST_NOTIFICATIONS`);
+  await ctx.shell(`appops set ${ctx.pkg} SCHEDULE_EXACT_ALARM allow`);
   let page = await ctx.step('prepare a populated golden vault', () => ctx.launchLocal('today'));
   const fixture = await page.evaluate(() => window.CloudVault.exportAll({ includeSecrets: false }));
   // The local origin's seeded content is fixture setup, not the account behavior being tested.
   // Clear it before openClaim so there is no local-to-cloud move ceremony in this account run.
   await ctx.shell(`pm clear ${ctx.pkg}`);
+  // Same permission precondition as local-smoke; permission-sheet coverage belongs elsewhere.
+  await ctx.shell(`pm grant ${ctx.pkg} android.permission.POST_NOTIFICATIONS`);
+  await ctx.shell(`appops set ${ctx.pkg} SCHEDULE_EXACT_ALARM allow`);
   page = await ctx.step('claim run invite with soft authenticator', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
   await ctx.step('import golden records and complete real account sync', async () => {
@@ -74,6 +79,7 @@ export default async function offlineAccount(ctx) {
           if (height !== '180') throw new Error(`saved height missing from Settings: ${height}`);
           r.sections[phase][name].height = height;
           await ctx.shot(`${phase}-settings-units`);
+          await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
           await ctx.shell('input keyevent KEYCODE_BACK');
           await ctx.sleep(500);
           if (!(await ctx.inForeground())) throw new Error('Back from Units left app');

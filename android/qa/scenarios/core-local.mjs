@@ -3,6 +3,10 @@
 export default async function coreLocal(ctx) {
   const r = (ctx.results.coreLocal = { schedules: {} });
   await ctx.shell(`pm clear ${ctx.pkg}`);
+  // Notification permission is not this scenario's subject; use local-smoke's established setup
+  // so a write-triggered reminder offer cannot cover the editors being exercised.
+  await ctx.shell(`pm grant ${ctx.pkg} android.permission.POST_NOTIFICATIONS`);
+  await ctx.shell(`appops set ${ctx.pkg} SCHEDULE_EXACT_ALARM allow`);
   let page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
     const p = await ctx.launchLocal('today');
     await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
@@ -21,6 +25,7 @@ export default async function coreLocal(ctx) {
     await page.locator(`#${tab}-view`).waitFor({ state: 'visible', timeout: 20_000 });
   };
   const backSheet = async (id) => {
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
     for (let i = 0; i < 2; i++) {
       await ctx.shell('input keyevent KEYCODE_BACK');
       await ctx.sleep(1000);
@@ -36,6 +41,7 @@ export default async function coreLocal(ctx) {
     else await page.evaluate(() => window.showAddModal());
     await page.locator('#med-modal').waitFor({ state: 'visible' });
     if (!id) {
+      await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
       await ctx.tapElement(page, '#med-name');
       for (let n = 0; n < 10 && !(await ctx.imeShown()); n++) await ctx.sleep(300);
       if (!(await ctx.imeShown())) throw new Error('medication name tap did not open IME');
