@@ -33,6 +33,17 @@ export async function state(page) {
   });
 }
 
+export async function waitForWaitingWorker(page) {
+  // Poll resolved browser values in Node: an async waitForFunction predicate
+  // returned before installation completed in Android run42160047611.
+  const until = Date.now() + 90_000;
+  do {
+    if (await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())?.waiting?.state === 'installed')) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  } while (Date.now() < until);
+  throw new Error('real B worker did not reach waiting/installed');
+}
+
 export async function checkSaved(page, note) {
   await page.evaluate(() => window.switchTab('health'));
   await page.locator('.health-tab[data-tab="notes"]').click();
@@ -137,7 +148,7 @@ export default async function updateBanner(ctx) {
     });
     await foreground(ctx, page, r);
     await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
-    await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.waiting, null, { timeout: 90_000 });
+    await waitForWaitingWorker(page);
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await ctx.sleep(750);

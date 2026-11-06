@@ -2,7 +2,7 @@
 // Good Responses are saved/evicted/restored per exact generation/key, never replaced by stubs.
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { prepareAccount, control, state, checkSaved, foreground } from './update-banner.mjs';
+import { prepareAccount, control, state, checkSaved, foreground, waitForWaitingWorker } from './update-banner.mjs';
 import { waitForVault } from './smoke.mjs';
 export const retry = false;
 
@@ -17,7 +17,7 @@ export default async function degradedBoot(ctx) {
     await control('/switch-b', {});
     await foreground(ctx, page, r);
     await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
-    await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.waiting, null, { timeout: 90_000 });
+    await waitForWaitingWorker(page);
     r.beforeFault = await state(page);
     if (r.beforeFault.build !== r.bundles.A.stamp || r.beforeFault.waiting !== 'installed') throw new Error('real A/B state C missing');
     await ctx.stableShot('real-update-before-fault');
