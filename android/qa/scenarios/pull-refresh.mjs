@@ -179,7 +179,7 @@ export default async function pullRefresh(ctx) {
 
   await ctx.step('open session: Home, Health write, peer BP, radio cycle and held refresh', async () => {
     const note = page.locator('#workout-session-modal .wg-workouts-session-exercise__field--notes input');
-    await note.fill('Typing stays here');
+    await note.fill('Before Home');
     await page.evaluate(() => {
       const input = document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input');
       window.__qaHeld = { input, exercise: input.closest('.wg-workouts-session-exercise'), modal: document.getElementById('workout-session-modal'), bpList: document.getElementById('bp-list').innerHTML, toasts: [], banners: [], changes: [] };
@@ -229,6 +229,8 @@ export default async function pullRefresh(ctx) {
       if (assigned !== seq + 1) throw new Error('peer BP sequence raced');
       return { recordId, assigned };
     });
+    // Continue typing after the other device's write, while the session is open.
+    await note.fill('Typing stays here');
     try {
       await shell('svc wifi disable');
       await shell('svc data disable');
