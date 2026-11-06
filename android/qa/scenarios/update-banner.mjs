@@ -53,6 +53,24 @@ export async function checkSaved(page, note) {
   return data.data.diary.notes;
 }
 
+export async function observeDocument(page, r) {
+  r.documentEvents ||= [];
+  page.on('console', (msg) => {
+    if (msg.text().startsWith('B2_EVENT ')) r.documentEvents.push(JSON.parse(msg.text().slice(9)));
+    if (msg.text().startsWith('B2_SW ')) (r.lifecycle ||= []).push(msg.text());
+  });
+  const observe = () => {
+    const report = (event) => console.log('B2_EVENT ' + JSON.stringify({ type: event.type,
+      trusted: event.isTrusted, state: document.visibilityState, focused: document.hasFocus(),
+      at: Date.now(), timeOrigin: performance.timeOrigin }));
+    document.addEventListener('visibilitychange', report, true);
+    window.addEventListener('focus', report, true);
+    window.addEventListener('blur', report, true);
+  };
+  await page.addInitScript(observe);
+  await page.evaluate(observe);
+}
+
 export async function foreground(ctx, page, r) {
   const snapshot = () => page.evaluate(() => ({ state: document.visibilityState,
     focused: document.hasFocus(), at: Date.now(), timeOrigin: performance.timeOrigin,
@@ -101,27 +119,13 @@ export async function prepareAccount(ctx, r) {
     if (r.initial.build !== r.bundles.A.stamp || !r.initial.controlled || r.initial.waiting ||
         !r.initial.cached.some((c) => c.name.endsWith(`v${r.bundles.A.stamp}`) && c.keys.includes('/js/apishim.js'))) throw new Error('A graph not controlled/complete');
   });
-  r.documentEvents = [];
-  page.on('console', (msg) => {
-    if (msg.text().startsWith('B2_EVENT ')) r.documentEvents.push(JSON.parse(msg.text().slice(9)));
-  });
-  const observe = () => {
-    const report = (event) => console.log('B2_EVENT ' + JSON.stringify({ type: event.type,
-      trusted: event.isTrusted, state: document.visibilityState, focused: document.hasFocus(),
-      at: Date.now(), timeOrigin: performance.timeOrigin }));
-    document.addEventListener('visibilitychange', report, true);
-    window.addEventListener('focus', report, true);
-    window.addEventListener('blur', report, true);
-  };
-  await page.addInitScript(observe);
-  await page.evaluate(observe);
+  await observeDocument(page, r);
   return page;
 }
 
 export default async function updateBanner(ctx) {
   const r = (ctx.results.updateBanner = { checks: [], lifecycle: [] });
-  const page = await prepareAccount(ctx, r);
-  page.on('console', (msg) => { if (msg.text().startsWith('B2_SW ')) r.lifecycle.push(msg.text()); });
+  let page = await prepareAccount(ctx, r);
   await ctx.step('state A: matching real client/server stays quiet after foreground checks', async () => {
     await foreground(ctx, page, r);
     for (let i = 0; i < 3; i++) {
@@ -132,10 +136,19 @@ export default async function updateBanner(ctx) {
     }
     await ctx.stableShot('matching-A-no-banner');
   });
-  await ctx.step('state B: actual server B installs a waiting worker and deduplicates notice', async () => {
+  await ctx.step('state B: real native cold open after server B shows one notice and installs waiting B', async () => {
     r.switch = await control('/switch-b', {});
     const version = await page.evaluate(async () => (await (await fetch('/api/version', { cache: 'no-store' })).json()).build_id);
     if (version !== r.bundles.B.stamp) throw new Error(`real server not B: ${version}`);
+    r.beforeColdOpen = await state(page);
+    r.coldOpenStarted = Date.now();
+    // Archie17593: the primary trigger is a REAL native cold open, not an
+    // injected visibility event. B has not been asked to install in A yet.
+    await ctx.coldStart(`-n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no account WebView after native cold open');
+    await waitForVault(page);
+    await observeDocument(page, r);
     await page.evaluate(() => {
       navigator.serviceWorker.getRegistration().then((reg) => {
         reg.addEventListener('updatefound', () => {
@@ -146,9 +159,11 @@ export default async function updateBanner(ctx) {
       });
       navigator.serviceWorker.addEventListener('controllerchange', () => console.log(`B2_SW controller ${navigator.serviceWorker.controller?.state}`));
     });
-    await foreground(ctx, page, r);
     await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
+    r.coldOpened = await state(page);
+    if (r.coldOpened.timeOrigin === r.beforeColdOpen.timeOrigin || r.coldOpened.banners !== 1) throw new Error('native cold open did not show one real notice');
     await waitForWaitingWorker(page);
+    await foreground(ctx, page, r); // additional observed native resume; primary notice already proved above
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await ctx.sleep(750);

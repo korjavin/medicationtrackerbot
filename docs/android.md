@@ -762,12 +762,14 @@ serial A→B backend restart at the same address; it keeps the disposable DB/ses
 account origin, CA and receipt stream intact. Its B2 control listener binds **127.0.0.1:8766 only**
 and exists only when `-cloud-a`/`-cloud-b` are supplied. It is runner tooling, not an app endpoint.
 
-`update-banner` asserts matching A is quiet, actual B produces one notice across repeated checks,
+`update-banner` asserts matching A is quiet, a real native force-stop/relaunch after the server
+switch to B produces one notice (before any synthetic check), and repeated checks deduplicate it.
 Later hides the settled notice, and a new A document with B already waiting still shows one notice
 (state C). The real Reload must activate B with exactly one new document, including after the
 two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
-must identify B, with the saved note intact. It exercises native Home/return and explicitly delivers
-DOM visibility events to the real check listener. Run42159109277 observed no version/SW request
+must identify B, with the saved note intact. Native Home/return is observed separately with a
+three-second dwell; DOM visibility events exercise the real dedupe/check listener, not native
+resume delivery. Run42159109277 observed no version/SW request
 after Home/return alone; that does not establish the cause. Native/explicit event timing, trust,
 visibility and focus are recorded separately. This proves the real handler and update path,
 not automatic delivery of the native resume signal. Local mode is bundled and outside this account update flow; Play-installed
