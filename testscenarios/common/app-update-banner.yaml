@@ -12,6 +12,6 @@ invariants:
   - Reload opens the new build (the version in Settings changes)
 covered_by:
   web: tests/visual/playwright/flows.mjs#app-update-banner
-  android: manual  # no two-served-build banner/Reload run yet (med-sz4k.4.2); a Play-installed update still needs a real device
+  android: android/qa/scenarios/update-banner.mjs#updateBanner  # real account A/B cold open, dedupe and Reload; Home/resume visibility-delivery gap med-jyxy is non-gating; local bundled mode N/A; Play-installed update is manual release residue, not an invariant here
   ios: manual
 source: [med-kk1q.6]

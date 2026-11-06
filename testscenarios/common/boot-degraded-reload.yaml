@@ -13,6 +13,6 @@ invariants:
   - Reload loads the current build and works offline
 covered_by:
   web: tests/visual/playwright/flows.mjs#boot-degraded-reload
-  android: manual  # load-error.mjs covers native host-down N4 only; no degraded post-unlock banner, replacement/empty-state or offline recovery run (med-sz4k.4.2)
+  android: android/qa/scenarios/degraded-boot.mjs#degradedBoot  # real post-unlock failure, replacement, Reload title/body and one offline recovery navigation (shared title fix med-31gk)
   ios: manual
 source: [med-kk1q.4]
