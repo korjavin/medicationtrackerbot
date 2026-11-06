@@ -82,12 +82,9 @@ export default async function coreLocal(ctx) {
     scheduleMeds[taken] = await ctx.step(`schedule ${taken}: existing 08:00 and 20:00 medication`, () =>
       editor(`QA B1 Schedule ${taken ? 'Taken' : 'Untaken'}`, ['08:00', '20:00']));
   }
+  const dose = await ctx.step('dose: add daily medication through editor and native keyboard', () => editor('QA B1 Dose', ['09:59']));
   await page.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=10:00`, { waitUntil: 'load' });
   await ctx.waitLocalReady(page, 'today');
-  const doseTime = await page.evaluate(() => {
-    const d = new Date(Date.now() + 120000); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  });
-  const dose = await ctx.step('dose: add daily medication through editor and native keyboard', () => editor('QA B1 Dose', [doseTime]));
   await ctx.step('dose: Today Take removes Next up immediately', async () => {
     await go('today');
     const row = page.locator('[data-section="next-up"] .wg-row').filter({ hasText: dose.name });
@@ -149,9 +146,18 @@ export default async function coreLocal(ctx) {
     const med = scheduleMeds[taken];
     if (taken) await ctx.step('schedule: take the 08:00 row through Timeline', async () => {
       const rows = await timeline(med);
-      // Timeline's row Take acts immediately (_tlAct); unlike Today's Take it has no sheet.
-      await rows.filter({ hasText: '08:00' }).getByRole('button', { name: 'Take', exact: true }).first().click();
+      // A grouped row's direct Take acts on BOTH slot-mates. Open its sheet and explicitly
+      // deselect the Untaken branch, preserving the YAML's distinct morning preconditions.
+      await rows.filter({ hasText: '08:00' }).first().locator('.wg-row__body').click();
+      await page.locator('#med-confirm-modal').waitFor({ state: 'visible' });
+      await page.locator('.med-confirm-check').filter({ hasText: scheduleMeds[false].name }).click();
+      const chosen = page.locator('.med-confirm-check[aria-pressed="true"]');
+      if (await chosen.count() !== 1 || !(await chosen.innerText()).includes(med.name)) throw new Error('wrong grouped dose selection');
+      await ctx.shot('schedule-take-only-selected-med');
+      await page.click('#med-confirm-action-btn');
       await page.locator(`#med-timeline-list [data-med-ids~="${med.id}"][data-state="taken"]`).first().waitFor();
+      await page.locator(`#med-timeline-list [data-med-ids~="${scheduleMeds[false].id}"][data-state="due"]`).first().waitFor();
+      r.untakenBranchStillDue = true;
     });
     await ctx.step(`schedule ${taken}: editor changes to 09:00/21:00; Timeline keeps correct slots`, async () => {
       await editor(name, ['09:00', '21:00'], med.id);
