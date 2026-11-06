@@ -81,7 +81,7 @@ function fillMedEditor(med) {
     setMedStockRow(med && hasInventory ? med : null);
     toggleInventoryFields();
 
-    let sched = { type: 'daily', times: [] };
+    let sched = { type: 'as_needed', times: [] }; // blank manual add; the med-cb7i default
     if (med) {
         try {
             sched = JSON.parse(med.schedule);

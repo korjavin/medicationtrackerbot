@@ -1,0 +1,18 @@
+id: med-new-defaults-as-needed
+title: The manual New medication editor starts as As needed; choosing Daily asks for a time
+platforms: [web, android, ios]
+preconditions:
+  - Meds tab, no medication open
+steps:
+  - Tap Add medication
+  - Pick Daily in the Schedule section, enter a name and a time, save
+  - Open an existing medication in the editor
+invariants:
+  - The blank editor has As needed selected and no time rows shown
+  - Picking Daily shows one empty time row; saving stores a daily schedule with that time
+  - Every existing medication opens on its own schedule type and times
+covered_by:
+  web: web/static/js/tests/meds.modal.test.js
+  android: manual
+  ios: manual
+source: [med-cb7i]
