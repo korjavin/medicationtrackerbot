@@ -15,5 +15,5 @@ invariants:
 covered_by:
   web: manual  # n/a on web: the anonymous trial runs only in the phone shells' local mode; on a phone it needs a live ElevenLabs call (audio, signed transport, restart, metering)
   android: manual  # live vendor audio/audibility, signed call transport, immediate restart and actual trial metering need a device call
-  ios: manual
+  ios: manual  # live vendor audio/audibility, signed call transport, immediate restart and actual trial metering need a device call
 source: [med-dngs, med-ytmf]

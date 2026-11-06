@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.meds.test.js#the due dose shows with Take; Take drops it from Next up at once; Timeline says Taken HH:MM, also after a reload
   android: android/qa/scenarios/core-local.mjs#dose
-  ios: manual
+  ios: manual  # no iOS run yet: the local-mode core flow is med-sz4k.6.1
 source: [Zulip 11272]

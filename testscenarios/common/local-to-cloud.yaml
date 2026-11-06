@@ -18,5 +18,5 @@ invariants:
 covered_by:
   web: manual  # n/a on web: the local side runs only in the phone shells; the account half is pinned by web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration with a stubbed importAll and move.clear; the register choice through the pickup file, med-3u28.6)
   android: manual  # partial: android/qa/scenarios/local-to-cloud-seamless.mjs (empty account, toast, stash cleared, local records intact); no Merge/Replace, failed import or register-choice carry-over assertions
-  ios: manual  # partial: ios/UITests/FlowQAStashTests.swift#testMoveLocalSide (the local half: a seeded move stash keeps the records over a relaunch; no passkey, no account)
+  ios: manual  # partial: ios/UITests/FlowQAStashTests.swift#testMoveLocalSide (the local half: a seeded move stash and the records survive a relaunch, Switch account drops the stash); data/logic only: web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration: empty account with no dialog, Replace confirmed with typed REPLACE, Merge, move.clear; the register choice through the pickup file); missing, owned by med-sz4k.6.4: the iOS account half (empty account, Merge/Replace with typed REPLACE, a failed import keeping the local copy, EU register carry-over)
 source: [med-nt9p.32.18, med-3u28.6]

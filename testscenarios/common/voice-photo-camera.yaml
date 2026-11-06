@@ -17,5 +17,5 @@ invariants:
 covered_by:
   web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing); missing: a live ElevenLabs agent describing the photo, which needs a real call
   android: manual  # real camera image into account/trial vendor audio, spoken visual detail, cancellation and oversize refusal need a device call
-  ios: manual
+  ios: manual  # real camera image into account/trial vendor audio, spoken visual detail, cancellation and oversize refusal need a device call
 source: [med-ku8r, med-adje]
