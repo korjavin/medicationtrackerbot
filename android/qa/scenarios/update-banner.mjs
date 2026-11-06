@@ -4,8 +4,8 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 export const retry = false; // one disposable invite; dispatch-only
 
 export async function control(path, body) {
-  const base = process.env.QA_RECOVERY_CONTROL;
-  if (base !== 'http://127.0.0.1:8766') throw new Error('runner-only QA_RECOVERY_CONTROL unset');
+  if (!process.env.QA_BUNDLES) throw new Error('B2 fixture not configured');
+  const base = 'http://127.0.0.1:8766';
   const res = await fetch(base + path, { method: body === undefined ? 'GET' : 'POST',
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
   if (!res.ok) throw new Error(`fixture ${path}: ${res.status}`);
@@ -121,7 +121,7 @@ export default async function updateBanner(ctx) {
     await page.click('#cloud-update-dismiss');
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await ctx.sleep(2000);
-    if (await page.locator('#cloud-update-banner').count()) throw new Error('Later latch re-nagged');
+    if (await page.locator('#cloud-update-banner').count()) throw new Error('dismissed settled notice returned');
   });
   await ctx.step('state C: new document A with B already waiting shows one notice', async () => {
     await page.reload({ waitUntil: 'load' });

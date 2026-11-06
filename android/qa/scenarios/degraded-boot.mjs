@@ -61,6 +61,7 @@ export default async function degradedBoot(ctx) {
     const reload = page.reload({ waitUntil: 'load' });
     // Do not wait for load: post-unlock import is deliberately held by the QA front.
     try {
+      await page.waitForFunction((old) => performance.timeOrigin !== old, r.beforeFault.timeOrigin, { timeout: 4000 });
       await page.locator('#cloud-update-banner').waitFor({ timeout: 4000 });
       r.updateInFaultDocument = await page.evaluate(() => ({ timeOrigin: performance.timeOrigin, banners: document.querySelectorAll('#cloud-update-banner').length }));
     } finally { r.release = await control('/release', {}); }

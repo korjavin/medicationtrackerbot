@@ -110,14 +110,14 @@ jobs:
           export SESSION_SECRET="$(openssl rand -base64 48)" CLOUD_DB_PATH="$RUNNER_TEMP/cloud.db" PORT=8080
           if [[ "$QA_SCENARIO" = update-banner || "$QA_SCENARIO" = degraded-boot ]]; then
             # Real embedded binaries, one source tree; overlay only deployment stamps.
-            # Match deploy.yml's HTML asset/Settings and SW byte-version stamping.
+            # Match deploy.yml's HTML asset and SW byte-version stamping;
+            # fixture Settings labels distinguish A/B from the same source commit.
             node android/qa/tlsfront/build-bundles.mjs
             # tlsfront keeps its CA and receipts alive, owns serial A→B restart, and
             # inherits the disposable session secret (environment only, never logged).
             sudo --preserve-env=SESSION_SECRET,CLOUD_DB_PATH,PORT,CLOUD_BASE_DOMAIN -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" -receipts "$RUNNER_TEMP/tlsfront-receipts.jsonl" -cloud-a "$RUNNER_TEMP/cloud-A" -cloud-b "$RUNNER_TEMP/cloud-B" -cloud-log "$RUNNER_TEMP/cloud.log" > "$RUNNER_TEMP/tlsfront.log" 2>&1
             cp "$RUNNER_TEMP/cloud-A" "$RUNNER_TEMP/cloud"
             echo "QA_BUNDLES=$RUNNER_TEMP/bundles.json" >> "$GITHUB_ENV"
-            echo "QA_RECOVERY_CONTROL=http://127.0.0.1:8766" >> "$GITHUB_ENV"
           else
             go build -o "$RUNNER_TEMP/cloud" ./cmd/cloud
             nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &

@@ -755,19 +755,22 @@ attempts seen after CDP attach are recorded separately and do not fail the scena
 
 `update-banner` and `degraded-boot` are account-only, dispatch-only and never retry. Their existing
 workflow setup builds two real cloud executables from the same source, using Go overlays to stamp
-HTML asset fingerprints, Settings version and worker bytes exactly as deployment does. `bundles.json`
+HTML asset fingerprints and worker bytes as deployment does. Settings uses the fixture build stamp
+so A/B differ despite sharing one source commit (deployment uses the short git SHA). `bundles.json`
 retains both stamps and SHA-256 hashes of the stamped files and binaries. The TLS front owns the
 serial A→B backend restart at the same address; it keeps the disposable DB/session environment,
 account origin, CA and receipt stream intact. Its B2 control listener binds **127.0.0.1:8766 only**
 and exists only when `-cloud-a`/`-cloud-b` are supplied. It is runner tooling, not an app endpoint.
 
 `update-banner` asserts matching A is quiet, actual B produces one notice across repeated checks,
-Later suppresses re-prompting, and a new A document with B already waiting still shows one notice
+Later hides the settled notice, and a new A document with B already waiting still shows one notice
 (state C). The real Reload must activate B with exactly one new document, including after the
 two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
 must identify B, with the saved note intact. It exercises native Home/return as well as repeated
 visibility signals. Local mode is bundled and outside this account update flow; Play-installed
 updates remain a manual real-device check. This does not implement or deploy local-mode OTA.
+The dismiss-during-install race stays covered by the owning update-check logic suite; the native
+run dismisses after B reaches waiting and does not claim that race as device evidence.
 
 `degraded-boot` waits for the complete real A/B cache graphs, saves the good `/js/apishim.js`
 Responses for each exact cache/key, evicts all copies, clears/disables the HTTP cache (the real SW

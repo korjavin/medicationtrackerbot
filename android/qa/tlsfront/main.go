@@ -58,7 +58,8 @@ func main() {
 
 	// NewSingleHostReverseProxy keeps the inbound Host header, which the cloud routes accounts by.
 	proxy := httputil.NewSingleHostReverseProxy(up)
-	// Only the runner can reach these controls. They are absent in ordinary QA runs.
+	// Controls bind host loopback (also reachable from the emulator via 10.0.2.2).
+	// They are absent in ordinary QA runs and are not cloud product endpoints.
 	// This process retains the disposable DB/session environment through the serial swap;
 	// no credential file and no simultaneous SQLite writers from two cloud generations.
 	var fixture *recoveryFixture
