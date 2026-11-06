@@ -67,7 +67,7 @@ const ModalManager = {
             const overlay = document.getElementById('modal-overlay');
             if (overlay) overlay.classList.add('hidden');
             // app.js applies a refresh held while a sheet was open (med-vhdk).
-            document.dispatchEvent(new Event('modalmanager:empty'));
+            document.dispatchEvent(new Event('modal:closed'));
         }
     },
 

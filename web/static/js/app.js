@@ -582,9 +582,11 @@ function isEditingNow() {
 }
 
 // The ModalManager stack sees runtime sheets without a -modal id (med-eu-sheet,
-// WGPage); the id scan covers modals shown behind ModalManager's back.
+// WGPage), isDialogOpen the in-page safeConfirm/safeChoose dialogs; the id scan
+// covers modals shown behind ModalManager's back.
 function hasOpenModal() {
-    if (window.ModalManager && window.ModalManager._visibleStack().length > 0) return true;
+    const mm = window.ModalManager;
+    if (mm && (mm._visibleStack().length > 0 || mm.isDialogOpen())) return true;
     const modalCandidates = document.querySelectorAll('[id$="-modal"]');
     return Array.from(modalCandidates).some((el) => {
         if (!el || el.classList.contains('hidden')) {
@@ -611,8 +613,8 @@ function scheduleTabRefresh() {
     }, 500);
 }
 
-// Applies a held refresh once it is safe: on the last sheet closing
-// (ModalManager), a field losing focus, the page becoming visible.
+// Applies a held refresh once it is safe: on a sheet or in-page dialog closing
+// (modal:closed), a field losing focus, the page becoming visible.
 function applyPendingTabRefresh() {
     if (pendingRefreshReason) scheduleTabRefresh();
 }
@@ -656,7 +658,7 @@ window.requestTabRefresh = requestTabRefresh;
 
 document.addEventListener('visibilitychange', applyPendingTabRefresh);
 document.addEventListener('focusout', applyPendingTabRefresh);
-document.addEventListener('modalmanager:empty', applyPendingTabRefresh);
+document.addEventListener('modal:closed', applyPendingTabRefresh);
 
 // Reload current active tab data.
 function reloadCurrentTab(meta = {}) {

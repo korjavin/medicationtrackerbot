@@ -542,6 +542,8 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         }
         if (modal.parentNode) modal.parentNode.removeChild(modal);
         if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        // app.js applies a refresh held while the dialog was open (med-vhdk).
+        doc.dispatchEvent(new Event('modal:closed'));
         onResult(result);
     }
 

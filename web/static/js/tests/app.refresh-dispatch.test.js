@@ -96,6 +96,26 @@ describe('app.js refresh dispatch behavior', () => {
     } finally { cleanup(); }
   });
 
+  it('holds a refresh under an in-page confirm dialog, also once its parent sheet closes, and applies it when the dialog settles', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const reloadSpy = vi.fn();
+      window.reloadCurrentTab = reloadSpy;
+
+      window.ModalManager.workoutSession.open();
+      const answer = window.safeConfirm('Discard this set?');
+      window.requestTabRefresh({ source: 'cloud-write' });
+      window.ModalManager.workoutSession.close();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reloadSpy).not.toHaveBeenCalled();
+
+      document.querySelector('mt-modal.mt-confirm-modal .mt-confirm-modal__cancel').click();
+      await answer;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    } finally { cleanup(); }
+  });
+
   it('drops an online refresh that arrives under an open sheet: nothing new to show on close', async () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
