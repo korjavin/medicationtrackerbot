@@ -22,12 +22,35 @@ export default async function offlineAccount(ctx) {
   page = await ctx.step('claim run invite with soft authenticator', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
   await ctx.step('import golden records and complete real account sync', async () => {
-    r.import = await page.evaluate((json) => window.CloudVault.importAll(json), fixture);
+    // The local visual driver's clock is 23:00; the account uses the real device clock.
+    // At 01:00 its same-day BP/food/sleep would otherwise still be in the future. Establish
+    // actual saved-data preconditions using that account clock, keeping the fixture's values.
+    const prepared = await page.evaluate((json) => {
+      const v = JSON.parse(json);
+      const now = Date.now();
+      const iso = (ms) => new Date(ms).toISOString();
+      const day = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+      v.data.bp.readings.at(-1).measured_at = iso(now - 120000);
+      v.data.weight.logs.at(-1).measured_at = iso(now - 180000);
+      v.data.food.logs[0].eaten_at = iso(now - 60000);
+      v.data.food.products[0].last_used_at = iso(now - 60000);
+      // One canonical completed sleep: 450 asleep +15 awake, ending four hours ago.
+      const end = now - 4 * 3600000;
+      v.data.vitals.sleep = [{ ...v.data.vitals.sleep.at(-1), start_time: iso(end - 465 * 60000), end_time: iso(end),
+        timezone_offset: 0, day: day(end), total_minutes: 450, source_id: day(end) }];
+      v.data.vitals.day_stats.at(-1).day = day(now);
+      v.data.vitals.heart.at(-1).date_time = iso(now - 120000);
+      v.data.vitals.spo2.at(-1).date_time = iso(now - 120000);
+      v.data.settings.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return JSON.stringify(v);
+    }, fixture);
+    r.import = await page.evaluate((json) => window.CloudVault.importAll(json), prepared);
     if (r.import.upload !== 'synced') throw new Error(`golden import not uploaded: ${r.import.upload}`);
+    await page.evaluate(() => window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'notes', 'settings', 'food_targets', 'feature_settings']));
     await page.reload({ waitUntil: 'load' });
     await waitForVault(page);
     r.host = new URL(page.url()).host;
-    r.seed = JSON.parse(fixture).data;
+    r.seed = JSON.parse(prepared).data;
     // Record counts/content are retained in the artifact; never print fixture credentials.
     delete r.seed.settings.integrations;
     await page.waitForFunction(async () => {
@@ -61,6 +84,11 @@ export default async function offlineAccount(ctx) {
         await go(tab);
         if (button) await page.locator(button).click();
         await page.locator(selector).filter({ hasText: expected }).waitFor({ timeout: 15_000 });
+        if (name === 'today') {
+          for (const [tile, value] of [['bp', /135[\s\S]*85/], ['weight', /82[.,]1/], ['fuel', /130/], ['sleep', /7h 30m/], ['steps', /10,200/]]) {
+            await page.locator(`[data-section="${tile}"]`).filter({ hasText: value }).waitFor({ timeout: 15_000 });
+          }
+        }
         const text = await page.locator(selector).innerText();
         if (/Failed to load|No sleep data yet|No food logged today|No notes yet/.test(text)) throw new Error(`${name} rendered empty/error: ${text}`);
         r.sections[phase][name] = { ms: Date.now() - t0, text: text.slice(0, 5000) };
@@ -69,7 +97,7 @@ export default async function offlineAccount(ctx) {
         if (phase === 'offline' && r.sections[phase][name].ms >= 5000) throw new Error(`${name} waited ${r.sections[phase][name].ms}ms for cached rows`);
         if (name === 'vitals-sleep') {
           const sleepText = await page.locator('.wg-sleep-card').innerText();
-          if (!/7[.,]8/.test(sleepText)) throw new Error(`saved 465 minute sleep missing: ${sleepText}`);
+          if (!/7[.,]5/.test(sleepText)) throw new Error(`saved 450 minute sleep missing: ${sleepText}`);
           r.sections[phase][name].sleepText = sleepText;
         }
         if (name === 'settings') {
