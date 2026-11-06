@@ -14,4 +14,4 @@ invariants:
 covered_by:
   web: web/static/js/tests/app.navigation.test.js#AppBack.step — one back order
   android: android/qa/scenarios/back-stack.mjs  # Meds sheet, Meds → Food → Today, restored section and root exit; F1/error exits also in back-exit.mjs
-  ios: manual
+  ios: manual  # partial: tests/visual/scenes.json#back-swipe-sheet and #back-swipe-settings-page (VisualQATests, run by the ios.yml visual job, not qa): the shell's left-edge swipe closes the Food add sheet and a Settings page; #back-swipe-today-root swipes on Today and asserts nothing after it; no section-order walk (Meds → Food → Today), restored-section → Today or root assertion (med-sz4k.6.3)

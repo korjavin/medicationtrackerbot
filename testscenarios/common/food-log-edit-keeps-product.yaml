@@ -15,5 +15,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
   android: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs never rewrite shared products (med-5jq.2)  # data/logic only
-  ios: manual
+  ios: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs never rewrite shared products (med-5jq.2) (a repeat log bumps usage once, a macro edit or rename leaves a user-edited product alone, moving three logs to yesterday changes no product); missing, owned by med-sz4k.8: invariant 3 as one sequence, the edited product logged again after the edit, rename and move keeps its values and gains one use
 source: [med-5jq.2]
