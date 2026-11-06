@@ -788,11 +788,13 @@
                 if (!args || !Array.isArray(args.entries)) return answer();
                 if (mode === 'paused') return Promise.reject(new Error('busy'));
                 if (mode === 'running') {
-                    // The first batch lands 4 entries and errors the rest (kept,
-                    // not permanent); every later call never answers.
+                    // The first batch lands 4 entries and leaves the rest's
+                    // results missing (a shorter array: kept, still queued, so
+                    // the job stays mid-copy; an error string would end it);
+                    // every later call never answers.
                     if (hold) return new Promise(() => {});
                     setTimeout(() => { hold = true; }, 0);
-                    return Promise.resolve(args.entries.map((_, i) => (i < 4 ? true : 'busy')));
+                    return Promise.resolve(args.entries.slice(0, 4).map(() => true));
                 }
                 return Promise.resolve(args.entries.map((e) => (mode === 'refused' && e.type === 'weight' ? 'denied' : true)));
             };
