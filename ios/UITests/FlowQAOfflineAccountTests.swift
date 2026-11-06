@@ -123,12 +123,11 @@ final class FlowQAOfflineAccountTests: XCTestCase {
 
         // The server answers again: the queued note itself reaches it on the
         // next open. A push's record_type_tag ("note:<id>", tlsfront keeps it)
-        // names the record: notes.js mints a new note's id above every note id
-        // on the phone, so the offline note is the one note id, never pushed
-        // before the stop, above all of them, in a push answered 200. Another
-        // queued op (any type) answered 200 does not pass.
-        let seedNotes = Set(try QA.receipts(host: host).prefix(receivedBefore).flatMap(Self.noteIds))
-        XCTAssertFalse(seedNotes.isEmpty, "online, no pushed note was observed (the moved notes' ops carry no tags?)")
+        // names the record. The move published the seed in a snapshot, not as
+        // ops, and this flow writes no note online, so the offline note is the
+        // one note op in a push answered 200 after the restart, never pushed
+        // before the stop. Another queued op (any type) does not pass.
+        let notesBefore = Set(try QA.receipts(host: host).prefix(receivedBefore).flatMap(Self.noteIds))
         _ = try QA.fakeServer("POST", "/start")
         launch(app, [])
         XCTAssertTrue(openApp(app, timeout: 90), "back online, the account showed no tab bar")
@@ -136,13 +135,12 @@ final class FlowQAOfflineAccountTests: XCTestCase {
         var newNotes: Set<Int64> = []
         repeat {
             newNotes = Set(try QA.receipts(host: host).dropFirst(receivedBefore)
-                .filter { $0["status"] as? Int == 200 }.flatMap(Self.noteIds)).subtracting(seedNotes)
+                .filter { $0["status"] as? Int == 200 }.flatMap(Self.noteIds)).subtracting(notesBefore)
             if !newNotes.isEmpty { break }
             Thread.sleep(forTimeInterval: 1)
         } while Date() < end
         XCTAssertEqual(newNotes.count, 1, "back online, the pushes answered 200 carry \(newNotes.count) new note ops, not the one offline note: \(newNotes.sorted())")
-        XCTAssertGreaterThan(newNotes.first ?? 0, seedNotes.max() ?? .max,
-                             "the new pushed note \(newNotes.sorted()) is not the newest note (moved notes up to \(seedNotes.max() ?? 0))")
+        XCTAssertGreaterThan(newNotes.first ?? 0, notesBefore.max() ?? 0, "the pushed note \(newNotes.sorted()) is older than a note pushed online \(notesBefore.sorted())")
         visit(app, ("Health", ["Vitals", "Notes"], note), phase: "reconnected")
         shot("offline-account", "reconnected-note")
         attach("offline-account", ["host": host, "receivedBeforeStop": receivedBefore, "online": online, "offline": offline,

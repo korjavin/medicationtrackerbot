@@ -195,8 +195,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   tlsfront stops (`POST /stop`) → terminate → relaunch: no load error, Food
   opens on today, every section shows its records within 5 s, a note is
   written → tlsfront starts → the next open pushes that note's own op
-  (`note:<id>`, the one note id newer than every moved note, recorded from
-  the push body's `record_type_tag` list by tlsfront) and it is answered 200.
+  (`note:<id>`, from the push body's `record_type_tag` list, which tlsfront
+  records): exactly one note op, never pushed before the stop, answered 200.
+  The move publishes the seed in a snapshot and the flow writes no note
+  online, so no other note op can stand in for it.
   The Simulator has no airplane mode: "offline" is a closed port, so the app's
   attempts are refused before any request reaches the server and are not
   observed; zero received requests over the offline interval is the server's
