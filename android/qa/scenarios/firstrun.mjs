@@ -3,6 +3,7 @@
 // down.qa.test) → "Your invite is here" → Sign in → N4 → Switch account → local mode with F1 open
 // again → an invite link (medtracker://) → "Your invite is here" → Sign in → the claim page (/unlock).
 // Opens the run's invite but never claims it: in `all`, retryable.
+import { readFileSync } from 'node:fs';
 const expect = (cond, what) => { if (!cond) throw new Error(what); };
 
 export default async function firstrun(ctx) {
@@ -21,6 +22,8 @@ export default async function firstrun(ctx) {
   };
   r.offlineFirstRun = { egress: [] };
   const rr = r.offlineFirstRun;
+  if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
+  const receiptCount = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).length;
   try {
     await shell(`pm clear ${pkg}`);
     await shell(`pm grant ${pkg} android.permission.POST_NOTIFICATIONS`);
@@ -29,6 +32,7 @@ export default async function firstrun(ctx) {
     await shell('svc data disable');
     rr.radiosOff = { wifi: (await shell('settings get global wifi_on')).trim(), data: (await shell('settings get global mobile_data')).trim() };
     expect(rr.radiosOff.wifi === '0' && rr.radiosOff.data === '0', 'guest radios are not off');
+    rr.receiptsBefore = receiptCount(); // Starts before the first native navigation.
     let p = await ctx.step('offline fresh install opens W1 without an invite', async () => {
       await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
       const pg = await ctx.localPage((x) => x.locator('[data-firstrun-action="skip-all"]').waitFor({ state: 'visible', timeout: 90_000 }));
@@ -114,11 +118,18 @@ export default async function firstrun(ctx) {
     await ctx.step('offline force-stop and reopen retains edited BP and dose, not deleted weight', async () => {
       p = await ctx.launchLocal(undefined, { extra: false });
       watch(p);
-      const data = await p.evaluate(async () => JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data);
-      expect(data.bp.readings.some((x) => String(x.id) === String(rr.bpId) && x.systolic === 132 && x.diastolic === 82), 'edited BP lost');
-      expect(!data.weight.logs.some((x) => String(x.id) === String(rr.weightId)), 'deleted weight returned');
-      expect(data.medications.intakes.some((x) => String(x.medication_id) === String(rr.medId)), 'logged dose lost');
+      const data = await p.evaluate(async () => ({
+        vault: JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data,
+        bp: await window.apiCall('/api/bp?days=60'), weight: await window.apiCall('/api/weight?days=60'),
+      }));
+      // Vault export omits BP and weight ids. Query the app API for exact identity.
+      rr.reopened = { bp: data.bp, weight: data.weight, intakes: data.vault.medications.intakes };
+      expect(data.bp.some((x) => String(x.id) === String(rr.bpId) && x.systolic === 132 && x.diastolic === 82), `edited BP lost: ${JSON.stringify(data.bp)}`);
+      expect(!data.weight.some((x) => String(x.id) === String(rr.weightId)), 'deleted weight returned');
+      expect(data.vault.medications.intakes.some((x) => String(x.medication_id) === String(rr.medId) && x.status === 'TAKEN'), 'logged dose lost');
       expect(!rr.egress.length, `listener observed egress: ${rr.egress.join(', ')}`);
+      rr.receiptsAfter = receiptCount();
+      expect(rr.receiptsAfter === rr.receiptsBefore, `TLS front received ${rr.receiptsAfter - rr.receiptsBefore} requests during offline first run`);
       await ctx.shot('offline-reopened');
     });
   } finally {
