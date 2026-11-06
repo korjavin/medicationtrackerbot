@@ -223,8 +223,8 @@ export default async function euRegister(ctx) {
     await freshPage();
     counting = 'progress';
     r.observationStage = 'progress-app-check';
-    // Hold the real bundled response after its first bytes: the real loader, progress and
-    // Save handler still run. This makes their overlap observable on fast emulators.
+    // Slow the real bundled response after its first bytes: the real loader, progress and
+    // Save handler still run. Periodic real chunks keep its 15-second stall guard armed.
     await page.evaluate(() => {
       const original = window.fetch;
       let release;
@@ -235,10 +235,19 @@ export default async function euRegister(ctx) {
         if (!String(args[0]).includes('/static/data/ema-article57-')) return response;
         const reader = response.body.getReader();
         let first = true;
+        let pending = null;
+        let offset = 0;
         const stream = new ReadableStream({ async pull(controller) {
-          if (!first) await gate;
-          const part = await reader.read();
-          if (part.done) controller.close(); else controller.enqueue(part.value);
+          if (!first) await Promise.race([gate, new Promise((resolve) => setTimeout(resolve, 750))]);
+          if (!pending || offset >= pending.length) {
+            const part = await reader.read();
+            if (part.done) { controller.close(); return; }
+            pending = part.value;
+            offset = 0;
+          }
+          const end = Math.min(offset + 262144, pending.length);
+          controller.enqueue(pending.subarray(offset, end));
+          offset = end;
           first = false;
         }, cancel() { return reader.cancel(); } });
         return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
@@ -264,7 +273,8 @@ export default async function euRegister(ctx) {
       await page.locator('#med-modal-save-btn').click();
       await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 15_000 });
       r.savedWhileLoading = (await page.evaluate(() => window.apiCall('/api/medications'))).some((m) => m.name === 'QA loading medication');
-      if (!r.savedWhileLoading || r.assetRequests.progress !== 1) throw new Error('Save or single real asset load failed during progress');
+      r.loadingAfterSave = await page.evaluate(() => window.apiCall('/api/medications/ema-check?name=Candecor&poll=1'));
+      if (!r.savedWhileLoading || r.loadingAfterSave.status !== 'loading' || r.assetRequests.progress !== 1) throw new Error('Save or single real asset load failed during progress');
     } finally {
       await page.evaluate(() => { window.__qaReleaseEma(); window.__qaRestoreFetch(); });
     }
