@@ -11,5 +11,5 @@ steps:
 invariants:
   - The app opens in local mode with every record, including the ones from the last 24 hours
 covered_by:
-  ios: manual
+  ios: manual  # an iCloud backup and device restore needs a real iPhone and Apple ID
 source: [med-o7zq.11]

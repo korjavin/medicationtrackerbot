@@ -14,4 +14,4 @@ invariants:
 covered_by:
   web: web/static/js/tests/settings.toggles.test.js  # Settings: typed DELETE gate, Cancel deletes nothing, a cancelled passkey leaves the account and stays put, a finished delete wipes and leaves; re-auth before DELETE, a cancelled passkey never DELETEs, the IDB/cache/push/service-worker wipe: web/cloud/js/tests/account-delete.test.js; the account and its session gone: internal/cloudserver/account_test.go#TestAccountDelete_HappyPath
   android: manual  # partial: android/qa/scenarios/delete-account.mjs (typed confirm/delete, host forgotten, local F1/relaunch); no passkey-cancel preservation, comprehensive cache wipe, push unregistration or deleted-host rejection
-  ios: manual
+  ios: manual  # partial: ios/UITests/FlowQAAccountGoneTests.swift#testAccountGone (a host answering 404 + X-Account-Gone is forgotten and the app lands in local mode on "Have an invite?"); no Delete account flow, typed DELETE, passkey re-check or cancel, local data/cache wipe or push off (med-sz4k.6.3)

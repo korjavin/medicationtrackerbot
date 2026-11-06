@@ -13,4 +13,4 @@ invariants:
   - 'With Sleep off and BP or weight imported, the row says "No sleep found: if you track sleep, turn on Sleep for Med Tracker in Settings → Health → Data Access & Devices."'
   - After Sleep is turned on, returning to the app imports the past nights too, not only new ones
 covered_by:
-  ios: manual
+  ios: manual  # Watch-recorded HR/SpO2 and toggling Sleep in Settings → Health → Data Access need a real iPhone with a paired Watch

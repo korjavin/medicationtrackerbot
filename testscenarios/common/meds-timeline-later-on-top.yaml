@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js
   android: manual  # core-local expands Later today for slot membership only; no native later-on-top ordering, focus-action visibility or folded first-dose label assertions
-  ios: manual
+  ios: manual  # partial: data/logic only: web/static/js/tests/meds.timeline.test.js (invariants 1 and 3: later-on-top order within days, folded rows, the first-dose label, Show 3 more days ahead first); missing, owned by med-sz4k.8: invariant 2, the focus card's Take/Skip inside a 390pt viewport (scenes.json probe)
 source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, bd med-5y49]

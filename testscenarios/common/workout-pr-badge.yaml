@@ -14,5 +14,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/features.workout-sessions.test.js#an unconfirmed flagged set earns no PR badge; It's right shows it; a normal heavier set badges
   android: web/static/js/tests/features.workout-sessions.test.js#an unconfirmed flagged set earns no PR badge; It's right shows it; a normal heavier set badges  # data/logic only
-  ios: manual
+  ios: web/static/js/tests/features.workout-sessions.test.js#an unconfirmed flagged set earns no PR badge; It's right shows it; a normal heavier set badges  # data/logic only
 source: [med-l5yr.5, med-l5yr.6]
