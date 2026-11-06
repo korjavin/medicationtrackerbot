@@ -180,9 +180,28 @@ export default async function coreLocal(ctx) {
     await page.locator('#food-list').getByText('QA B1 Meal', { exact: true }).waitFor();
     await ctx.shot('meal-food-total');
     await go('today');
-    await page.waitForFunction((n) => Number(document.querySelector('[data-section="fuel"] .wg-stat__value')?.textContent) === n, before + 321, { timeout: 10_000 });
+    await page.locator('#today-view #today-content [data-section="fuel"] .wg-stat__value').waitFor({ state: 'visible' });
+    await page.waitForFunction((n) => Number(document.querySelector('#today-view #today-content [data-section="fuel"] .wg-stat__value')?.textContent) === n, before + 321, { timeout: 10_000 });
     r.meal = { before, added: 321, foodAndToday: before + 321 };
-    await ctx.shot('meal-today-total');
+    const fuelState = () => page.evaluate(() => {
+      const view = document.getElementById('today-view');
+      const tiles = [...view.querySelectorAll('#today-content [data-section="fuel"] .wg-stat__value')];
+      return { clock: new Date().toISOString(), documentVisibility: document.visibilityState,
+        viewClass: view.className, viewHidden: view.hidden, viewDisplay: getComputedStyle(view).display,
+        tiles: tiles.map((el) => ({ text: el.textContent, visible: !!el.getClientRects().length,
+          display: getComputedStyle(el).display, visibility: getComputedStyle(el).visibility,
+          rect: { x: el.getBoundingClientRect().x, y: el.getBoundingClientRect().y,
+            width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height } })) };
+    });
+    const started = Date.now();
+    r.meal.capture = { startedAt: new Date().toISOString(), nativeBefore: await ctx.shell('date +%s'), before: await fuelState() };
+    r.meal.capture.settleSeconds = await ctx.stableShot('meal-today-total');
+    r.meal.capture.after = await fuelState();
+    r.meal.capture.nativeAfter = await ctx.shell('date +%s');
+    r.meal.capture.ms = Date.now() - started;
+    const after = r.meal.capture.after;
+    if (after.documentVisibility !== 'visible' || after.viewHidden || after.viewDisplay === 'none' || after.tiles.length !== 1
+      || !after.tiles[0].visible || Number(after.tiles[0].text) !== before + 321) throw new Error(`visible Today calorie total changed during capture: ${JSON.stringify(after)}`);
   });
   for (const taken of [true, false]) {
     const name = `QA B1 Schedule ${taken ? 'Taken' : 'Untaken'}`;
