@@ -7,9 +7,13 @@
 //     resolves true
 //   - neither path touches /api export/import routes
 
+import 'fake-indexeddb/auto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { deriveDataKeys, generateDEK } from '../../../cloud/js/crypto.js';
 
 // A minimal well-formed vault the export endpoint / CloudVault returns.
 const SAMPLE_VAULT = {
@@ -841,5 +845,202 @@ describe('Settings → Import/Export section', () => {
             d.resolve();
             expect(await restoring).toEqual({ imported: true });
         });
+    });
+});
+
+// testscenarios/common/backup-export-restore.yaml over the REAL account store:
+// cloud-boot.js's own CloudVault (run like cloud-boot.test.js does, its imports
+// resolved to the real sync.js / apishim.js / vault.js) over a fake-indexeddb
+// mirror and an in-memory sync server, with this page's Settings → Backup on
+// top and the app's /api reads served from the same store.
+describe('testscenarios: Settings → Backup over the real account store', () => {
+    const FIXTURE = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../tests/fixtures/vault-v1.json', import.meta.url)), 'utf8'));
+    const BOOT_SRC = readFileSync(fileURLToPath(new URL('../../../cloud/js/cloud-boot.js', import.meta.url)), 'utf8')
+        .replace(/\bimport\(/g, '__imp(');
+    let devices = [];
+
+    // The account's sync server, empty: no snapshot, no op tail; it takes ops
+    // and snapshots and never serves them back (one device at a time here).
+    const emptyServer = () => {
+        let seq = 0;
+        return vi.fn(async (url, init = {}) => {
+            const u = String(url);
+            const method = init.method || 'GET';
+            if (u === '/api/sync/snapshot' && method === 'GET') return new Response(null, { status: 204 });
+            if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+            if (u === '/api/sync/ops' && method === 'POST') {
+                const { ops } = JSON.parse(init.body);
+                return new Response(JSON.stringify({ assigned: ops.map(() => ++seq) }), { status: 200 });
+            }
+            if (u === '/api/sync/snapshot' && method === 'POST') return new Response('{}', { status: 200 });
+            return new Response('{}', { status: 404 });
+        });
+    };
+
+    // One device: fresh modules (sync.js keeps per-page state), cloud-boot's
+    // CloudVault, and the app page with the shim on that same store.
+    const bootDevice = async () => {
+        vi.resetModules();
+        vi.stubGlobal('fetch', emptyServer());
+        const [sync, shim, vault, vitals, reminders] = await Promise.all([
+            import('../../../cloud/js/sync.js'),
+            import('../../../cloud/js/apishim.js'),
+            import('../../../domain/vault.js'),
+            import('../../../domain/vitals.js'),
+            import('../../../cloud/js/reminders.js'),
+        ]);
+        const ctx = { accountId: 'acct-backup', ...(await deriveDataKeys(generateDEK())) };
+        const modules = {
+            'unlock.js': { warmUnlock: async () => ctx },
+            // The boot's own shim install targets its bare window; the page's is below.
+            'apishim.js': { ...shim, installApiShim: () => Object.assign(async () => null, { unifyLegacy: async () => {}, floorTimeZone: async () => false }) },
+            'sync.js': sync,
+            '/domain/vault.js': vault,
+            '/domain/vitals.js': vitals,
+            'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+            'mcp-responder.js': { refreshResponder: () => {} },
+        };
+        const bootWin = {};
+        const quiet = { error() {}, warn() {}, log() {} };
+        const __imp = (spec) => {
+            const key = spec.replace('/js/', '');
+            return key in modules ? Promise.resolve(modules[key]) : Promise.reject(new Error(`not in this test: ${spec}`));
+        };
+        // eslint-disable-next-line no-new-func
+        new Function('window', 'location', 'console', 'URLSearchParams', '__imp', BOOT_SRC)(bootWin, { hash: '', href: '' }, quiet, URLSearchParams, __imp);
+        await bootWin.MedTrackerCloudReady;
+        await bootWin.MedTrackerCloud.pulled;
+
+        const env = loadFrontendEnv();
+        const { window } = env;
+        window.CloudVault = bootWin.CloudVault;
+        window.BackupCrypto = { ...window.BackupCrypto, isAgeFile: vi.fn(() => false) };
+        window.safeConfirm = vi.fn(async () => true); // the secrets prompt / typed REPLACE
+        window.SyncManager = { showToast: vi.fn() };
+        shim.installApiShim(ctx, { win: window, rxnorm: null });
+        const dev = { env, window, document: env.document, ctx, shim, reminders, vault: bootWin.CloudVault };
+        devices.push(dev);
+        return dev;
+    };
+
+    const teardown = async (dev) => {
+        await dev.shim.materializationSettled();
+        dev.reminders.cancelReminderRecompute(dev.ctx);
+        dev.shim.stopDoseClock();
+        dev.env.cleanup();
+        devices = devices.filter((d) => d !== dev);
+    };
+
+    // Erase: this device's store and the account gone — the next boot starts empty.
+    const erase = async (dev) => {
+        await teardown(dev);
+        await new Promise((resolve, reject) => {
+            const req = indexedDB.deleteDatabase('medtracker-cloud');
+            req.onsuccess = resolve;
+            req.onerror = () => reject(req.error);
+        });
+        return bootDevice();
+    };
+
+    // The vault as the store holds it now (protection stamps each export).
+    const storeData = async (dev) => {
+        const { data } = JSON.parse(await dev.vault.exportAll());
+        delete data.protection;
+        return data;
+    };
+    const sections = (d) => ({
+        medications: d.medications.items.length,
+        doses: d.medications.intakes.length,
+        bp: d.bp.readings.length,
+        weight: d.weight.logs.length,
+        food: d.food.logs.length,
+        workouts: d.workouts.sessions.length,
+        settings: [d.settings.timezone, d.settings.height_cm, d.settings.food_targets],
+    });
+    const weights = async (dev) => (await dev.window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort();
+
+    // Records in every section (the golden fixture), then Settings → Backup:
+    // export, Save to device. Resolves the file's bytes and its vault data.
+    const exportBackup = async (dev) => {
+        await dev.vault.importAll(JSON.stringify(FIXTURE));
+        const downloads = [];
+        dev.window.downloadBlobAsFile = (blob, filename) => downloads.push({ blob, filename });
+        await dev.window.SettingsImportExport.export();
+        dev.document.getElementById('importexport-ready-save').click();
+        expect(downloads).toHaveLength(1);
+        const bytes = new Uint8Array(await blobBytes(dev.window, downloads[0].blob));
+        const { data } = JSON.parse(await dev.window.BackupCrypto.gunzipToString(bytes));
+        delete data.protection;
+        return { bytes, name: downloads[0].filename, data };
+    };
+    const pick = (dev, name, content) => {
+        const file = new dev.window.File([content], name);
+        Object.defineProperty(dev.document.getElementById('importexport-import-file'), 'files', { configurable: true, value: [file] });
+    };
+
+    beforeEach(async () => {
+        allowConsoleNoise(); // location.reload after a restore: jsdom's "not implemented"
+        await new Promise((resolve) => { const r = indexedDB.deleteDatabase('medtracker-cloud'); r.onsuccess = resolve; r.onerror = resolve; });
+    });
+
+    afterEach(async () => {
+        for (const dev of [...devices]) await teardown(dev);
+        vi.unstubAllGlobals();
+    });
+
+    it('export, erase, restore from the file: every record is back; a wrong or corrupt file is refused and nothing is replaced', async () => {
+        const a = await bootDevice();
+        const backup = await exportBackup(a);
+        expect(sections(backup.data)).toEqual(sections(FIXTURE.data));
+
+        const b = await erase(a);
+        expect(await b.window.apiCall('/api/medications')).toEqual([]);
+        expect(await weights(b)).toEqual([]);
+
+        // Restore from the file (an empty account: no typed confirm).
+        pick(b, backup.name, backup.bytes);
+        await b.window.SettingsImportExport.import();
+        expect(b.window.safeConfirm).not.toHaveBeenCalled();
+        const restored = await storeData(b);
+        expect(restored).toEqual(backup.data);
+        expect(sections(restored)).toEqual(sections(FIXTURE.data));
+        expect(restored.vitals.sleep).toEqual(expect.arrayContaining(FIXTURE.data.vitals.sleep));
+        // …and the app reads them back.
+        expect((await b.window.apiCall('/api/medications')).map((m) => m.name)).toEqual(FIXTURE.data.medications.items.map((m) => m.name));
+        expect(await weights(b)).toEqual(FIXTURE.data.weight.logs.map((l) => l.weight).sort());
+        expect(await b.window.apiCall('/api/bp?days=0')).toHaveLength(FIXTURE.data.bp.readings.length);
+
+        // A wrong file and a corrupt backup: refused with a toast, nothing replaced.
+        const corrupt = JSON.stringify({ format: 'medtracker-vault', version: 1, data: { vitals: { sleep: [{ start_time: 'not-a-date', duration_min: 400 }] } } });
+        for (const [name, content] of [['photo.json', '{"format":"x","version":1}'], ['broken.json', corrupt], ['cut.json.gz', backup.bytes.slice(0, 40)]]) {
+            b.window.SyncManager.showToast.mockClear();
+            pick(b, name, content);
+            await b.window.SettingsImportExport.import();
+            expect(b.window.SyncManager.showToast).toHaveBeenCalledWith(expect.any(String), 'error');
+            expect(await storeData(b)).toEqual(backup.data);
+        }
+    });
+
+    it('merge keeps this device\'s records and adds the file\'s; Replace replaces them', async () => {
+        const a = await bootDevice();
+        const backup = await exportBackup(a);
+        const b = await erase(a);
+        await b.window.apiCall('/api/weight', 'POST', { weight: 99 });
+        const json = await b.window.BackupCrypto.gunzipToString(backup.bytes);
+
+        // Merge (the move pickup's choice): 99 stays, every file record lands.
+        b.window.safeChoose = vi.fn(async () => 'merge');
+        expect(await b.window.SettingsImportExport.restoreVault(json, { source: 'move' })).toEqual({ imported: true });
+        expect(await weights(b)).toEqual([99, ...FIXTURE.data.weight.logs.map((l) => l.weight)].sort());
+        const merged = await storeData(b);
+        const { weight: _w, ...rest } = backup.data;
+        expect(merged).toMatchObject(rest);
+
+        // Replace (Settings → Restore, typed REPLACE): the file's records only.
+        pick(b, backup.name, backup.bytes);
+        await b.window.SettingsImportExport.import();
+        expect(b.window.safeConfirm).toHaveBeenCalledWith('', null, expect.objectContaining({ typedConfirm: 'REPLACE' }));
+        expect(await weights(b)).toEqual(FIXTURE.data.weight.logs.map((l) => l.weight).sort());
+        expect(await storeData(b)).toEqual(backup.data);
     });
 });
