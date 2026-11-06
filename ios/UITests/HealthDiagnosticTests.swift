@@ -41,10 +41,20 @@ final class HealthDiagnosticTests: XCTestCase {
                     break
                 }
                 // iOS 26 confirms with "Allow"; the iOS 27 sheet with
-                // "Continue" (then its data-range page, bd med-8f4s.18).
-                for label in ["Allow", "Continue"] {
-                    let button = host.buttons[label].firstMatch
-                    if button.exists && button.isEnabled && button.isHittable { button.tap(); break }
+                // "Continue", then a data-range page whose "Allow" stays
+                // disabled until a window is picked (bd med-8f4s.18). Pick
+                // all history: full access, so readableFrom is 0.
+                let confirm = ["Allow", "Continue"].map { host.buttons[$0].firstMatch }
+                    .first { $0.exists && $0.isEnabled && $0.isHittable }
+                if let confirm {
+                    confirm.tap()
+                    break
+                }
+                let history = host.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label BEGINSWITH %@", "All Recorded Data")).firstMatch
+                if history.exists && history.isHittable {
+                    history.tap()
+                    break
                 }
             }
             Thread.sleep(forTimeInterval: 0.5)
