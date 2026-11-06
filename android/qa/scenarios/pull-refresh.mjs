@@ -182,7 +182,7 @@ export default async function pullRefresh(ctx) {
     await note.fill('Typing stays here');
     await page.evaluate(() => {
       const input = document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input');
-      window.__qaHeld = { input, modal: document.getElementById('workout-session-modal'), toasts: [], changes: [] };
+      window.__qaHeld = { input, exercise: input.closest('.wg-workouts-session-exercise'), modal: document.getElementById('workout-session-modal'), bpList: document.getElementById('bp-list').innerHTML, toasts: [], banners: [], changes: [] };
       const original = window.safeToast;
       window.safeToast = (...args) => { window.__qaHeld.toasts.push(args); return original(...args); };
       new MutationObserver((changes) => {
@@ -190,6 +190,11 @@ export default async function pullRefresh(ctx) {
           if (n === input || (n.contains && n.contains(input))) window.__qaHeld.changes.push('input removed');
         }
       }).observe(document.getElementById('workout-session-modal'), { childList: true, subtree: true });
+      new MutationObserver(() => {
+        for (const el of document.querySelectorAll('#app-banners > :not(#offline-banner)')) {
+          if (el.getClientRects().length && !el.classList.contains('hidden')) window.__qaHeld.banners.push(el.innerText);
+        }
+      }).observe(document.getElementById('app-banners'), { subtree: true, childList: true, attributes: true, characterData: true });
     });
     await shell('input keyevent KEYCODE_HOME');
     await sleep(3000);
@@ -231,8 +236,10 @@ export default async function pullRefresh(ctx) {
       return Array.isArray(rows) && rows.some((x) => x.systolic === 168 && x.diastolic === 97) && rows.some((x) => x.systolic === 171 && x.diastolic === 99);
     }, null, { timeout: 45_000 });
     await sleep(2000);
-    r.held = await page.evaluate(() => ({ sameInput: window.__qaHeld.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), value: window.__qaHeld.input.value, connected: window.__qaHeld.input.isConnected, modalOpen: !window.__qaHeld.modal.classList.contains('hidden'), changes: window.__qaHeld.changes, toasts: window.__qaHeld.toasts }));
-    if (!r.held.sameInput || !r.held.connected || !r.held.modalOpen || r.held.value !== 'Typing stays here' || r.held.changes.length || r.held.toasts.length) throw new Error(`open session changed: ${JSON.stringify(r.held)}`);
+    r.held = await page.evaluate(() => ({ sameInput: window.__qaHeld.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), sameExercise: window.__qaHeld.exercise === document.querySelector('#workout-session-modal .wg-workouts-session-exercise'), sameBPList: window.__qaHeld.bpList === document.getElementById('bp-list').innerHTML, value: window.__qaHeld.input.value, connected: window.__qaHeld.input.isConnected, modalOpen: !window.__qaHeld.modal.classList.contains('hidden'), changes: window.__qaHeld.changes, toasts: window.__qaHeld.toasts, banners: window.__qaHeld.banners }));
+    const dataNotice = r.held.toasts.find(([message]) => /new (reading|entr|data)|synced/i.test(String(message)));
+    const dataBanner = r.held.banners.find((message) => /new (reading|entr|data)|synced/i.test(String(message)));
+    if (!r.held.sameInput || !r.held.sameExercise || !r.held.sameBPList || !r.held.connected || !r.held.modalOpen || r.held.value !== 'Typing stays here' || r.held.changes.length || dataNotice || dataBanner) throw new Error(`open session changed: ${JSON.stringify(r.held)}`);
     await ctx.stableShot('account-session-held');
     await page.locator('#workout-session-cancel-btn').click();
     await page.waitForFunction(() => document.getElementById('workout-session-modal').classList.contains('hidden'), null, { timeout: 15_000 });
