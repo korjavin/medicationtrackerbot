@@ -7,7 +7,12 @@
 // authenticator → the account picks the stash up by itself (no Backup & import): "Sync is on · N
 // records are on your account", the seeded records, the stash gone → Switch account → local mode
 // (F1, bd med-ta2n.12) → the local records are all still there. results.localToCloudSeamless has the
-// counts. Claims the run's one invite: not in `all` (smoke claims it there), no retry.
+// counts. Before the move, choose EU register locally. A runner-only TLS fault blocks account
+// bootstrap reads: "Records not moved yet" appears and the identical stash remains. Release the
+// fault and reopen: pickup succeeds, EU remains selected, and the first medication save generates
+// no RxNav/name egress. Switch account proves the local copy remains. Revisit the populated account
+// by address: Cancel retains its data and stash, Replace requires typed REPLACE (then Cancel), and
+// Merge completes on a retry. Claims the run's one invite: not in `all`, no retry.
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
