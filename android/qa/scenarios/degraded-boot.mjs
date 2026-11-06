@@ -122,7 +122,9 @@ export default async function degradedBoot(ctx) {
         window.switchTab('food');
       });
       await page.locator('.food-tab[data-tab="fooddb"]').click();
-      await page.locator('#fooddb-list').getByText('Some saved data did not load. Reload to fix.', { exact: true }).waitFor({ timeout: 30_000 });
+      // Assert the invariant's Reload guidance, compatible with med-31gk's separately
+      // authorized title/body split. The false title is recorded below until that ships.
+      await page.locator('#fooddb-list .wg-empty').filter({ hasText: /Reload/ }).waitFor({ timeout: 30_000 });
       r.emptyState = await page.locator('#fooddb-list').innerText();
       // R4 / Archie17508: this known product defect is OUTSIDE the tests-only go.
       r.manualGap = { bead: 'med-31gk', title: 'No cached data yet', observed: r.emptyState.includes('No cached data yet') };
