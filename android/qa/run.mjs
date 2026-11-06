@@ -10,6 +10,7 @@ import { join } from 'node:path';
 // passkey-free full-app run; local-visual (one shot per scene) and the other local-* run on their own
 // (local-to-cloud, local-to-cloud-seamless and move-ops claim the invite too: dispatch them alone).
 // core-local is invite-free before smoke; offline-account claims one invite, dispatch-only/no retry.
+// file-backup follows core-local without an invite/retry; local-lock stays standalone until PIN cleanup is proved.
 // reminders-offline (bd med-nt9p.55) follows smoke and reopens its account (alone, it claims the invite).
 // It must stay LAST: its final step reboots the emulator, which ends the UiAutomator driver (bd med-nt9p.57).
 const SCENARIOS = ['firstrun', 'native-dark', 'native-lock','native-fontscale', 'back-exit', 'back-stack', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'invite-link', 'local-smoke', 'core-local', 'file-backup', 'smoke', 'reminders-offline'];

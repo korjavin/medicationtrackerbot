@@ -683,6 +683,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   approved pulse copy is captured in `pulse-rationale`. Release APKs contain neither
   reader nor writer. Real-phone permission/retry checks stay in
   `testscenarios/common/health-write-back.yaml`.
+  B3 additionally inserts SDK weight/settled sleep, uses the existing explicit rescan to assert
+  BP/weight/sleep source labels and dedupe, and keeps WRITE_SLEEP debug-only (details below).
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
   Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
   `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy

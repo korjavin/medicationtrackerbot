@@ -34,6 +34,9 @@ import java.time.ZoneOffset
  * SpO2 reading, all in the last hour; `--ei spo2n N` makes that N SpO2 readings a minute apart
  * (more than one Health Connect page, for the paged scan). QA build (qa.test base) only; logs
  * "ok"/"failed" under the logcat tag qa-health-write.
+ * B3: `--ei grams G` inserts WeightRecord; `--ei sleepDays D` inserts an 8h UTC night ending
+ * at 06:00 D days ago; `--es request R` keys a second JSON line `{request, now, records}` with
+ * SDK IDs, null client IDs and exact timestamps/values. Same package, SDK-assigned dataOrigin.
  */
 class QaHealthWrite : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {

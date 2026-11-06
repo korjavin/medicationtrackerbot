@@ -123,6 +123,7 @@ export default async function localLock(ctx) {
       r.cleanup.radios = await radios();
       if (JSON.stringify(r.cleanup.radios) !== JSON.stringify(r.radiosBefore)) throw new Error('cleanup changed radio state');
       await ctx.shot('cleanup-no-credential');
+      if (r.cleanupAuthenticatedControlError) throw new Error(`authenticated cleanup failed (state recovered): ${r.cleanupAuthenticatedControlError}`);
     });
   }
 }

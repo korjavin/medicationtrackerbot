@@ -9,7 +9,10 @@ import { counts } from './local-to-cloud.mjs';
 export const retry = false;
 const fixture = JSON.parse(readFileSync(new URL('../../../tests/fixtures/vault-v1.json', import.meta.url)));
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
-const snapshot = async (page) => JSON.parse(await page.evaluate(() => window.CloudVault.exportAll()));
+const snapshot = async (page) => JSON.parse(await page.evaluate(async () => {
+  await window.MedTrackerCloudReady;
+  return window.CloudVault.exportAll();
+}));
 
 // local-policy.exportAll supplies a NEW backupAt on every call (vault.js recordsToVault).
 // Compare every data field, including all IDs/FKs/settings and unknown supported blocks,
@@ -51,6 +54,7 @@ export default async function fileBackup(ctx) {
     await sleep(2000);
     const settled = await snapshot(page);
     equal(settled, first, 'baseline did not settle');
+    if (settled.format !== fixture.format || settled.version !== fixture.version) throw new Error('canonical baseline is not the committed vault format/version');
     const missing = Object.keys(fixture.data).filter((key) => key !== 'api_tokens' && !(key in settled.data));
     // Legacy vitals.stress is deliberately ignored by vaultToRecords; passthrough gamification
     // and api_tokens ARE supported and compared in full. No timezone/core-only normalization.
@@ -102,10 +106,10 @@ export default async function fileBackup(ctx) {
       await page.click('#importexport-local-erase-btn');
       await page.locator('.mt-confirm-modal__input').fill('ERASE');
       await ctx.shot('erase-confirm');
+      const loaded = page.waitForEvent('load', { timeout: 60_000 });
       await page.click('.mt-confirm-modal__confirm');
+      await loaded;
       await page.waitForURL(`${ctx.LOCAL_ORIGIN}/`, { timeout: 60_000 });
-      // Erase navigates to the SAME URL; attach to its completed new document explicitly.
-      await sleep(3000);
       await ctx.waitLocalReady(page);
       if (new URL(page.url()).searchParams.has('qa')) throw new Error('erase retained seed scene');
       const empty = await snapshot(page);
@@ -119,7 +123,12 @@ export default async function fileBackup(ctx) {
       const skip = page.locator('[data-firstrun-action="skip-all"]');
       if (await skip.isVisible()) {
         await skip.click();
-        await page.locator('[data-firstrun-action="not-now"]').click();
+        // QA's native trial is unsupported, so the picker can finish directly.
+        // Supported builds may offer the trial next; either real route ends at the app.
+        await page.waitForFunction(() => !document.getElementById('wg-firstrun-overlay') ||
+          !!document.querySelector('[data-firstrun-action="not-now"]'), null, { timeout: 15_000 });
+        const notNow = page.locator('[data-firstrun-action="not-now"]');
+        if (await notNow.isVisible()) await notNow.click();
         await page.locator('#wg-firstrun-overlay').waitFor({ state: 'hidden' });
       }
     });

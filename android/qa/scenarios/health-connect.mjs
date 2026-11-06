@@ -279,6 +279,8 @@ export default async function healthConnect(ctx) {
       for (const [type, record] of [['bp', bp], ['weight', weight], ['sleep', night]]) {
         if (!provider[type].samples.some((s) => s.uuid === record.id)) throw new Error(`SDK-assigned ${type} UUID absent from real bridge scan`);
       }
+      const sleepSample = provider.sleep.samples.find((s) => s.uuid === night.id);
+      if (sleepSample.source !== pkg || sleepSample.start !== night.start || sleepSample.end !== night.end) throw new Error('SDK-assigned sleep origin/window mismatch');
       await ctx.page.locator('[data-nav-to="settings"]:visible').first().click();
       await toggle(); await sleep(1000); await toggle();
       const imported = async () => ctx.page.evaluate(async () => JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data);
@@ -338,7 +340,7 @@ export default async function healthConnect(ctx) {
       r.b3 = { access, before, after, inserted, providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
         day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date),
         manualSleepBoundary: 'hand-authored canonical fixture; no Sleep editor claimed', dedupe: true,
-        provenance: 'same package, SDK-assigned dataOrigin' };
+        sleepOrigin: sleepSample.source, provenance: 'same package, SDK-assigned dataOrigin' };
     });
 
     await ctx.step('another app saves #2 while in the background → back in the foreground → #2 arrives', async () => {
