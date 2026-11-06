@@ -3,6 +3,7 @@
 // down.qa.test) → "Your invite is here" → Sign in → N4 → Switch account → local mode with F1 open
 // again → an invite link (medtracker://) → "Your invite is here" → Sign in → the claim page (/unlock).
 // Opens the run's invite but never claims it: in `all`, retryable.
+import { readFileSync } from 'node:fs';
 const expect = (cond, what) => { if (!cond) throw new Error(what); };
 
 export default async function firstrun(ctx) {
@@ -12,6 +13,131 @@ export default async function firstrun(ctx) {
     await sleep(1500); // SharedPreferences.apply() writes asynchronously
     return shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
   };
+
+  // Exercise a genuine first boot without connectivity, then replay the empty-origin
+  // boot under CDP: attachment necessarily happens after the native first navigation.
+  const radios = {
+    wifi: (await shell('settings get global wifi_on')).trim(),
+    data: (await shell('settings get global mobile_data')).trim(),
+  };
+  r.offlineFirstRun = { egress: [] };
+  const rr = r.offlineFirstRun;
+  if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
+  const receiptCount = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).length;
+  try {
+    await shell(`pm clear ${pkg}`);
+    await shell(`pm grant ${pkg} android.permission.POST_NOTIFICATIONS`);
+    await shell(`appops set ${pkg} SCHEDULE_EXACT_ALARM allow`);
+    await shell('svc wifi disable');
+    await shell('svc data disable');
+    rr.radiosOff = { wifi: (await shell('settings get global wifi_on')).trim(), data: (await shell('settings get global mobile_data')).trim() };
+    expect(rr.radiosOff.wifi === '0' && rr.radiosOff.data === '0', 'guest radios are not off');
+    rr.receiptsBefore = receiptCount(); // Starts before the first native navigation.
+    let p = await ctx.step('offline fresh install opens W1 without an invite', async () => {
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      const pg = await ctx.localPage((x) => x.locator('[data-firstrun-action="skip-all"]').waitFor({ state: 'visible', timeout: 90_000 }));
+      expect(!(await pg.evaluate(() => navigator.onLine)), 'fresh boot reports online');
+      expect(/name="wgLocalMode" value="true"/.test(await prefs()), 'fresh boot did not select local mode');
+      await ctx.shot('offline-fresh-w1');
+      return pg;
+    });
+    const watch = (pg) => {
+      const note = (url) => {
+        const u = new URL(url);
+        if (/^(https?|wss?):$/.test(u.protocol) && u.host !== new URL(ctx.LOCAL_ORIGIN).host) rr.egress.push(url);
+      };
+      pg.on('request', (q) => note(q.url()));
+      pg.on('websocket', (w) => note(w.url()));
+    };
+    watch(p);
+    await ctx.step('listener-observed empty-origin replay and first run', async () => {
+      await p.goto(`${ctx.LOCAL_ORIGIN}/qa/scenes.json`, { waitUntil: 'load' });
+      await p.evaluate(async () => {
+        localStorage.clear(); sessionStorage.clear();
+        await Promise.all((await indexedDB.databases()).map((d) => new Promise((resolve, reject) => {
+          const q = indexedDB.deleteDatabase(d.name);
+          q.onsuccess = resolve; q.onerror = () => reject(q.error); q.onblocked = () => reject(new Error(`delete ${d.name} blocked`));
+        })));
+      });
+      await p.goto(`${ctx.LOCAL_ORIGIN}/`, { waitUntil: 'load' });
+      await p.locator('[data-firstrun-action="skip-all"]').click();
+      await p.waitForFunction(() => !document.getElementById('wg-firstrun-overlay') || !!document.querySelector('[data-firstrun-action="not-now"]'), null, { timeout: 15_000 });
+      if (await p.locator('[data-firstrun-action="not-now"]').isVisible()) await p.locator('[data-firstrun-action="not-now"]').click();
+      await p.locator('#wg-firstrun-overlay').waitFor({ state: 'hidden' });
+    });
+    const go = async (tab) => {
+      await p.evaluate((t) => window.switchTab(t), tab);
+      await p.locator(`#${tab}-view`).waitFor({ state: 'visible' });
+    };
+    await ctx.step('offline UI: log BP and weight, edit BP and delete weight', async () => {
+      await go('bp');
+      await p.click('#add-bp-btn');
+      await p.fill('#bp-systolic', '128');
+      await p.fill('#bp-diastolic', '82');
+      await p.click('#bp-modal-save-btn');
+      await p.locator('#bp-modal').waitFor({ state: 'hidden' });
+      const bp = (await p.evaluate(() => window.apiCall('/api/bp?days=60')))[0];
+      expect(bp?.systolic === 128 && bp?.diastolic === 82, 'new BP missing');
+      rr.bpId = bp.id;
+      await p.locator(`#bp-list [data-reading-id="${bp.id}"] .wg-bp-reading-row__value`).click();
+      await p.fill('#bp-systolic', '132');
+      await p.click('#bp-modal-save-btn');
+      await p.locator('#bp-modal').waitFor({ state: 'hidden' });
+      await go('weight');
+      await p.click('#add-weight-btn');
+      await p.fill('#weight-value', '81.2');
+      await p.click('#weight-modal-save-btn');
+      await p.locator('#weight-modal').waitFor({ state: 'hidden' });
+      const weight = (await p.evaluate(() => window.apiCall('/api/weight?days=60')))[0];
+      expect(Number(weight?.weight) === 81.2, 'new weight missing');
+      rr.weightId = weight.id;
+      const row = p.locator(`#weight-list [data-weight-id="${weight.id}"]`);
+      await row.locator('.wg-swipe__more').click();
+      await row.getByRole('menuitem', { name: 'Delete' }).click();
+      await p.waitForFunction(() => !document.querySelector('#weight-list [data-weight-id]'));
+      await p.evaluate(() => window.flushPendingDelete());
+      await ctx.shot('offline-edited-bp-deleted-weight');
+    });
+    await ctx.step('offline UI: add an as-needed medication and log a dose', async () => {
+      await go('meds');
+      await p.locator('.med-tab[data-tab="schedule"]').click();
+      await p.getByRole('button', { name: 'Add medication', exact: true }).first().click();
+      await p.fill('#med-name', 'QA Offline Dose');
+      await p.fill('#med-dosage', '5mg');
+      await p.click('#med-modal-save-btn');
+      await p.locator('#med-modal').waitFor({ state: 'hidden' });
+      const med = (await p.evaluate(() => window.apiCall('/api/medications'))).find((m) => m.name === 'QA Offline Dose');
+      expect(!!med, 'medication missing'); rr.medId = med.id;
+      const row = p.locator(`#med-list [data-med-id="${med.id}"]`);
+      await row.getByRole('button', { name: 'Log', exact: true }).click();
+      await p.locator('#med-confirm-modal').waitFor({ state: 'visible' });
+      await p.click('#med-confirm-action-btn');
+      await p.locator('#med-confirm-modal').waitFor({ state: 'hidden' });
+      await ctx.shot('offline-dose-logged');
+    });
+    await ctx.step('offline force-stop and reopen retains edited BP and dose, not deleted weight', async () => {
+      p = await ctx.launchLocal(undefined, { extra: false });
+      watch(p);
+      const data = await p.evaluate(async () => ({
+        vault: JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data,
+        bp: await window.apiCall('/api/bp?days=60'), weight: await window.apiCall('/api/weight?days=60'),
+      }));
+      // Vault export omits BP and weight ids. Query the app API for exact identity.
+      rr.reopened = { bp: data.bp, weight: data.weight, intakes: data.vault.medications.intakes };
+      expect(data.bp.some((x) => String(x.id) === String(rr.bpId) && x.systolic === 132 && x.diastolic === 82), `edited BP lost: ${JSON.stringify(data.bp)}`);
+      expect(!data.weight.some((x) => String(x.id) === String(rr.weightId)), 'deleted weight returned');
+      expect(data.vault.medications.intakes.some((x) => String(x.medication_id) === String(rr.medId) && x.status === 'TAKEN'), 'logged dose lost');
+      expect(!rr.egress.length, `listener observed egress: ${rr.egress.join(', ')}`);
+      rr.receiptsAfter = receiptCount();
+      expect(rr.receiptsAfter === rr.receiptsBefore, `TLS front received ${rr.receiptsAfter - rr.receiptsBefore} requests during offline first run`);
+      await ctx.shot('offline-reopened');
+    });
+  } finally {
+    await shell(`svc wifi ${radios.wifi === '0' ? 'disable' : 'enable'}`);
+    await shell(`svc data ${radios.data === '0' ? 'disable' : 'enable'}`);
+    rr.radiosRestored = { wifi: (await shell('settings get global wifi_on')).trim(), data: (await shell('settings get global mobile_data')).trim() };
+    expect(JSON.stringify(rr.radiosRestored) === JSON.stringify(radios), 'guest radio cleanup failed');
+  }
 
   await shell(`pm clear ${pkg}`);
   let page = await ctx.step('fresh install → W1 in local mode, no native screen', async () => {

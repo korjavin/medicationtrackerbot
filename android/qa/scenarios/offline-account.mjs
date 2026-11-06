@@ -143,6 +143,15 @@ export default async function offlineAccount(ctx) {
     if (!r.receiptsOnline) throw new Error('receipt accounting did not observe online account');
     await ctx.sleep(6000);
   });
+  await ctx.step('Food: browse yesterday before offline relaunch', async () => {
+    await go('food');
+    await page.locator('.food-tab[data-tab="log"]').click();
+    r.foodToday = await page.inputValue('#food-date-filter');
+    await page.click('#food-date-prev-btn');
+    r.foodYesterday = await page.inputValue('#food-date-filter');
+    if (!r.foodToday || !r.foodYesterday || r.foodYesterday >= r.foodToday) throw new Error(`Food did not navigate to an earlier date: ${r.foodYesterday} / ${r.foodToday}`);
+    await ctx.shot('food-yesterday-before-offline');
+  });
   const saved = r.radiosBefore = {
     airplane: (await ctx.shell('settings get global airplane_mode_on')).trim(),
     wifi: (await ctx.shell('settings get global wifi_on')).trim(),
@@ -172,6 +181,17 @@ export default async function offlineAccount(ctx) {
         data: await ctx.shell('settings get global mobile_data'),
       };
       if (r.radiosOff.airplane.trim() !== '1' || r.radiosOff.wifi.trim() !== '0' || r.radiosOff.data.trim() !== '0') throw new Error('radios not actually disabled');
+    });
+    await ctx.step('offline Food opens on today after browsing yesterday', async () => {
+      await go('food');
+      await page.locator('.food-tab[data-tab="log"]').click();
+      r.foodAfterRelaunch = await page.inputValue('#food-date-filter');
+      const today = await page.evaluate(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      });
+      if (r.foodAfterRelaunch !== today || r.foodAfterRelaunch === r.foodYesterday) throw new Error(`Food opened ${r.foodAfterRelaunch}, expected ${today}`);
+      await ctx.stableShot('offline-food-today-after-relaunch');
     });
     await checkViews('offline');
     await ctx.step('offline: real note write stays enabled, durable after reload and pending', async () => {
