@@ -174,6 +174,10 @@ export default async function localToCloudSeamless(ctx) {
     const off = lost(r.local, r.account);
     if (off.length) throw new Error(`account lost records: ${off.map((k) => `${k} ${r.account[k]}≠${r.local[k]}`).join(', ')}`);
     await page.evaluate(() => window.switchTab('meds'));
+    // The moved schedule can trigger the real notification offer on the
+    // account. Dismiss it through its own UI before touching the schedule.
+    const offer = page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+    if (await offer.isVisible().catch(() => false)) await offer.click();
     await page.locator('.med-tab[data-tab="schedule"]').click();
     await page.locator('#med-list > *').first().waitFor({ timeout: 15_000 });
     await ctx.stableShot('account-meds');
