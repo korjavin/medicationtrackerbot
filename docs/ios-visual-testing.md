@@ -27,7 +27,7 @@ For the populated native scene, dispatch `-f visual=true -f visual_scenes=health
 
 Download `health-native-baseline`: `xctest.log`, the result bundle with a screenshot and native JSON report, requested entitlements, actual executable signature/entitlements and load commands, build log and Simulator Health system logs. Check native `available`, authorization errors and `queryCompleted`, plus XCTest's actual failure count. An empty successful query proves API access, not populated-card acceptance. Inspect the permission screenshot if authorization remains pending. Simulator entitlements may be in a Mach-O `__entitlements` section even when the code-signature entitlement dictionary is empty.
 
-The unsigned baseline on 2026-10-30 returned `available: true` and HealthKit error 4, `Missing com.apple.developer.healthkit entitlement.` Xcode Simulator signing subsequently launched the real Health Access sheet. These observations distinguish the original entitlement failure from a missing Health store; they do not establish seeded visual scenes.
+The unsigned baseline on 2026-10-30 returned `available: true` and HealthKit error 4, `Missing com.apple.developer.healthkit entitlement.` Xcode Simulator signing subsequently launched the real Health Access sheet. These observations distinguish the original entitlement failure from a missing Health store; they do not establish seeded visual scenes. On the `xcode-27` image's iOS 27.2 runtime (run 42135726961, 2026-11-06) the unsigned baseline no longer errors: `requestAuthorization` never returns, no sheet appears, healthd logs nothing for the app, and the test fails `pending` after its 120 s wait — expected for an unentitled build, not a regression.
 
 ## Duration
 
