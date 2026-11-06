@@ -1054,8 +1054,8 @@ export function startHealthImport(ctx, {
         if (!ids.includes(id)) return false;
         job.ids[entry] = ids.filter((x) => x !== id);
         job.dropped = { ...job.dropped, [entry]: [...dropped, id] };
-        writeJSON(storage, JOB_KEY, job);
-        return true;
+        // Not saved: the caller keeps the id queued, and the next rejection drops it.
+        return writeJSON(storage, JOB_KEY, job);
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess, onPermanent });
 
@@ -1183,7 +1183,8 @@ export function startHealthImport(ctx, {
             delete job.blocked[k];
         }
         if (rows.length && !writeBack.mark(rows)) return 0;
-        writeJSON(storage, JOB_KEY, job);
+        // Not saved: the kinds stay blocked and are retried; no progress.
+        if (!writeJSON(storage, JOB_KEY, job)) return 0;
         return rows.length;
     };
     let copying = null;

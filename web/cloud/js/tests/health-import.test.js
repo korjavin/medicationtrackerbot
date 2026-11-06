@@ -2795,6 +2795,53 @@ describe('Health write-back', () => {
                 expect(Object.values(copied).reduce((n, m) => n + Object.keys(m).length, 0)).toBe(5);
             });
 
+            // The job write that would move a rejected id into job.dropped fails once (Argus 17362).
+            const failJobWriteOnce = () => {
+                const set = storage.setItem;
+                let armed = true;
+                storage.setItem = (k, v) => {
+                    if (k === 'wg.health.backfill' && armed) { armed = false; throw new Error('quota'); }
+                    return set(k, v);
+                };
+            };
+
+            it('(c) a batch rejection whose job write fails stays queued and in the job, then drops on the resend (Argus 17362)', async () => {
+                allowConsoleNoise();
+                let attempts = 0;
+                let atResend = null;
+                health.write = shellWrite(async (a) => {
+                    if (a.id !== 'bp-c') return true;
+                    if (++attempts === 1) failJobWriteOnce();
+                    else atResend = { queued: Object.keys(dirty().bp || {}), ids: job().ids.bp, dropped: job().dropped };
+                    return 'bad write: systolic';
+                });
+                await open();
+                await tap();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied. It's still in the app."]));
+                expect(attempts).toBe(2);
+                expect(atResend).toEqual({ queued: ['bp-c'], ids: expect.arrayContaining(['bp-c']), dropped: undefined });
+                expect(job()).toMatchObject({ dropped: { bp: ['bp-c'] }, ids: { bp: ['bp-a', 'bp-e'] } });
+                expect(ledgerSize()).toBe(0);
+            });
+
+            it('(c) a single rejection whose job write fails stays queued and in the job, then drops on the resend (Argus 17362)', async () => {
+                allowConsoleNoise();
+                storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-c': 1 } }));
+                storage.setItem('wg.health.backfill', JSON.stringify({ startedAt: 1, total: 1, ids: { bp: ['bp-c'] }, blocked: {} }));
+                let atResend = null;
+                const write = vi.fn(async () => {
+                    if (write.mock.calls.length === 1) failJobWriteOnce();
+                    else atResend = { queued: Object.keys(dirty().bp), ids: job().ids.bp, dropped: job().dropped };
+                    throw new Error('invalid blood pressure');
+                });
+                await open({ ...health, write }, { copyBackoffMs: 0 }); // the kept pass made no progress: back off, retry at once
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied. It's still in the app."]));
+                expect(write).toHaveBeenCalledTimes(2);
+                expect(atResend).toEqual({ queued: ['bp-c'], ids: ['bp-c'], dropped: undefined });
+                expect(dirty().bp).toEqual({});
+                expect(job()).toMatchObject({ dropped: { bp: ['bp-c'] }, ids: { bp: [] } });
+            });
+
             it('(c) two rejected entries read in the plural (Miles 17327)', async () => {
                 allowConsoleNoise();
                 health.write = shellWrite(async (a) => (a.id === 'bp-c' || a.id === 'bp-e' ? 'bad write: systolic' : true));
