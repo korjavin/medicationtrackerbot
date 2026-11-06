@@ -252,6 +252,11 @@ export default async function euRegister(ctx) {
       await page.locator('#med-name').dispatchEvent('change');
       await page.locator('#med-eu-slot .wg-meter').waitFor({ timeout: 30_000 });
       r.progressText = await page.locator('#med-eu-slot').textContent();
+      // The emulator launcher may raise an ANR over the WebView. Dismiss it promptly;
+      // waiting ten seconds here would consume the loader's real 15-second stall guard.
+      if (await ctx.device.wait({ text: /.*isn['’]t responding.*/ }, { timeout: 500 }).then(() => true, () => false)) {
+        await ctx.device.tap({ text: 'Wait' });
+      }
       await ctx.stableShot('register-progress', { cap: 4 });
       r.progressAfterShot = await page.locator('#med-eu-slot').textContent();
       if (!r.progressAfterShot.includes('Loading the EU register')) throw new Error('register stopped loading before Save');
@@ -530,6 +535,7 @@ export default async function euRegister(ctx) {
     await sleep(1500); // switching sections may restore its prior scroll after switchTab returns
     await page.evaluate(() => { window.scrollTo(0, 0); window.__qaPullSeen = false; window.__qaTouch = {}; for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) document.addEventListener(t, () => { window.__qaTouch[t] = (window.__qaTouch[t] || 0) + 1; }, { passive: true, capture: true }); new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
     await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 10_000 });
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
     const { bounds } = await ctx.device.info({ clazz: 'android.webkit.WebView' });
     const x = Math.round(bounds.x + bounds.width / 2);
     const y = Math.round(bounds.y + bounds.height * 0.3);
