@@ -62,10 +62,10 @@ export async function observeDocument(page, r) {
   const observe = () => {
     const report = (event) => console.log('B2_EVENT ' + JSON.stringify({ type: event.type,
       trusted: event.isTrusted, state: document.visibilityState, focused: document.hasFocus(),
-      at: Date.now(), timeOrigin: performance.timeOrigin }));
+      target: event.target === window ? 'window' : 'document', at: Date.now(), timeOrigin: performance.timeOrigin }));
     document.addEventListener('visibilitychange', report, true);
-    window.addEventListener('focus', report, true);
-    window.addEventListener('blur', report, true);
+    window.addEventListener('focus', report);
+    window.addEventListener('blur', report);
   };
   await page.addInitScript(observe);
   await page.evaluate(observe);
@@ -151,11 +151,15 @@ export default async function updateBanner(ctx) {
     await observeDocument(page, r);
     await page.evaluate(() => {
       navigator.serviceWorker.getRegistration().then((reg) => {
-        reg.addEventListener('updatefound', () => {
-          const worker = reg.installing;
+        const watch = (worker) => {
           console.log(`B2_SW ${worker?.state}`);
           worker?.addEventListener('statechange', () => console.log(`B2_SW ${worker.state}`));
-        });
+        };
+        // Cold-open install can predate CDP attach: retain its real current
+        // state and follow an already-installing worker, not only updatefound.
+        console.log(`B2_SW attach installing=${reg.installing?.state} waiting=${reg.waiting?.state} active=${reg.active?.state}`);
+        watch(reg.installing);
+        reg.addEventListener('updatefound', () => watch(reg.installing));
       });
       navigator.serviceWorker.addEventListener('controllerchange', () => console.log(`B2_SW controller ${navigator.serviceWorker.controller?.state}`));
     });
