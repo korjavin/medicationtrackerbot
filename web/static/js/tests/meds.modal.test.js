@@ -830,6 +830,24 @@ describe('Medication editor page (kit M5–M6)', () => {
             expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications', 'POST', expect.objectContaining({ name: 'Candecor' }));
         });
 
+        // testscenarios/common/eu-register-check.yaml: "Save works meanwhile".
+        it('Save works while the first download is still loading (ER4)', async () => {
+            const { document, window } = env;
+            const loading = { status: 'loading', progress: 0.2, candidates: [], ambiguous: false, source: null };
+            window.apiCallDirect = vi.fn(async (url) => (url.startsWith('/api/medications/ema-check')
+                ? loading : { id: 1, status: 'created', warning: '' }));
+            window.DataStore.applyOptimistic = vi.fn().mockResolvedValue({ commit: vi.fn(), rollback: vi.fn() });
+            window.loadMeds = vi.fn();
+            window.showAddModal();
+            commitName(document, window, 'Candecor');
+            await vi.waitFor(() => expect(slot(document).textContent).toContain('Loading the EU register, only this once.'));
+
+            document.getElementById('schedule-type').value = 'as_needed';
+            await window.saveMedication();
+            expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications', 'POST', expect.objectContaining({ name: 'Candecor' }));
+            window.closeModal(); // stops the poll
+        });
+
         it('discards a late answer after the editor closes, the name changes or another med opens', async () => {
             const { document, window } = env;
             const pending = [];
