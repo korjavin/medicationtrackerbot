@@ -37,7 +37,7 @@ final class FlowQAOfflineAccountTests: XCTestCase {
         ("Train", ["Equipment"], "Ohio bar"),
         ("Health", ["BP"], "135"),
         ("Health", ["Weight"], "82.1"),
-        ("Health", ["Vitals", "Overview"], "10,200"),
+        ("Health", ["Vitals", "Overview"], "7.5 h"),
         ("Health", ["Vitals", "Notes"], "Felt good after the run today"),
         ("Settings", [], "Food 2200 kcal"),
     ]

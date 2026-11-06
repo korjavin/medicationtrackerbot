@@ -102,12 +102,11 @@ final class FlowQACoreLocalTests: XCTestCase {
         launch(app, "core-local-weight", clock: "10:25")
         type(app, "value", "77.7")
         save(app, "the new weight", modal: "weight-modal", until: { Self.rows($0, "weight").contains { $0.contains("77.7") } })
-        // A finger swipe left reveals the row's Delete (wg-row-actions.js).
-        for _ in 0..<3 where QA.target(QA.flow(app), "delete") == nil {
-            guard let row = QA.target(QA.flow(app), "row") else { break }
-            QA.coordinate(app, row, at: CGPoint(x: 0.85, y: 0.5)).press(forDuration: 0.05, thenDragTo: QA.coordinate(app, row, at: CGPoint(x: 0.15, y: 0.5)))
-            _ = QA.waitFlow(app, timeout: 3) { QA.target($0, "delete") != nil }
-        }
+        // The row's More menu (wg-row-actions.js): the same Delete as the
+        // touch swipe, which an XCUITest press-drag lands as a tap (it opened
+        // the editor in CI).
+        (ok, f) = QA.tapTarget(app, "more", until: { QA.target($0, "delete") != nil })
+        XCTAssertTrue(ok, "the 77.7 kg row's More menu did not open: \(QA.json(f))")
         (ok, f) = QA.tapTarget(app, "delete", until: { !Self.rows($0, "weight").contains { $0.contains("77.7") } })
         XCTAssertTrue(ok, "Delete did not remove the 77.7 kg entry: \(QA.json(f))")
         shot("core-local", "weight-deleted")
