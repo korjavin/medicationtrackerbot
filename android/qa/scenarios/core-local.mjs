@@ -9,8 +9,11 @@ export default async function coreLocal(ctx) {
   // so a write-triggered reminder offer cannot cover the editors being exercised.
   await ctx.shell(`pm grant ${ctx.pkg} android.permission.POST_NOTIFICATIONS`);
   await ctx.shell(`appops set ${ctx.pkg} SCHEDULE_EXACT_ALARM allow`);
-  let page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
+  let page;
+  try {
+  page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
     const p = await ctx.launchLocal('today');
+    page = p; // Retain ownership for finally even if setup fails.
     r.initialCut = await p.evaluate(async () => (await import('/js/sync.js')).localRecordsPort().list('ledgercut'));
     // The initial 23:00 visual boot already established a put-if-absent ledger cut. A clock
     // jump backwards cannot generate new doses before it. Reuse local-smoke's neutral-page
@@ -31,7 +34,14 @@ export default async function coreLocal(ctx) {
     // before the first seeded boot; retain all unrelated golden records and real UI writes.
     const fixture = JSON.parse(readFileSync(new URL('../../../tests/fixtures/vault-v1.json', import.meta.url), 'utf8'));
     fixture.data.tz = { history: [], transition_plans: [], transitions: [] };
-    await p.addInitScript((vault) => { window.__wgQAFiles = { '/qa/vault-v1.json': vault }; }, fixture);
+    await p.evaluate(() => sessionStorage.setItem('qa-b1-core-fixture', '1'));
+    // Playwright cannot remove a page init script. Gate it on this scenario's session marker,
+    // which finally removes, so a later local launch gets the complete golden fixture.
+    await p.addInitScript(({ vault, origin }) => {
+      if (location.origin === origin && sessionStorage.getItem('qa-b1-core-fixture') === '1') {
+        window.__wgQAFiles = { '/qa/vault-v1.json': vault };
+      }
+    }, { vault: fixture, origin: ctx.LOCAL_ORIGIN });
     await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
     r.setupClock = await p.evaluate(async () => ({ now: new Date().toISOString(), pinned: !!Date.wgQAPinned,
@@ -210,5 +220,15 @@ export default async function coreLocal(ctx) {
       r.schedules[taken ? 'taken' : 'untaken'] = dayText;
       await ctx.shot(`schedule-${taken ? 'taken' : 'untaken'}`);
     });
+  }
+  } finally {
+    if (page && !page.isClosed()) {
+      await page.evaluate(() => {
+        sessionStorage.removeItem('qa-b1-core-fixture');
+        delete window.__wgQAFiles;
+      });
+      r.fixtureOverrideCleared = await page.evaluate(() => !sessionStorage.getItem('qa-b1-core-fixture') && !window.__wgQAFiles);
+      if (!r.fixtureOverrideCleared) throw new Error('core fixture override cleanup failed');
+    }
   }
 }
