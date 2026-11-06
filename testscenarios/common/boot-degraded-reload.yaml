@@ -12,7 +12,7 @@ invariants:
   - An empty state caused by the failure says Reload, not "no data"
   - Reload loads the current build and works offline
 covered_by:
-  web: manual  # partial: tests/visual/playwright/flows.mjs#boot-degraded-reload (one banner with Reload, replaces the update banner, Reload loads the current build offline; the empty state's body says Reload); missing: that empty state is still titled "No cached data yet" (components/empty-state.js), a copy decision for the owner
+  web: manual  # partial: tests/visual/playwright/flows.mjs#boot-degraded-reload (one banner with Reload, replaces the update banner, Reload loads the current build offline; the empty state's body says Reload); missing: that empty state is still titled "No cached data yet" (components/empty-state.js), fixed by med-31gk
   android: manual  # load-error.mjs covers native host-down N4 only; no degraded post-unlock banner, replacement/empty-state or offline recovery run (med-sz4k.4.2)
   ios: manual
 source: [med-kk1q.4]
