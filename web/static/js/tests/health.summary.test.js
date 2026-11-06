@@ -281,4 +281,18 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
         expect(document.getElementById('health-import-miband')).toBeNull();
         expect(document.getElementById('importexport-nxk-btn')).toBeNull();
     });
+
+    // Previously imported Mi Band nights still render and keep their label.
+    it('a retained Mi Band night still shows with its Mi Band source label', () => {
+        const { window } = env;
+        const iso = new Date(Date.now() - 5000).toISOString().slice(0, 10);
+        const data = makeData({
+            sleep_stats_7d: [{
+                date: iso, deep_mins: 80, light_mins: 220, rem_mins: 70, awake_mins: 20,
+                total_mins: 390, heart_rate_avg: 58, sources: ['miband'],
+            }],
+        });
+        const card = window.renderSleepCard(data, '7d');
+        expect(card.querySelector('.wg-sleep-card__sources').textContent).toBe('Sources · Mi Band');
+    });
 });

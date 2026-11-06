@@ -148,8 +148,9 @@ account**; there is no separate switch for it today. We do not store or log
 either kind of lookup.
 
 **f. Imports.** A Mi Band backup you send to the Telegram bot is parsed on our
-server in a temporary file, encrypted into your vault, and the temporary file
-deleted when the import finishes.
+server in a temporary file. The result is sealed so only your own devices can
+open it, and the temporary file is deleted when the import finishes. Your app
+then adds it to your vault.
 
 **g. Sharing.** A workout plan or gym you share by link is stored encrypted on
 our server and deleted within an hour after 30 days; the key is in the link
