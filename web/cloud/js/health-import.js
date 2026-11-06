@@ -538,6 +538,7 @@ export function startHealthWriteBack({
         const l = ledger();
         const c = readJSON(storage, COPIED_KEY, {});
         let copied = false;
+        const cleared = []; // entry ids this pass takes off the ledger
         let delivered = 0;
         const denied = new Set();
         const back = [];
@@ -545,10 +546,12 @@ export function startHealthWriteBack({
             const r = results[i];
             if (r === true) {
                 delivered++;
-                if (l[w.kind]?.[w.id] === w.from) delete l[w.kind][w.id];
+                const mine = l[w.kind]?.[w.id] === w.from;
+                if (mine) delete l[w.kind][w.id];
                 if (ENTRY_KINDS.includes(w.kind)) {
                     (c[w.kind] = c[w.kind] || {})[w.id] = w.version;
                     copied = true;
+                    if (mine) cleared.push(w);
                 }
                 return;
             }
@@ -568,8 +571,15 @@ export function startHealthWriteBack({
             delete l[w.kind][w.id];
             l[w.kind][w.id] = v;
         }
+        // wg.health.copied first, as step() does: a page that dies between the
+        // two writes resends (Health upserts by our id) instead of losing the
+        // markers. A failed copied write keeps the entries queued, no progress.
+        if (copied && !writeJSON(storage, COPIED_KEY, c)) {
+            diag('[health] copied write failed');
+            for (const w of cleared) l[w.kind][w.id] = w.from;
+            delivered -= cleared.length;
+        }
         writeJSON(storage, DIRTY_KEY, l);
-        if (copied) writeJSON(storage, COPIED_KEY, c);
         if (denied.size) access = access.then((g) => g && g.filter((k) => !denied.has(k)));
         return delivered;
     };

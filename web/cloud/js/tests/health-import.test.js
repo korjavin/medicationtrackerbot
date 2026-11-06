@@ -2744,6 +2744,33 @@ describe('Health write-back', () => {
                 expect(JSON.parse(storage.getItem('wg.health.copied')).bp).not.toHaveProperty('bp-c');
             });
 
+            it('(c) a failed wg.health.copied write after a batch keeps its ids queued and resends them: no lost markers (breakage review 1588 #1)', async () => {
+                allowConsoleNoise();
+                const set = storage.setItem;
+                let failOnce = true;
+                storage.setItem = (k, v) => {
+                    if (k === 'wg.health.copied' && failOnce) { failOnce = false; throw new Error('quota'); }
+                    return set(k, v);
+                };
+                let dirtyAfterFirst = null;
+                health.write = shellWrite(async () => true);
+                const batch = health.write;
+                health.write = vi.fn(async (a) => {
+                    const r = await batch(a);
+                    if (a.entries && dirtyAfterFirst === null) queueMicrotask(() => { dirtyAfterFirst = ledgerSize(); });
+                    return r;
+                });
+                await open();
+                await tap();
+                await finished();
+                expect(dirtyAfterFirst).toBeGreaterThan(0);
+                expect(health.write.mock.calls.filter(([a]) => a.entries).length).toBe(2);
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+                expect(ledgerSize()).toBe(0);
+                const copied = JSON.parse(storage.getItem('wg.health.copied'));
+                expect(Object.values(copied).reduce((n, m) => n + Object.keys(m).length, 0)).toBe(5);
+            });
+
             it('(c) two rejected entries read in the plural (Miles 17327)', async () => {
                 allowConsoleNoise();
                 health.write = shellWrite(async (a) => (a.id === 'bp-c' || a.id === 'bp-e' ? 'bad write: systolic' : true));
