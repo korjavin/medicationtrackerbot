@@ -39,11 +39,13 @@ vi.mock('../../../cloud/js/rxnorm.js', () => ({
 
 function installApiCache(window, seed = {}) {
     const map = new Map(Object.entries(seed));
+    const stamps = new Map(); // db.js keeps the write time beside each entry
     window.MedTrackerDB = {
         ...(window.MedTrackerDB || {}),
         ApiCache: {
             async get(key) { return map.has(key) ? map.get(key) : null; },
-            async set(key, value) { map.set(key, value); },
+            async getWithMeta(key) { return map.has(key) ? { data: map.get(key), timestamp: stamps.get(key) ?? 0 } : null; },
+            async set(key, value) { map.set(key, value); stamps.set(key, window.Date.now()); },
             async clear(key) { map.delete(key); },
             async keys(prefix) {
                 const all = [...map.keys()];
@@ -2178,5 +2180,172 @@ describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
         await window.loadTimeline();
         expect(timelineDue()).toEqual([]);
         expect(focusRow()).toBeNull();
+    });
+});
+
+// The meds release flows of testscenarios/, end to end on one account store:
+// the real editor, Today as today-loader paints it, Meds → Timeline, and a
+// reload as a fresh page over the same store.
+describe('testscenarios: meds release flows (editor → Today → Timeline)', () => {
+    const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const at = (h, m) => new Date(2026, 9, 26, h, m).getTime(); // device-local wall clock
+    const TODAY_JS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js');
+    let env;
+    let clock;
+
+    const boot = (records) => {
+        const e = loadCloudShimFrontendEnv({ records, now: () => clock, timeZone: TZ });
+        installApiCache(e.window);
+        e.window.Date.now = () => clock;
+        e.window.featureSettings = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
+        e.window.featureSettingsLoaded = true;
+        e.window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
+        return e;
+    };
+    // Today's Next up rows for the med. `open` is a tab open (loadToday: cache
+    // paint, refetch, repaint); otherwise the loader's repaint from the caches
+    // alone, no network.
+    const paintToday = async (w, { open = false } = {}) => {
+        if (open) {
+            w.AppStore.set('currentTab', 'today');
+            await w.loadToday();
+            w.AppStore.set('currentTab', 'meds');
+        } else {
+            await w._todayRender(w.todayFoodKey(new w.Date(clock)), true);
+        }
+        expect(w.document.querySelector('#today-content [data-section="next-up"]')).not.toBeNull();
+        return [...w.document.querySelectorAll('#today-content [data-section="next-up"] .wg-row')]
+            .filter((r) => r.querySelector('.wg-row__title')?.textContent === 'Metformin');
+    };
+    // The Timeline's taken rows: [in Today's section (bd med-5y49 layout:
+    // Later today folded on top, the focus card, then Pending / Done), chip].
+    const takenChips = (w) => [...w.document.querySelectorAll('#med-timeline-list .wg-timeline__row[data-state="taken"]')]
+        .map((r) => [r.closest('.wg-timeline__today') !== null, r.querySelector('.wg-chip')?.textContent]);
+    const focusDone = (w) => w.document.querySelector('#med-timeline-list .wg-timeline__today .wg-tl-focus--done') !== null;
+
+    afterEach(async () => {
+        await materializationSettled();
+        if (env) env.cleanup();
+        env = null;
+        delete globalThis.fetch;
+    });
+
+    // testscenarios/common/med-dose-taken.yaml
+    it('the due dose shows with Take; Take drops it from Next up at once; Timeline says Taken HH:MM, also after a reload', async () => {
+        clock = at(8, 59);
+        env = boot();
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); // the take's relay cancel-refire
+        let { window, document } = env;
+
+        // Meds → Add: the editor, a daily 09:00 dose.
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Metformin';
+        document.getElementById('med-dosage').value = '500mg';
+        document.querySelector('#med-modal [data-schedule-type="daily"]').click();
+        document.querySelector('#time-inputs .med-time-input').value = '09:00';
+        document.getElementById('med-modal-save-btn').click();
+        await vi.waitFor(async () => expect(await env.records.list('medication')).toHaveLength(1));
+
+        // 09:01: the dose is due. Today lists it with Take.
+        clock = at(9, 1);
+        await window.readPendingDoses(clock);
+        const [row] = await paintToday(window, { open: true });
+        expect(row).toBeTruthy();
+        const take = row.querySelector('[data-action="take"]');
+        expect(take.textContent.trim()).toBe('Take');
+
+        // Take: at the moment the write goes out, Today repainted from its
+        // caches (no reload, no refetch) no longer lists the dose.
+        const realApiCall = window.apiCall;
+        let atAct = null;
+        window.apiCall = async (p, ...rest) => {
+            if (p === '/api/doses/act' && atAct === null) atAct = (await paintToday(window)).length;
+            return realApiCall(p, ...rest);
+        };
+        take.click();
+        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(1));
+        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+        await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
+        expect(atAct).toBe(0);
+        expect(await paintToday(window)).toHaveLength(0);
+
+        // Meds → Timeline: "Taken 09:01".
+        await materializationSettled();
+        await window.loadTimeline({ anchor: true });
+        expect(takenChips(window)).toEqual([[true, 'Taken 09:01']]);
+        expect(focusDone(window)).toBe(true);
+
+        // Reload: a fresh page over the same store.
+        const { records } = env;
+        env.cleanup();
+        env = boot(records);
+        ({ window, document } = env);
+        await window.loadTimeline({ anchor: true });
+        expect(takenChips(window)).toEqual([[true, 'Taken 09:01']]);
+        expect(focusDone(window)).toBe(true);
+        await window.readPendingDoses(clock);
+        expect(await paintToday(window, { open: true })).toHaveLength(0);
+    });
+
+    // testscenarios/common/medication-schedule-edit.yaml (the pairing rule,
+    // bd med-wi09.12 / #1352): 08:00 + 20:00, edited at 10:00 to 09:00 + 21:00
+    // in the editor; Meds → Timeline's Today, Later today unfolded.
+    describe('editing a twice-daily schedule mid-day', () => {
+        const todayRows = (w) => {
+            const fold = w.document.querySelector('#med-timeline-list .wg-timeline__today .wg-tl-day');
+            if (fold && fold.getAttribute('aria-expanded') !== 'true') fold.click();
+            return [...w.document.querySelectorAll('#med-timeline-list .wg-timeline__today .wg-timeline__row')]
+                .map((r) => `${r.querySelector('.wg-row__title').textContent} ${r.dataset.state}`).sort();
+        };
+        const setup = async ({ takeFirst }) => {
+            clock = at(7, 0);
+            env = boot();
+            globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+            const { window, document } = env;
+            window.showAddModal();
+            document.getElementById('med-name').value = 'Metformin';
+            document.getElementById('med-dosage').value = '500mg';
+            document.querySelector('#med-modal [data-schedule-type="daily"]').click();
+            document.getElementById('add-time-btn').click();
+            const [t1, t2] = document.querySelectorAll('#time-inputs .med-time-input');
+            t1.value = '08:00';
+            t2.value = '20:00';
+            document.getElementById('med-modal-save-btn').click();
+            await vi.waitFor(async () => expect(await env.records.list('medication')).toHaveLength(1));
+
+            if (takeFirst) {
+                // 08:05: the focus card's Take on the 08:00 dose.
+                clock = at(8, 5);
+                await window.loadTimeline({ anchor: true });
+                document.querySelector('#med-timeline-list .wg-tl-focus .wg-timeline__row .wg-btn--primary').click();
+                await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
+                await materializationSettled();
+            }
+
+            // 10:00: Edit → 09:00 and 21:00 → Save.
+            clock = at(10, 0);
+            await window.loadMeds();
+            window.showEditModal(window.medications[0].id);
+            const [e1, e2] = document.querySelectorAll('#time-inputs .med-time-input');
+            expect([e1.value, e2.value]).toEqual(['08:00', '20:00']);
+            e1.value = '09:00';
+            e2.value = '21:00';
+            document.getElementById('med-modal-save-btn').click();
+            await vi.waitFor(async () => expect(JSON.parse((await env.records.list('medication'))[0].schedule).times).toEqual(['09:00', '21:00']));
+            await materializationSettled();
+            await window.loadTimeline({ anchor: true });
+            return window;
+        };
+
+        it('taken 08:00 stays taken, no 09:00 today; 21:00 replaces 20:00', async () => {
+            const window = await setup({ takeFirst: true });
+            expect(todayRows(window)).toEqual(['08:00 taken', '21:00 upcoming']);
+            expect(takenChips(window)).toEqual([[true, 'Taken 08:05']]);
+        });
+
+        it('untaken 08:00 instead: 09:00 replaces it though already past; 21:00 replaces 20:00', async () => {
+            const window = await setup({ takeFirst: false });
+            expect(todayRows(window)).toEqual(['09:00 due', '21:00 upcoming']);
+        });
     });
 });
