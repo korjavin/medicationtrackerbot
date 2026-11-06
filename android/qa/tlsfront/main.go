@@ -192,21 +192,21 @@ func (f *recoveryFixture) control(w http.ResponseWriter, r *http.Request) {
 			if !f.switched {
 				f.stop()
 				if err := f.start(f.b); err != nil {
-					http.Error(w, err.Error(), 500)
+					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
 				f.switched = true
 			}
 		case "/arm":
 			if f.armed || f.consumed != 0 {
-				http.Error(w, "one fault per run", 409)
+				http.Error(w, "one fault per run", http.StatusConflict)
 				return
 			}
 			var body struct {
 				Host string `json:"host"`
 			}
 			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 256)).Decode(&body) != nil || body.Host == "" {
-				http.Error(w, "host required", 400)
+				http.Error(w, "host required", http.StatusBadRequest)
 				return
 			}
 			f.host, f.armed, f.release = body.Host, true, make(chan struct{})

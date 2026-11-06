@@ -25,13 +25,18 @@ export default async function degradedBoot(ctx) {
   await ctx.step('preserve good apishim Responses and evict EVERY matching cache copy', async () => {
     savedResponses = await page.evaluate(async () => {
       const saved = [];
+      const preserved = await caches.open('qa-b2-good-responses');
       for (const name of await caches.keys()) {
         const cache = await caches.open(name);
         for (const key of await cache.keys()) {
           if (new URL(key.url).pathname !== '/js/apishim.js') continue;
           const res = await cache.match(key);
           if (!res?.ok) throw new Error('cached module not good');
-          saved.push({ name, url: key.url, status: res.status, headers: [...res.headers], body: await res.text() });
+          // Different cache KEY: global caches.match(apishim) cannot bypass the fault.
+          // Retain an actual Response clone, including browser response metadata/headers.
+          const savedURL = new URL(`/__qa_saved_module_${saved.length}`, location.origin).href;
+          await preserved.put(savedURL, res.clone());
+          saved.push({ name, url: key.url, savedURL, status: res.status, headers: [...res.headers], body: await res.text() });
           await cache.delete(key);
         }
       }
@@ -83,13 +88,17 @@ export default async function degradedBoot(ctx) {
   await ctx.step('restore original good Responses to their exact generation/cache keys', async () => {
     r.restored = await page.evaluate(async (saved) => {
       const out = [];
+      const preserved = await caches.open('qa-b2-good-responses');
       for (const s of saved) {
         const cache = await caches.open(s.name);
-        await cache.put(s.url, new Response(s.body, { status: s.status, headers: s.headers }));
+        const good = await preserved.match(s.savedURL);
+        if (!good?.ok) throw new Error('preserved good Response missing');
+        await cache.put(s.url, good);
         const actual = await cache.match(s.url);
         if ((await actual.text()) !== s.body) throw new Error('restored module differs');
         out.push({ name: s.name, url: s.url });
       }
+      await caches.delete('qa-b2-good-responses');
       return out;
     }, savedResponses);
   });
