@@ -12,5 +12,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page
   android: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page  # data/logic only: date selection; offline shell availability is offline-cold-open
-  ios: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page  # data/logic only: date selection; offline shell availability is offline-cold-open
+  ios: manual  # no iOS assertion: offline is native network state and no FlowQA test or visual scene reloads Food with the Simulator offline; web/static/js/tests/food.daynav.test.js pins only the web date selection, not an iOS reload online or offline
 source: [med-kk1q.3]
