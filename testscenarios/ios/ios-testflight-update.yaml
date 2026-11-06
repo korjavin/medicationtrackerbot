@@ -13,4 +13,4 @@ invariants:
   - Every record is still there
   - In local mode the Version in Settings is the new build (an account shows the server's build; check TestFlight's installed build instead)
 covered_by:
-  ios: manual
+  ios: manual  # a TestFlight install over an installed build needs the store pipeline on a real device

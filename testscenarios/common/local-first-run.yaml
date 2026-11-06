@@ -16,5 +16,5 @@ invariants:
 covered_by:
   web: manual  # n/a on web: local mode runs only in the phone shells (local-boot.js is bundled by ios/ and android/ only), so a browser has no first run without an account; the shared code is pinned by web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic; no first-run UI or reopen)
   android: manual  # partial: android/qa/scenarios/firstrun.mjs (fresh local F1) and android/qa/scenarios/local-smoke.mjs (durable med, zero egress on listener-observed replay); first native launch not network-observed/offline, no BP/weight/dose edit/delete round trip
-  ios: manual  # partial: ios/UITests/FlowQATests.swift#testLocalFirstRun (first run with no account, the mode kept over a relaunch; online, records seeded, no log, edit or delete)
+  ios: manual  # partial: ios/UITests/FlowQATests.swift#testLocalFirstRun (a fresh launch with no account opens the web W1, the driver seeds records, local mode persists over a relaunch); data/logic only: web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic); missing, owned by med-sz4k.6.1: BP/weight/dose log, edit and delete through the UI checked after the reopen, and no egress on the fake-server log; the Simulator stays online, so airplane mode itself stays a device clause
 source: [med-ta2n]

@@ -23,5 +23,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-ai.test.js
   android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-ai.test.js and web/static/js/tests/food.ai-mode.test.js (stubbed-provider reconciliation/review); no native photo flow, Telegram duplicate delivery or two-device convergence assertions
-  ios: manual
+  ios: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-ai.test.js and web/static/js/tests/food.ai-mode.test.js (stubbed-provider reconciliation/review); missing, owned by med-sz4k.8: a Telegram /food delivered twice and two-device convergence; the native photo path is epic residue (no camera on the Simulator)
 source: [med-5jq.4, med-5jq.9]
