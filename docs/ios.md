@@ -598,7 +598,9 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   and TestFlight archive, visual, qa) runs on the `xcode-27` runner image
   (release Xcode, image default; deployment target stays 18.0, the call sits
   behind `#available(iOS 27, *)`). `HealthWriteBackTests` checks the helper
-  (`[:]` → 0, two types → the later date) and `readableFrom: 0` with full
+  (`[:]` → 0, two types → the later date), the pure OS gate
+  `Health.readableFrom(osMajor:earliest:)` (26 → 0 with no runtime for it in
+  CI, 27 with the call throwing → omitted) and `readableFrom: 0` with full
   access on the image's iOS 27 runtime. A shell that reports it
   also takes the batch: `health.write {entries: [body, ...]}`, each body a
   single write's args (kinds may mix), answers an array with one result per

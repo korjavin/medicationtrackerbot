@@ -67,7 +67,8 @@ final class HealthDiagnosticTests: XCTestCase {
 /// The Health write-back through Health.handle (bd med-8f4s.3; hr .8; workout
 /// .10): write, replace, own-id import filter, an imported row's id deletes
 /// nothing, delete leaves nothing; (.18) readableFrom 0 with full access and
-/// readableFromMs ([:] → 0, two types → the later date in ms), equal/lower-version
+/// readableFromMs ([:] → 0, two types → the later date in ms), the OS gate
+/// readableFrom(osMajor:) (26 → 0, 27 threw → omitted), equal/lower-version
 /// replays resolve true (a store error verified by held(), whose true/false
 /// cases are checked), the entries batch. Runs in the qa job (HealthDiagnosticView's
 /// write-back mode).

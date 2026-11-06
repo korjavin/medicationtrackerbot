@@ -127,6 +127,12 @@ enum Health {
         Int(((earliest.values.max()?.timeIntervalSince1970 ?? 0) * 1000).rounded(.up))
     }
 
+    /// The OS gate around readableFromMs, pure: below iOS 27 every sample is
+    /// readable (0, earliest unused); on 27+ the boundary, nil when the call threw.
+    static func readableFrom(osMajor: Int, earliest: [HKObjectType: Date]?) -> Int? {
+        osMajor < 27 ? 0 : earliest.map(readableFromMs)
+    }
+
     static func handle(_ op: String, _ args: [String: Any]) async throws -> Any {
         switch op {
         case "health.authorize":
@@ -141,7 +147,7 @@ enum Health {
             try await store.requestAuthorization(toShare: share, read: read)
             return true
         case "health.writeAccess":
-            // readableFrom (readableFromMs): 0 before iOS 27 (every sample
+            // readableFrom (readableFrom(osMajor:earliest:)): 0 before iOS 27 (every sample
             // readable); on iOS 27+ the latest limited-history boundary over
             // the write kinds' read types, asked on every call (the person can
             // change the window in Settings); the call throwing omits it (Copy
@@ -152,12 +158,12 @@ enum Health {
                 "granted": HKHealthStore.isHealthDataAvailable() ? kinds.filter(canWrite) : [String](),
                 "supported": writeKinds,
             ]
+            var earliest: [HKObjectType: Date]?
             if #available(iOS 27, *) {
-                if let earliest = try? await store.earliestAuthorizedSampleDate(for: Set(writeKinds.flatMap(readTypes))) {
-                    reply["readableFrom"] = readableFromMs(earliest)
-                }
-            } else {
-                reply["readableFrom"] = readableFromMs([:])
+                earliest = try? await store.earliestAuthorizedSampleDate(for: Set(writeKinds.flatMap(readTypes)))
+            }
+            if let from = readableFrom(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion, earliest: earliest) {
+                reply["readableFrom"] = from
             }
             return reply
         case "health.write":
