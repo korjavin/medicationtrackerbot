@@ -767,8 +767,9 @@ Later hides the settled notice, and a new A document with B already waiting stil
 (state C). The real Reload must activate B with exactly one new document, including after the
 two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
 must identify B, with the saved note intact. It exercises native Home/return and explicitly delivers
-DOM visibility events to the real check listener; the emulator's Home/return alone did not emit a
-check in run42159109277 (no version/SW receipt). This proves the real handler and update path,
+DOM visibility events to the real check listener. Run42159109277 observed no version/SW request
+after Home/return alone; that does not establish the cause. Native/explicit event timing, trust,
+visibility and focus are recorded separately. This proves the real handler and update path,
 not automatic delivery of the native resume signal. Local mode is bundled and outside this account update flow; Play-installed
 updates remain a manual real-device check. This does not implement or deploy local-mode OTA.
 The dismiss-during-install race stays covered by the owning update-check logic suite; the native

@@ -42,15 +42,23 @@ export async function checkSaved(page, note) {
   return data.data.diary.notes;
 }
 
-export async function foreground(ctx, page) {
+export async function foreground(ctx, page, r) {
+  const snapshot = () => page.evaluate(() => ({ state: document.visibilityState,
+    focused: document.hasFocus(), at: Date.now(), timeOrigin: performance.timeOrigin }));
+  const observation = { before: await snapshot(), homeStarted: Date.now() };
   await ctx.shell('input keyevent KEYCODE_HOME');
   await ctx.sleep(1000);
+  observation.away = await snapshot();
+  observation.returnStarted = Date.now();
   await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
   await page.waitForFunction(() => document.visibilityState === 'visible');
-  // Android WebView Home/return did not emit a check event in run42159109277
-  // (no subsequent version/SW receipt). Deliver the real DOM event to the real
-  // listener without changing visibilityState, version, SW or update functions.
+  observation.returned = await snapshot();
+  // Run42159109277 observed no subsequent version/SW receipt after Home/return;
+  // that alone does not establish why. Record native events separately from
+  // this explicit DOM stimulus to the real, unchanged update listener.
+  observation.explicitSignalAt = Date.now();
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  if (r) (r.foregrounds ||= []).push(observation);
 }
 
 export async function prepareAccount(ctx, r) {
@@ -80,6 +88,20 @@ export async function prepareAccount(ctx, r) {
     if (r.initial.build !== r.bundles.A.stamp || !r.initial.controlled || r.initial.waiting ||
         !r.initial.cached.some((c) => c.name.endsWith(`v${r.bundles.A.stamp}`) && c.keys.includes('/js/apishim.js'))) throw new Error('A graph not controlled/complete');
   });
+  r.documentEvents = [];
+  page.on('console', (msg) => {
+    if (msg.text().startsWith('B2_EVENT ')) r.documentEvents.push(JSON.parse(msg.text().slice(9)));
+  });
+  const observe = () => {
+    const report = (event) => console.log('B2_EVENT ' + JSON.stringify({ type: event.type,
+      trusted: event.isTrusted, state: document.visibilityState, focused: document.hasFocus(),
+      at: Date.now(), timeOrigin: performance.timeOrigin }));
+    document.addEventListener('visibilitychange', report, true);
+    window.addEventListener('focus', report, true);
+    window.addEventListener('blur', report, true);
+  };
+  await page.addInitScript(observe);
+  await page.evaluate(observe);
   return page;
 }
 
@@ -88,7 +110,7 @@ export default async function updateBanner(ctx) {
   const page = await prepareAccount(ctx, r);
   page.on('console', (msg) => { if (msg.text().startsWith('B2_SW ')) r.lifecycle.push(msg.text()); });
   await ctx.step('state A: matching real client/server stays quiet after foreground checks', async () => {
-    await foreground(ctx, page);
+    await foreground(ctx, page, r);
     for (let i = 0; i < 3; i++) {
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await ctx.sleep(1000);
@@ -111,7 +133,7 @@ export default async function updateBanner(ctx) {
       });
       navigator.serviceWorker.addEventListener('controllerchange', () => console.log(`B2_SW controller ${navigator.serviceWorker.controller?.state}`));
     });
-    await foreground(ctx, page);
+    await foreground(ctx, page, r);
     await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
     await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.waiting, null, { timeout: 90_000 });
     for (let i = 0; i < 3; i++) {
@@ -152,7 +174,7 @@ export default async function updateBanner(ctx) {
       if (loads !== 1 || r.final.timeOrigin === r.stateC.timeOrigin || r.final.settings !== r.bundles.B.stamp ||
           !r.final.controlled || r.final.waiting || r.final.cached.some((c) => !c.name.endsWith(`v${r.bundles.B.stamp}`)) ||
           !r.final.cached.some((c) => c.keys.some((k) => k.includes(`?v=${r.bundles.B.stamp}`)))) throw new Error('B reload/cache/controller/version mismatch');
-      await foreground(ctx, page);
+      await foreground(ctx, page, r);
       await ctx.sleep(1500);
       if (await page.locator('#cloud-update-banner').count()) throw new Error('matching B showed another notice');
       await ctx.stableShot('B-settings-new-version');

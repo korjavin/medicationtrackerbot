@@ -15,7 +15,7 @@ export default async function degradedBoot(ctx) {
   let savedResponses;
   await ctx.step('prepare real state C: A controlled, B completely installed and waiting', async () => {
     await control('/switch-b', {});
-    await foreground(ctx, page);
+    await foreground(ctx, page, r);
     await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
     await page.waitForFunction(async () => !!(await navigator.serviceWorker.getRegistration())?.waiting, null, { timeout: 90_000 });
     r.beforeFault = await state(page);
