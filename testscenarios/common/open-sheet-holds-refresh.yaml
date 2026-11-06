@@ -1,0 +1,21 @@
+id: open-sheet-holds-refresh
+title: 'Nothing covers or reloads an open sheet or workout session; data that changed elsewhere appears after it closes'
+platforms: [web, android, ios]
+preconditions:
+  - Account mode with Health import on and a second device that adds entries
+steps:
+  - Start a workout and keep the session open on a set
+  - Lock the phone for a minute, walk around, unlock it (a Health pass runs)
+  - Turn airplane mode on and off
+  - Add a BP reading on the other device
+  - Type in the session's Notes field
+  - Close the session
+invariants:
+  - While the session is open no bar, banner or toast about new data appears, and nothing under the user's hands reloads
+  - A field being typed in is never reloaded, with or without a sheet open
+  - After the session closes the current tab shows the other device's entry and the Health data without a manual refresh
+source: [med-vhdk]
+covered_by:
+  web: web/static/js/tests/app.refresh-dispatch.test.js
+  android: manual
+  ios: manual
