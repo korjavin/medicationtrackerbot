@@ -196,13 +196,23 @@ export default async function pullRefresh(ctx) {
         }
       }).observe(document.getElementById('app-banners'), { subtree: true, childList: true, attributes: true, characterData: true });
     });
+    r.visibility = { before: await page.evaluate(() => document.visibilityState) };
     await shell('input keyevent KEYCODE_HOME');
     await sleep(3000);
+    r.visibility.away = await page.evaluate(() => document.visibilityState);
     await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys 171 --ei dia 99`);
     await page.waitForFunction(() => document.visibilityState === 'visible', null, { timeout: 20_000 });
-    await sleep(3000);
-    const writer = await shell('logcat -d -s qa-health-write:*');
+    const end = Date.now() + 20_000;
+    let writer = '';
+    do {
+      writer = await shell('logcat -d -s qa-health-write:*');
+      if (writer.includes('171.0/99.0') || /qa-health-write.*failed/i.test(writer)) break;
+      await sleep(1000);
+    } while (Date.now() < end);
     if (!writer.includes('171.0/99.0') || /qa-health-write.*failed/i.test(writer)) throw new Error('Health writer did not confirm the BP');
+    await sleep(3000);
+    if (!(await ctx.inForeground())) throw new Error('app did not return to foreground after Health writer');
+    r.visibility.returned = await page.evaluate(() => document.visibilityState);
     r.peer = await page.evaluate(async () => {
       const sync = await import('/js/sync.js');
       const crypto = await import('/js/crypto.js');
