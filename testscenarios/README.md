@@ -44,7 +44,11 @@ Keep `manual # reason` when a linked test asserts only part of the scenario. The
 the existing evidence and the missing checks; a partial test does not remove the release check.
 
 The Android harness [runbook](../docs/android.md) describes `core-local` and
-`offline-account`, including their real-device interactions and receipt-counting evidence.
+`offline-account`, including their real-device interactions and receipt-counting evidence. The
+standalone account `update-banner` uses real stamped A/B binaries and asserts the worker/version
+swap; `degraded-boot` asserts a one-shot required-module failure and one offline recovery navigation.
+Its empty-state title remains manual-partial under med-31gk; a passing partial run does not remove
+that release check. Store-installed updates still need a real device.
 
 ## Where automation lives
 
