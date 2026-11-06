@@ -81,16 +81,28 @@ async function booted(page, timeout = 30000) {
   await page.waitForFunction(() => window.AppStore && window.AppStore.get('currentTab'), null, { timeout });
 }
 
-// The page is controlled by an activated worker with nothing installing.
-async function swSettled(page) {
-  await page.waitForFunction(async () => {
-    const reg = await navigator.serviceWorker.getRegistration();
-    return Boolean(navigator.serviceWorker.controller && reg && reg.active && reg.active.state === 'activated' && !reg.installing && !reg.waiting);
-  }, null, { timeout: 60000, polling: 250 });
+// Polls an async page function from here until it resolves truthy.
+// page.waitForFunction cannot: it takes the returned Promise itself as truthy.
+async function until(page, fn, what, { timeout = 30000, every = 250 } = {}) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    if (await page.evaluate(fn).catch(() => false)) return;
+    if (Date.now() > end) throw new Failed(`timed out after ${timeout} ms waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, every));
+  }
 }
+
+// The page is controlled by an activated worker with nothing installing.
+const swSettled = (page) => until(page, async () => {
+  const reg = await navigator.serviceWorker.getRegistration();
+  return Boolean(navigator.serviceWorker.controller && reg && reg.active && reg.active.state === 'activated' && !reg.installing && !reg.waiting);
+}, 'an activated, settled service worker', { timeout: 60000 });
 
 const buildOf = (page) => page.evaluate(() => document.querySelector('meta[name="medtracker-build-id"]')?.content || '');
 const pendingOps = (page) => page.evaluate(async () => (await (await import('/js/sync.js')).getSyncStatus(window.MedTrackerCloud.ctx)).pendingCount);
+// Every local write has reached the server (the pending queue is empty).
+const synced = (page) => until(page, async () => (await (await import('/js/sync.js')).getSyncStatus(window.MedTrackerCloud.ctx)).pendingCount === 0,
+  'an empty pending queue');
 
 // Document loads (not same-document history changes), counted from the moment
 // it is called.
@@ -252,8 +264,7 @@ if (setupOk) await flow('offline-cold-open', async () => {
   // 3. The host is back: the queued write reaches the server.
   await server.start(binA);
   await context.setOffline(false);
-  await page.waitForFunction(async () => (await (await import('/js/sync.js')).getSyncStatus(window.MedTrackerCloud.ctx)).pendingCount === 0,
-    null, { timeout: 30000, polling: 500 });
+  await synced(page);
   const slowest = (t) => Math.max(...Object.values(t));
   return `slowest section: lie-fi ${slowest(lieFi)} ms, airplane ${slowest(airplane)} ms; offline note synced`;
 });
@@ -285,7 +296,7 @@ if (setupOk) await flow('app-update-banner', async () => {
   await server.start(binB);
   await foreground(page);
   await page.locator('#cloud-update-banner').waitFor({ timeout: 10000 });
-  await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting), null, { timeout: 60000, polling: 250 });
+  await until(page, async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting), 'build B\'s worker waiting', { timeout: 60000 });
   for (let i = 0; i < 3; i++) await foreground(page);
   await settle(page);
   b = await banners(page);
@@ -398,8 +409,6 @@ if (setupOk) await flow('boot-degraded-reload', async () => {
 let contextB = null;
 const rxnavB = [];
 const healthImportB = [];
-const synced = (p) => p.waitForFunction(async () => (await (await import('/js/sync.js')).getSyncStatus(window.MedTrackerCloud.ctx)).pendingCount === 0,
-  null, { timeout: 30000, polling: 250 });
 
 const secondOk = setupOk && await flow('second-device', async () => {
   await page.goto('about:blank');
