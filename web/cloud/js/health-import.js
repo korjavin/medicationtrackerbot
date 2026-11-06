@@ -1066,7 +1066,8 @@ export function startHealthImport(ctx, {
         const before = storage.getItem(DIRTY_KEY);
         if (rows.length && !writeBack.mark(rows)) return false;
         if (writeJSON(storage, JOB_KEY, job)) return true;
-        try { storage.setItem(DIRTY_KEY, before); } catch { /* the rows go out as live ids */ }
+        // An absent ledger comes back empty, never the string 'null' (Argus 17376).
+        try { storage.setItem(DIRTY_KEY, before ?? '{}'); } catch { /* the rows go out as live ids */ }
         return false;
     };
 

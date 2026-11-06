@@ -59,7 +59,7 @@ function memRecords() {
 
 function memStorage() {
     const m = new Map();
-    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) };
+    return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
 }
 
 // A Health store holding `data` per kind; the anchor is the count already seen.
@@ -3123,6 +3123,30 @@ describe('Health write-back', () => {
                 foreground();
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied. It's still in the app."]));
                 expect(job()).toMatchObject({ total: 5, blocked: {}, ids: { weight: [] }, dropped: { weight: ['w-2'] } });
+                expect(ledgerSize()).toBe(0);
+            });
+
+            it('a Copy start whose job save fails over an absent ledger leaves it empty, not "null"; a retry copies (Argus 17376)', async () => {
+                allowConsoleNoise();
+                storage.removeItem('wg.health.dirty');
+                await open();
+                failJobWriteOnce();
+                await tap();
+                await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't start the copy — try again.", 'error'));
+                expect(storage.getItem('wg.health.dirty')).toBe('{}');
+                expect(storage.getItem('wg.health.backfill')).toBeNull();
+                await tap();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+                expect(ledgerSize()).toBe(0);
+            });
+
+            it('a ledger already stored as "null" reads as empty: a Copy marks and drains it', async () => {
+                storage.setItem('wg.health.dirty', 'null');
+                await open();
+                await tap();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
                 expect(ledgerSize()).toBe(0);
             });
 
