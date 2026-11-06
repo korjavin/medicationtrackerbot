@@ -304,9 +304,10 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
     });
 
     // bd med-5y49: the page runs future on top, and inside every day the later
-    // dose sits above the earlier one — Today's blocks, an unfolded future day,
-    // a History day. Min-based reads stay min-based.
-    it('within a day the later dose sits higher: Today\'s Pending / Later today / Done, an unfolded future day, a History day', async () => {
+    // dose sits above the earlier one — Later today folded above the card
+    // (Iris 17139), Today's blocks, an unfolded future day, a History day.
+    // Min-based reads stay min-based.
+    it('within a day the later dose sits higher: Later today above the card, Pending / Done below, an unfolded future day, a History day', async () => {
         const { document } = env;
         const titles = (rowsIn) => rowsIn.map((r) => text(r.querySelector('.wg-row__title')));
         await load([
@@ -330,10 +331,26 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         // (the latest pending dose).
         expect(titles(Array.from(card(document).querySelectorAll('.wg-timeline__row')))).toEqual(['18:00', '13:00']);
         const today = document.querySelector('.wg-timeline__today');
-        expect(labels(today)).toEqual(['Pending', 'Later today', 'Done']);
+        expect(labels(today)).toEqual(['Pending', 'Done']);
         expect(titles(blockRows(today, 'Pending'))).toEqual(['11:00', '08:20']);
-        expect(titles(blockRows(today, 'Later today'))).toEqual(['21:30', '20:00']);
         expect(titles(blockRows(today, 'Done'))).toEqual(['09:00', '07:00']);
+        // Later today: one folded Planned row between Today's head and the
+        // card — the card's overdue Take is never pushed down by it.
+        const laterRow = () => document.querySelector('.wg-timeline__today .wg-timeline__later .wg-tl-day');
+        const laterDoses = () => Array.from(document.querySelectorAll('.wg-timeline__today .wg-timeline__later .wg-timeline__row'));
+        expect(laterRow().dataset.localDate).toBe('2026-10-23');
+        expect(laterRow().compareDocumentPosition(card(document)) & env.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(text(laterRow().querySelector('.wg-row__title'))).toBe('Later today');
+        expect(text(laterRow().querySelector('.wg-row__meta'))).toBe('2 doses · first 20:00');
+        expect(text(laterRow().querySelector('.wg-tag'))).toBe('Planned');
+        expect(laterRow().getAttribute('aria-expanded')).toBe('false');
+        expect(laterDoses()).toHaveLength(0);
+        laterRow().click();
+        expect(laterRow().getAttribute('aria-expanded')).toBe('true');
+        expect(titles(laterDoses())).toEqual(['21:30', '20:00']);
+        laterDoses().forEach((r) => expect(r.querySelector('button')).toBeNull());
+        laterRow().click();
+        expect(laterDoses()).toHaveLength(0);
         // The folded row still names the day's first dose; unfolded, later on top.
         const tomorrow = () => document.querySelector('.wg-tl-day[data-local-date="2026-10-24"]');
         expect(text(tomorrow().querySelector('.wg-row__meta'))).toBe('2 doses · first 08:20');
@@ -379,8 +396,8 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(focus.querySelector('.wg-tl-focus__label .wg-meta')).toBeNull();
         expect(text(next.querySelector('.wg-row__title'))).toBe('14:00');
         const today = document.querySelector('.wg-timeline__today');
-        expect(labels(today)).toEqual(['Later today', 'Done']);
-        expect(blockRows(today, 'Later today').map((r) => text(r.querySelector('.wg-row__title')))).toEqual(['20:00']);
+        expect(labels(today)).toEqual(['Done']);
+        expect(text(today.querySelector('.wg-timeline__later .wg-row__meta'))).toBe('1 dose · first 20:00');
         expect(blockRows(today, 'Done').map((r) => text(r.querySelector('.wg-row__title')))).toEqual(['08:00']);
         const yesterday = document.querySelector('section[data-local-date="2026-10-22"]');
         expect(text(yesterday.querySelector('.wg-section__head .wg-meta'))).toBe('1 pending');
@@ -560,7 +577,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         it('today\'s remaining doses never fold into the future block', async () => {
             const { document } = env;
             await load(normalDay());
-            expect(document.querySelector('.wg-tl-day[data-local-date="2026-10-23"]')).toBeNull();
+            expect(document.querySelector('.wg-timeline__future .wg-tl-day[data-local-date="2026-10-23"]')).toBeNull();
         });
     });
 

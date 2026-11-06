@@ -972,37 +972,44 @@ function _tlFutureSection(groups, ctx) {
     for (let i = state.ahead; i >= 1; i--) {
         const date = _tlShiftDate(ctx.todayDate, i);
         const day = groups.filter((g) => g.localDate === date);
-        if (!day.length) continue;
-        const open = state.open.has(date);
-        const row = _medsEl('div', 'wg-row wg-tl-day');
-        row.dataset.localDate = date;
-        row.setAttribute('role', 'button');
-        row.tabIndex = 0;
-        row.setAttribute('aria-expanded', String(open));
-        const lead = _medsEl('span', 'wg-row__lead');
-        lead.appendChild(_medsIcon('calendar'));
-        const body = _medsEl('span', 'wg-row__body');
-        body.appendChild(_medsEl('span', 'wg-row__title', i === 1 ? `Tomorrow · ${_tlDayName(date)}` : _tlDayName(date)));
-        body.appendChild(_medsEl('span', 'wg-row__meta', `${day.length} dose${day.length === 1 ? '' : 's'} · first ${day[day.length - 1].localTime}`));
-        row.append(lead, body, _medsEl('span', 'wg-tag', 'Planned'), _medsIcon(open ? 'chev-u' : 'chev-d', 'wg-row__chev'));
-        const toggle = () => {
-            if (open) state.open.delete(date);
-            else state.open.add(date);
-            renderTimeline();
-            const again = document.querySelector(`#med-timeline-list .wg-tl-day[data-local-date="${date}"]`);
-            if (again) again.focus();
-        };
-        row.addEventListener('click', toggle);
-        row.addEventListener('keydown', (e) => {
-            if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
-            e.preventDefault();
-            toggle();
-        });
-        list.appendChild(row);
-        if (open) day.forEach((g) => list.appendChild(_tlRow(g, ctx, { chip: false, readOnly: true })));
+        if (day.length) _tlFoldedDay(list, date, i === 1 ? `Tomorrow · ${_tlDayName(date)}` : _tlDayName(date), day, ctx);
     }
     if (list.children.length) section.appendChild(list);
     return section;
+}
+
+// One folded, dashed "Planned" row ("2 doses · first 08:20"; `day` runs
+// latest first) whose tap unfolds those doses underneath, read-only. Keyed by
+// date in the visit's fold state: a future day, or Today's "Later today".
+function _tlFoldedDay(list, date, title, day, ctx) {
+    const state = _medsTimelineState;
+    const open = state.open.has(date);
+    const row = _medsEl('div', 'wg-row wg-tl-day');
+    row.dataset.localDate = date;
+    row.setAttribute('role', 'button');
+    row.tabIndex = 0;
+    row.setAttribute('aria-expanded', String(open));
+    const lead = _medsEl('span', 'wg-row__lead');
+    lead.appendChild(_medsIcon('calendar'));
+    const body = _medsEl('span', 'wg-row__body');
+    body.appendChild(_medsEl('span', 'wg-row__title', title));
+    body.appendChild(_medsEl('span', 'wg-row__meta', `${day.length} dose${day.length === 1 ? '' : 's'} · first ${day[day.length - 1].localTime}`));
+    row.append(lead, body, _medsEl('span', 'wg-tag', 'Planned'), _medsIcon(open ? 'chev-u' : 'chev-d', 'wg-row__chev'));
+    const toggle = () => {
+        if (open) state.open.delete(date);
+        else state.open.add(date);
+        renderTimeline();
+        const again = document.querySelector(`#med-timeline-list .wg-tl-day[data-local-date="${date}"]`);
+        if (again) again.focus();
+    };
+    row.addEventListener('click', toggle);
+    row.addEventListener('keydown', (e) => {
+        if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        toggle();
+    });
+    list.appendChild(row);
+    if (open) day.forEach((g) => list.appendChild(_tlRow(g, ctx, { chip: false, readOnly: true })));
 }
 
 // The focus card's pending dose: the latest of every pending dose — the
@@ -1096,8 +1103,8 @@ function _tlBlock(section, label, groups, ctx, meta) {
     section.appendChild(_tlList(groups, ctx));
 }
 
-// Today: the focus card first, then today's other doses — Pending, Later
-// today, Done. The card's doses are not repeated here.
+// Today: a folded "Later today" row, the focus card, then today's other
+// doses — Pending, Done. The card's doses are not repeated here.
 function _tlTodaySection(groups, ctx, card) {
     const section = _medsEl('section', 'wg-section wg-timeline__day wg-timeline__today');
     section.dataset.localDate = ctx.todayDate;
@@ -1117,10 +1124,19 @@ function _tlTodaySection(groups, ctx, card) {
         note.appendChild(body);
         section.appendChild(note);
     }
-    section.appendChild(_tlFocusCard(card, ctx));
     const today = groups.filter((g) => g.localDate === ctx.todayDate);
+    // Later today sits above the card (later on top), folded like a future
+    // day so it costs one row and never pushes the overdue Take down (Iris 17139).
+    const later = today.filter((g) => g.state === 'upcoming');
+    if (later.length) {
+        const planned = _medsEl('div', 'wg-tl-planned wg-timeline__later');
+        const list = _medsEl('div', 'wg-list');
+        _tlFoldedDay(list, ctx.todayDate, 'Later today', later, ctx);
+        planned.appendChild(list);
+        section.appendChild(planned);
+    }
+    section.appendChild(_tlFocusCard(card, ctx));
     _tlBlock(section, 'Pending', today.filter(_tlIsPending), ctx);
-    _tlBlock(section, 'Later today', today.filter((g) => g.state === 'upcoming'), ctx);
     _tlBlock(section, 'Done', today.filter(_tlIsDone), ctx);
     return section;
 }
