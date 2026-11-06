@@ -24,7 +24,7 @@ const WAIT = 240_000; // claim + import + snapshot upload + reload on the softwa
 const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
 const diff = (a, b) => Object.fromEntries(Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).map((k) => [k, [a[k], b[k]]]));
 const dataHash = async (page) => createHash('sha256').update(await page.evaluate(async () => {
-  const data = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data;
+  const data = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: true })).data;
   // Local export synthesizes backupAt from its current clock; retain the
   // protection nudge data and omit only that volatile, non-written field.
   if (data.protection) delete data.protection.last_backup_at;
