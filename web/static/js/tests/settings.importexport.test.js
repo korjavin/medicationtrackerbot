@@ -861,6 +861,12 @@ describe('testscenarios: Settings → Backup over the real account store', () =>
 
     // The account's sync server, empty: no snapshot, no op tail; it takes ops
     // and snapshots and never serves them back (one device at a time here).
+    // Mirrors the routes in internal/cloudserver/sync.go:83-86:
+    //   GET  /api/sync/snapshot → GetSnapshot (sync.go:311), 204 when none (sync.go:324)
+    //   GET  /api/sync/ops      → GetOps (sync.go:201), {ops, next}; next is null at the
+    //                             end there (sync.go:186), false here — sync.js reads it as falsy
+    //   POST /api/sync/ops      → PostOps (sync.go:119), {assigned: [seq…]} (sync.go:171)
+    //   POST /api/sync/snapshot → PostSnapshot (sync.go:264), 204 there (sync.go:299), 200 '{}' here
     const emptyServer = () => {
         let seq = 0;
         return vi.fn(async (url, init = {}) => {
