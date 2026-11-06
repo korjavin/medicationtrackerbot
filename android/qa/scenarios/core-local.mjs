@@ -42,11 +42,20 @@ export default async function coreLocal(ctx) {
     await page.locator('#med-modal').waitFor({ state: 'visible' });
     if (!id) {
       await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
+      // The software-GPU emulator paints behind the DOM. Match the established BP keyboard
+      // flow's settle before converting a moving editor rect to physical screen coordinates.
+      await ctx.sleep(2500);
+      await page.locator('#med-name').scrollIntoViewIfNeeded();
       await ctx.tapElement(page, '#med-name');
-      for (let n = 0; n < 10 && !(await ctx.imeShown()); n++) await ctx.sleep(300);
-      if (!(await ctx.imeShown())) throw new Error('medication name tap did not open IME');
+      for (let n = 0; n < 20 && !(await ctx.imeShown()); n++) await ctx.sleep(500);
+      const input = { name, ime: await ctx.imeShown(), focused: await page.evaluate(() => document.activeElement?.id) };
+      (r.editorInputs ||= []).push(input);
+      if (!input.ime || input.focused !== 'med-name') throw new Error(`medication name tap did not focus input/open IME: ${JSON.stringify(input)}`);
+      await ctx.sleep(1000);
       await ctx.shell(`input text '${name.replaceAll(' ', '%s')}'`);
-      if (await page.inputValue('#med-name') !== name) throw new Error('native medication name entry differs');
+      input.value = await page.inputValue('#med-name');
+      if (input.value !== name) throw new Error('native medication name entry differs');
+      await ctx.shot(`editor-keyboard-${name.replaceAll(' ', '-').toLowerCase()}`);
       await ctx.shell('input keyevent KEYCODE_BACK');
       await page.fill('#med-dosage', '5mg');
     }

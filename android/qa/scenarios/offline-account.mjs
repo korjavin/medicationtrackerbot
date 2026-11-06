@@ -22,6 +22,9 @@ export default async function offlineAccount(ctx) {
   page = await ctx.step('claim run invite with soft authenticator', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
   await ctx.step('import golden records and complete real account sync', async () => {
+    r.nativeClockBefore = Number((await ctx.shell('date +%s')).trim()) * 1000;
+    r.fixtureClock = await page.evaluate(() => ({ now: Date.now(), pinned: !!Date.wgQAPinned, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
+    if (r.fixtureClock.pinned) throw new Error('account fixture must use the real clock');
     // The local visual driver's clock is 23:00; the account uses the real device clock.
     // At 01:00 its same-day BP/food/sleep would otherwise still be in the future. Establish
     // actual saved-data preconditions using that account clock, keeping the fixture's values.
@@ -44,6 +47,8 @@ export default async function offlineAccount(ctx) {
       v.data.settings.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       return JSON.stringify(v);
     }, fixture);
+    r.nativeClockAfter = Number((await ctx.shell('date +%s')).trim()) * 1000;
+    if (r.fixtureClock.now < r.nativeClockBefore - 1000 || r.fixtureClock.now > r.nativeClockAfter + 1000) throw new Error('account fixture clock differs from native bracket');
     r.import = await page.evaluate((json) => window.CloudVault.importAll(json), prepared);
     if (r.import.upload !== 'synced') throw new Error(`golden import not uploaded: ${r.import.upload}`);
     await page.evaluate(() => window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'notes', 'settings', 'food_targets', 'feature_settings']));
