@@ -9,8 +9,25 @@ export default async function coreLocal(ctx) {
   await ctx.shell(`appops set ${ctx.pkg} SCHEDULE_EXACT_ALARM allow`);
   let page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
     const p = await ctx.launchLocal('today');
+    r.initialCut = await p.evaluate(async () => (await import('/js/sync.js')).localRecordsPort().list('ledgercut'));
+    // The initial 23:00 visual boot already established a put-if-absent ledger cut. A clock
+    // jump backwards cannot generate new doses before it. Reuse local-smoke's neutral-page
+    // fresh-origin setup so the FIRST seeded ledger is initialized at the required 07:00.
+    await p.goto(`${ctx.LOCAL_ORIGIN}/qa/scenes.json`, { waitUntil: 'load' });
+    r.wiped = await p.evaluate(async () => {
+      localStorage.clear(); sessionStorage.clear();
+      const dbs = await indexedDB.databases();
+      await Promise.all(dbs.map((d) => new Promise((resolve, reject) => {
+        const q = indexedDB.deleteDatabase(d.name);
+        q.onsuccess = resolve; q.onerror = () => reject(q.error); q.onblocked = () => reject(new Error(`delete ${d.name} blocked`));
+      })));
+      return dbs.map((d) => d.name);
+    });
     await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
+    r.setupClock = await p.evaluate(async () => ({ now: new Date().toISOString(), pinned: !!Date.wgQAPinned,
+      cut: await (await import('/js/sync.js')).localRecordsPort().list('ledgercut') }));
+    if (!r.setupClock.pinned || r.setupClock.cut.length !== 1 || Date.parse(r.setupClock.cut[0].at) > Date.parse(r.setupClock.now)) throw new Error(`invalid morning ledger setup: ${JSON.stringify(r.setupClock)}`);
     // Keep the golden records, but remove competing due medications from this focused flow.
     await p.evaluate(async () => {
       for (const m of await window.apiCall('/api/medications')) {
@@ -67,6 +84,7 @@ export default async function coreLocal(ctx) {
     const meds = await page.evaluate(() => window.apiCall('/api/medications'));
     const med = meds.find((m) => m.name === name);
     if (!med || JSON.parse(med.schedule).times.join() !== times.join()) throw new Error(`schedule not saved: ${name}`);
+    (r.savedMeds ||= {})[name] = { id: med.id, schedule: med.schedule, archived: med.archived, createdAt: med.created_at };
     return med;
   };
   const timeline = async (med) => {
@@ -87,6 +105,7 @@ export default async function coreLocal(ctx) {
   await ctx.waitLocalReady(page, 'today');
   await ctx.step('dose: Today Take removes Next up immediately', async () => {
     await go('today');
+    r.todayBeforeTake = await page.evaluate(() => ({ now: new Date().toISOString(), nextUp: document.querySelector('[data-section="next-up"]')?.textContent }));
     const row = page.locator('[data-section="next-up"] .wg-row').filter({ hasText: dose.name });
     await row.getByRole('button', { name: 'Take', exact: true }).click();
     r.takenClock = await page.evaluate(() => { const d = new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; });
