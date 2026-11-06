@@ -169,7 +169,7 @@ export default async function localToCloudSeamless(ctx) {
 
   // 4. Back to local mode: the move erased nothing there.
   await ctx.step('Switch account → local mode (F1) → local records intact', async () => {
-    page = await ctx.launch(); // bd med-ta2n.12: Switch account lands in local mode with F1 open
+    page = await ctx.launch({ softAuthn: true }); // Switch account lands in local mode with F1 open
     await ctx.shot('switch-f1');
     await page.locator('[data-invite-action="not-now"]').click();
     await page.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 });
@@ -181,6 +181,64 @@ export default async function localToCloudSeamless(ctx) {
     await page.evaluate(() => window.switchTab('today'));
     await page.locator('#today-content > *').first().waitFor({ timeout: 20_000 });
     await ctx.stableShot('local-again');
+  });
+
+  // The first move populated this real account; revisit it by address with the
+  // original passkey rather than attempting to claim the spent invite again.
+  await ctx.step('move to the populated account and cancel without changing its records', async () => {
+    await ctx.openLink(`https://${r.accountHost}/`, { move: true });
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no account WebView after returning to account');
+    await page.waitForURL((u) => u.host === r.accountHost, { timeout: 60_000 });
+    const unlock = page.locator('#unlock-button');
+    if (await unlock.isVisible().catch(() => false)) await unlock.click();
+    const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
+    await choice.waitFor({ state: 'visible', timeout: WAIT });
+    for (const label of ['Merge', 'Replace']) {
+      if (!(await choice.locator('.mt-confirm-modal__choice').filter({ hasText: label }).count())) throw new Error(`missing ${label} choice`);
+    }
+    r.receiverBefore = await vaultCounts(page);
+    await ctx.stableShot('populated-account-choice');
+    await choice.locator('.mt-confirm-modal__cancel').click();
+    await choice.waitFor({ state: 'hidden' });
+    r.receiverAfterCancel = await vaultCounts(page);
+    if (Object.keys(diff(r.receiverBefore, r.receiverAfterCancel)).length) throw new Error('cancel changed account counts');
+    if ((await stashFiles()) !== 'vault.json') throw new Error('cancel lost the move stash');
+  });
+
+  await ctx.step('Replace requires the exact typed confirmation; cancelling keeps the account', async () => {
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+    const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
+    await choice.waitFor({ state: 'visible', timeout: WAIT });
+    await choice.locator('.mt-confirm-modal__choice').filter({ hasText: 'Replace' }).click();
+    await choice.locator('.mt-confirm-modal__confirm').click();
+    const confirm = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Replace the records in your account?' }) });
+    await confirm.waitFor({ state: 'visible', timeout: 10_000 });
+    const button = confirm.locator('.mt-confirm-modal__confirm');
+    const input = confirm.locator('.mt-confirm-modal__input');
+    if (await button.isEnabled()) throw new Error('Replace enabled before typing');
+    await input.fill('replace');
+    if (await button.isEnabled()) throw new Error('Replace accepted incorrect phrase');
+    await input.fill('REPLACE');
+    if (!(await button.isEnabled())) throw new Error('Replace did not accept REPLACE');
+    await ctx.stableShot('replace-typed');
+    await confirm.locator('.mt-confirm-modal__cancel').click();
+    if (Object.keys(diff(r.receiverBefore, await vaultCounts(page))).length) throw new Error('cancelled Replace changed account counts');
+    if ((await stashFiles()) !== 'vault.json') throw new Error('cancelled Replace lost the move stash');
+  });
+
+  await ctx.step('retry the retained move using Merge', async () => {
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+    const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
+    await choice.waitFor({ state: 'visible', timeout: WAIT });
+    await choice.locator('.mt-confirm-modal__choice').filter({ hasText: 'Merge' }).click();
+    await choice.locator('.mt-confirm-modal__confirm').click();
+    await page.getByText(TOAST).waitFor({ state: 'visible', timeout: WAIT });
+    await waitForVault(page);
+    r.merged = await vaultCounts(page);
+    if (lost(r.receiverBefore, r.merged).length || lost(r.local, r.merged).length) throw new Error('Merge lost account or local records');
+    if ((await stashFiles()) !== '') throw new Error('successful Merge left the move stash');
+    await ctx.stableShot('populated-account-merged');
   });
   log('localToCloudSeamless', JSON.stringify(r, null, 2));
 }
