@@ -25,6 +25,13 @@ final class FlowQAAccountGoneTests: XCTestCase {
         ["-wgLocalMode", "NO", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgAccountHost", host]
     }
 
+    // THROWAWAY (bd med-5yr8 red proof, never merged): red on attempt 1 only.
+    func testForcedFailureMed5yr8() {
+        if ProcessInfo.processInfo.environment["WG_QA_RUN_ATTEMPT"] == "1" {
+            XCTFail("med-5yr8 forced failure on run attempt 1")
+        }
+    }
+
     func testAccountGone() {
         continueAfterFailure = false
         let app = XCUIApplication()
