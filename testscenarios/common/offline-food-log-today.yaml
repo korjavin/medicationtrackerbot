@@ -11,6 +11,6 @@ invariants:
   - Moving between days within one visit keeps the chosen day
 covered_by:
   web: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page
-  android: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page  # data/logic only: date selection; offline shell availability is offline-cold-open
+  android: android/qa/scenarios/offline-account.mjs#offline Food opens on today after browsing yesterday; web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page  # native offline reopen; web covers date logic and in-visit navigation
   ios: manual  # partial: data/logic only: web/static/js/tests/food.daynav.test.js#opens on today on a page load even when the browser restored an older day; browsing stays in-page (date selection on load, in-visit browsing); missing, owned by med-sz4k.6.1: Food opening on today inside the FlowQA offline relaunch; no iOS reload online or offline asserts it yet
 source: [med-kk1q.3]
