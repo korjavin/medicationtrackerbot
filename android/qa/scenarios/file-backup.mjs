@@ -71,6 +71,7 @@ export default async function fileBackup(ctx) {
     return settled;
   });
   let saved;
+  let offeredPath;
   const corruptName = 'qa-b3-corrupt.json.gz';
   try {
     saved = await ctx.step('Settings export empty passphrase → Backup ready → actual DocumentsUI Save', async () => {
@@ -92,10 +93,11 @@ export default async function fileBackup(ctx) {
       const name = cache.slice(cache.lastIndexOf('/') + 1);
       if (!/^medtracker-vault-[\w-]+\.json\.gz$/.test(name)) throw new Error('unexpected export filename');
       const temporary = Buffer.from(await shell(`run-as ${pkg} base64 -w 0 ${cache}`), 'base64');
+      offeredPath = `/sdcard/Download/${name}`;
       await device.tap({ text: /^(SAVE|Save)$/ });
       await sleep(2500);
       // This independent provider-backed Downloads path is the proof, not the cache above.
-      const path = `/sdcard/Download/${name}`;
+      const path = offeredPath;
       const bytes = Buffer.from(await shell(`base64 -w 0 ${path}`), 'base64');
       if (!bytes.length || digest(bytes) !== digest(temporary)) throw new Error('saved document differs from temporary export');
       const vault = JSON.parse(gunzipSync(bytes).toString('utf8'));
@@ -191,8 +193,10 @@ export default async function fileBackup(ctx) {
     });
   } finally {
     await ctx.step('remove own saved/corrupt fixture documents', async () => {
-      if (saved) await shell(`rm -f ${saved.path}`);
+      if (offeredPath) await shell(`rm -f ${offeredPath}`);
       await shell(`rm -f /sdcard/Download/${corruptName}`);
+      const remaining = (await shell('ls /sdcard/Download/')).split('\n');
+      if (remaining.includes(corruptName) || offeredPath && remaining.includes(offeredPath.split('/').pop())) throw new Error('owned fixture documents remain after cleanup');
       r.documentsRemoved = true;
     });
   }
