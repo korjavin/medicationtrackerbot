@@ -307,7 +307,7 @@ export function createMedicationsDomain({
   async function emaFor(existing, name, selection) {
     const raw = existing ? existing.ema : undefined;
     let prior;
-    if (raw !== undefined && raw !== null && !validEma(raw)) {
+    if (raw !== undefined && !validEma(raw)) {
       prior = existing.name === name ? raw : undefined;
     } else if (raw && raw.for_name === name) prior = raw;
     const pick = typeof selection === 'string' ? selection : '';
@@ -448,7 +448,7 @@ export function createMedicationsDomain({
       normalized_name: keepMatch ? (existing.normalized_name || '') : normalizedName || '',
       tz_shift_policy: tzShiftPolicy,
     };
-    if (ema) updated.ema = ema;
+    if (ema !== undefined) updated.ema = ema; // a malformed falsy value stays as it was
     else delete updated.ema;
     const wantCount =input && input.inventory_count !== undefined && input.inventory_count !== null
       ? Number(input.inventory_count) : null;

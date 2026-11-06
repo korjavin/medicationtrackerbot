@@ -713,7 +713,7 @@ describe('saved EU register match (bd med-3u28.10)', () => {
     });
 
     it('a malformed reference (an imported row) is left out of every read and never thrown on, and kept on the row', async () => {
-        const bad = [{ for_name: 'Candecor', substances: 5 }, { ...REF90('Candecor', 'X'), sha256: 'nothex' }, ['x'], 'str'];
+        const bad = [{ for_name: 'Candecor', substances: 5 }, { ...REF90('Candecor', 'X'), sha256: 'nothex' }, ['x'], 'str', null, false, 0, ''];
         for (const [i, ema] of bad.entries()) {
             await env.records.put('medication', {
                 recordId: 100 + i, clientTs: 1, deleted: false, name: 'Candecor', dosage: `${i}mg`, schedule: '{"type":"as_needed"}',
@@ -735,6 +735,10 @@ describe('saved EU register match (bd med-3u28.10)', () => {
         expect((await row(100)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
         await save(101, 'Atacand', { dosage: '1mg' });
         expect('ema' in await row(101)).toBe(false);
+        await save(104, 'Atacand', { dosage: '4mg' }); // null
+        expect('ema' in await row(104)).toBe(false);
+        await save(105, 'Candecor', { dosage: '5mg', ema_substances: 'Candesartan Cilexetil' }); // false
+        expect((await row(105)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
     });
 
     it('editor: Use this → Picked → Save; the list shows "EU <substance>"; reopened offline the saved chip paints from the record', async () => {
