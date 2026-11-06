@@ -809,6 +809,9 @@ retains both stamps and SHA-256 hashes of the stamped files and binaries. The TL
 serial A→B backend restart at the same address; it keeps the disposable DB/session environment,
 account origin, CA and receipt stream intact. Its B2 control listener binds **127.0.0.1:8766 only**
 and exists only when `-cloud-a`/`-cloud-b` are supplied. It is runner tooling, not an app endpoint.
+For `local-to-cloud-seamless`, a separate runner-only control binds **127.0.0.1:8767 only** when
+`-move-fault` is supplied. It temporarily returns 503 for the disposable account's sync bootstrap
+reads; the scenario verifies the error and retained stash, releases the fault, and retries pickup.
 
 `update-banner` asserts matching A is quiet, a real native force-stop/relaunch after the server
 switch to B produces one notice (before any synthetic check), and repeated checks deduplicate it.
