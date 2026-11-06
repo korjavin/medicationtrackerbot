@@ -134,12 +134,13 @@ export const applyIncomingReplica = (existing, incoming) => (
 
 export function loadCloudShimFrontendEnv(opts = {}) {
     const {
-        seedRecords, wrapApiCallDirect, now, timeZone, ...frontendOpts
+        seedRecords, records: reuseRecords, wrapApiCallDirect, now, timeZone, ...frontendOpts
     } = opts;
     const env = loadFrontendEnv(frontendOpts);
     // Exposed on env so a suite can assert HOW the domain layer read (e.g. that
     // vitals bounds its window via listRange rather than listing every batch).
-    const records = createInMemoryRecordsPort(seedRecords);
+    // opts.records hands a previous env's store to a fresh page: a reload.
+    const records = reuseRecords || createInMemoryRecordsPort(seedRecords);
     env.records = records;
     // Every mutating med/intake/tzplan route schedules a 2s debounced reminder
     // recompute keyed by this ctx. Nothing cancelled it on teardown, so a suite
