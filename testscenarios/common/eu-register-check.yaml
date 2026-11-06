@@ -19,7 +19,7 @@ invariants:
   - Back on US register the Rx chip path runs as before and the EU register is not fetched
   - With an account the choice syncs: another device of the account shows the same register after a pull, and its next check follows it without a reload
 covered_by:
-  web: manual  # partial: web/static/js/tests/meds.modal.test.js (editor, sheet, stale guards), web/static/js/tests/cloud.shim-contract.meds.test.js (routing, kept match), web/cloud/js/tests/ema.test.js (loader + cache)
+  web: manual  # partial: web/static/js/tests/meds.modal.test.js (Candecor and Voltaren chips and sheets, first-download progress, Save while loading, the US path), web/static/js/tests/cloud.shim-contract.meds.test.js (real router, loader and asset: no RxNav request, kept Rx match, US switch-back loads nothing, a settings record put in the store applies on the next check), web/cloud/js/tests/ema.test.js (one download, cache-first reopen); missing: the account choice written on one device reaching another through a real sync pull and its Settings (med-sz4k.2)
   android: manual  # partial: android/qa/scenarios/eu-register.mjs (local choice/cache/relaunch, Candecor countries/route/source, Voltaren cards, observed name/RxNav egress guard); no actual offline check, US switch, first-download Save/progress, unchanged Rx match or account-choice sync
   ios: manual  # partial: ios/UITests/FlowQAEURegisterTests.swift (local mode: US checks nothing, Settings pick survives a relaunch, Candecor chip + sheet, cache-first relaunch); not Voltaren, offline or the account-mode US path
 source: [med-3u28.2, med-3u28.6]

@@ -13,7 +13,7 @@ invariants:
   - The trial counter decreases by the seconds actually used; a failed start is not charged
   - The call connects through the minted signed URL; opening the conversation WebSocket with the agent id alone (no signature) is refused, so only a metered start can run on the operator's ElevenLabs account
 covered_by:
-  web: manual
+  web: manual  # n/a on web: the anonymous trial runs only in the phone shells' local mode; on a phone it needs a live ElevenLabs call (audio, signed transport, restart, metering)
   android: manual  # live vendor audio/audibility, signed call transport, immediate restart and actual trial metering need a device call
   ios: manual
 source: [med-dngs, med-ytmf]

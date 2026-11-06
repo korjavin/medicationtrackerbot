@@ -483,35 +483,83 @@ export default async function healthConnect(ctx) {
       await waitNative(weight.id, (rows) => rows.length === 0);
     });
 
-    // bd med-8f4s.11 section 6: copy 1,000 past entries (700 BP with pulse, 300
-    // weights: 1,700 Health Connect writes) through the real writer, and record
-    // how long the count (the dedupe read) and the copy take, and whether
-    // Health Connect's rate limit paused it. Evidence: never fails the run.
-    // Run last of the write steps (below): it spends the app's write quota.
+    // bd med-8f4s.11 section 6 / med-8f4s.15 (f): copy 1,010 past entries
+    // (700 BP with pulse, 300 weights, plus ~10 left by the steps above) and
+    // ~300 completed workouts (3-5 logs each) through the real writer, all
+    // inside the rolling 30-day window (no history permission on this image),
+    // and record how long the counts (the dedupe read; workouts alone first)
+    // and the copy take, how many bridge calls it made (batched: ≈ ids / 50),
+    // and whether Health Connect's rate limit paused it. Evidence: never fails
+    // the run. Run last of the write steps (below): it spends the write quota.
     async function copyMeasurement() {
+      const access = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
+      if (!Number.isFinite(access.readableFrom)) throw new Error(`measurement needs readableFrom: ${JSON.stringify(access)}`);
+      r.copy.readableFrom = access.readableFrom;
+      await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
+      r.copy.workoutSeedMs = await ctx.page.evaluate(async () => {
+        const t = Date.now();
+        const ex = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: `Copy QA bench ${t}`, body_part: 'chest' });
+        for (let i = 0; i < 300; i++) {
+          const { session } = await window.apiCall('/api/workout/sessions/adhoc', 'POST');
+          for (let j = 0; j < 3 + (i % 3); j++) {
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', { session_id: session.id, exercise_id: ex.id,
+              exercise_name: ex.name, source: 'library', target_sets: 1, target_reps_min: 5, target_weight_kg: 10 });
+          }
+          await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+        }
+        return Date.now() - t;
+      });
+      const settings = async () => {
+        // A reload, not a force-stop: a force-stop right after setItem can drop
+        // the WebView's not yet flushed localStorage (the switch came back off).
+        await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'true'));
+        await ctx.page.reload({ waitUntil: 'load' });
+        await ctx.page.waitForFunction(() => typeof window.switchTab === 'function', null, { timeout: 60_000 });
+        await ctx.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+        await ctx.page.evaluate(() => window.switchTab('settings'));
+        const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+        if (await notNow.isVisible().catch(() => false)) await notNow.click();
+        const row = ctx.page.locator('#health-copy-row[data-state="ready"]');
+        await row.waitFor({ state: 'visible', timeout: 30_000 });
+        await row.scrollIntoViewIfNeeded();
+        return row;
+      };
+      const confirm = ctx.page.locator('.mt-confirm-modal .mt-confirm-modal__confirm');
+      // Workouts alone: planCopy's count time for them (copyRows awaits
+      // workoutSpan + workoutActivity per session; > 2 s → a follow-up).
+      let row = await settings();
+      let t0 = Date.now();
+      await row.click();
+      await confirm.waitFor({ state: 'visible', timeout: 120_000 });
+      r.copy.workoutCountMs = Date.now() - t0;
+      r.copy.workoutOffer = await ctx.page.locator('.mt-confirm-modal').innerText();
+      const cancel = ctx.page.locator('.mt-confirm-modal .mt-confirm-modal__cancel');
+      if (await cancel.isVisible()) await cancel.click();
+      else await confirm.click();
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'false'));
       await ctx.page.evaluate(async () => {
-        const base = Date.now() - 400 * 864e5;
-        for (let i = 0; i < 700; i++) await window.apiCall('/api/bp', 'POST', { systolic: 100 + (i % 40), diastolic: 60 + (i % 9), pulse: 60 + (i % 20), measured_at: new Date(base + i * 12 * 36e5).toISOString(), notes: 'copy QA' });
-        for (let i = 0; i < 300; i++) await window.apiCall('/api/weight', 'POST', { weight: 70 + (i % 50) / 10, measured_at: new Date(base + i * 864e5).toISOString() });
-        localStorage.setItem('wg.health.write', 'true');
+        const base = Date.now() - 28 * 864e5;
+        for (let i = 0; i < 700; i++) await window.apiCall('/api/bp', 'POST', { systolic: 100 + (i % 40), diastolic: 60 + (i % 9), pulse: 60 + (i % 20), measured_at: new Date(base + i * 50 * 6e4).toISOString(), notes: 'copy QA' });
+        for (let i = 0; i < 300; i++) await window.apiCall('/api/weight', 'POST', { weight: 70 + (i % 50) / 10, measured_at: new Date(base + i * 2 * 36e5).toISOString() });
       });
-      // A reload, not a force-stop: a force-stop right after setItem can drop
-      // the WebView's not yet flushed localStorage (the switch came back off).
-      await ctx.page.reload({ waitUntil: 'load' });
-      await ctx.page.waitForFunction(() => typeof window.switchTab === 'function', null, { timeout: 60_000 });
-      const access = await native('writeAccess', ['bp', 'weight', 'hr', 'workout']);
-      if (access.readableFrom !== 0) throw new Error(`measurement needs actual granted history: ${JSON.stringify(access)}`);
-      await ctx.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-      await ctx.page.evaluate(() => window.switchTab('settings'));
-      const notNow = ctx.page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
-      if (await notNow.isVisible().catch(() => false)) await notNow.click();
-      const row = ctx.page.locator('#health-copy-row[data-state="ready"]');
-      await row.waitFor({ state: 'visible', timeout: 30_000 });
-      await row.scrollIntoViewIfNeeded();
-      const t0 = Date.now();
+      row = await settings();
+      // Count the bridge calls the copy makes (the page's writer reads these
+      // methods at call time).
+      await ctx.page.evaluate(() => {
+        const h = window.Health;
+        const write = h.write.bind(h);
+        const remove = h.remove.bind(h);
+        const c = window.__qaCopyCalls = { write: 0, single: 0, entries: 0, remove: 0 };
+        h.write = (a) => {
+          c.write++;
+          if (a && Array.isArray(a.entries)) c.entries += a.entries.length;
+          else c.single++;
+          return write(a);
+        };
+        h.remove = (a) => { c.remove++; return remove(a); };
+      });
+      t0 = Date.now();
       await row.click();
-      const confirm = ctx.page.locator('.mt-confirm-modal .mt-confirm-modal__confirm');
       await confirm.waitFor({ state: 'visible', timeout: 120_000 });
       r.copy.countMs = Date.now() - t0;
       r.copy.offer = await ctx.page.locator('.mt-confirm-modal').innerText();
@@ -531,8 +579,14 @@ export default async function healthConnect(ctx) {
       r.copy.copyMs = Date.now() - t1;
       r.copy.paused = r.copy.states.some((s) => s.startsWith('paused'));
       r.copy.ledgerLeft = await ctx.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('wg.health.dirty') || '{}')).reduce((n, m) => n + Object.keys(m).length, 0));
+      r.copy.calls = await ctx.page.evaluate(() => window.__qaCopyCalls);
+      r.copy.job = await ctx.page.evaluate(() => {
+        const j = JSON.parse(localStorage.getItem('wg.health.backfill') || 'null');
+        return j && { total: j.total, failed: j.failed || 0, fails: j.fails || 0 };
+      });
       await ctx.stableShot('health-copy-result');
-      ctx.log('health-copy', JSON.stringify({ countMs: r.copy.countMs, copyMs: r.copy.copyMs, paused: r.copy.paused, ledgerLeft: r.copy.ledgerLeft, last: r.copy.states.at(-1) }));
+      ctx.log('health-copy', JSON.stringify({ workoutCountMs: r.copy.workoutCountMs, countMs: r.copy.countMs, copyMs: r.copy.copyMs, paused: r.copy.paused,
+        calls: r.copy.calls, job: r.copy.job, ledgerLeft: r.copy.ledgerLeft, last: r.copy.states.at(-1) }));
     }
 
     // med-8f4s.9: the page supplies its final span/type; independent SDK reads
@@ -701,13 +755,8 @@ export default async function healthConnect(ctx) {
       await ctx.page.evaluate(() => localStorage.setItem('wg.health.write', 'true'));
     });
 
-    await ctx.step('copy past entries: 1,000 entries, timed (measurement)', async () => {
+    await ctx.step('copy past entries: 1,010 entries + 300 workouts in batches, timed (measurement)', async () => {
       r.copy = {};
-      if ((await native('writeAccess', ['bp', 'weight', 'hr', 'workout'])).readableFrom !== 0) {
-        r.copy.skipped = 'This provider has a finite historical window; the integrated eligible 1,010-entry quota fixture belongs to med-8f4s.15.';
-        ctx.log('health-copy', JSON.stringify(r.copy));
-        return;
-      }
       try {
         await copyMeasurement();
       } catch (e) {
