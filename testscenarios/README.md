@@ -50,6 +50,16 @@ swap; `degraded-boot` asserts a one-shot required-module failure and one offline
 Its failed-read title/body assertions use the shared med-31gk fix. Store-installed updates still
 need a real device. Native Home/resume visibility delivery remains a separate non-gating gap
 (med-jyxy); the account cold-open update invariant does not depend on an explicit DOM stimulus.
+The B3 `file-backup` scenario requires the real saved document and native restore picker, full
+canonical content/settings after erase and typed Replace, and corrupt-file preservation. File
+Restore is Replace-only by design (ruling17664/17666). `local-lock` uses a real emulator PIN and
+verified cleanup; `health-connect` adds SDK weight/sleep source-label proof with the accepted
+same-package origin limit. Real third-party Health origins/data, unasserted permission-sheet and
+denied-guidance branches, live vendor voice/photo, Play-installed updates and the other precisely
+named partial checks remain release obligations in their own YAML comments.
+The invite-free PIN and saved-file scenarios run in `all`; Health stays in its owning standalone
+dispatch. The PIN flow joins `all` only after native authenticated disable and credential cleanup
+were demonstrated, with the smoke invite and reminders-offline's final position preserved.
 
 ## Where automation lives
 

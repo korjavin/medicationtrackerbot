@@ -10,12 +10,17 @@ import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Percentage
 import androidx.health.connect.client.units.Pressure
+import androidx.health.connect.client.units.Mass
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONObject
+import org.json.JSONArray
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -29,6 +34,9 @@ import java.time.ZoneOffset
  * SpO2 reading, all in the last hour; `--ei spo2n N` makes that N SpO2 readings a minute apart
  * (more than one Health Connect page, for the paged scan). QA build (qa.test base) only; logs
  * "ok"/"failed" under the logcat tag qa-health-write.
+ * B3: `--ei grams G` inserts WeightRecord; `--ei sleepDays D` inserts an 8h UTC night ending
+ * at 06:00 D days ago; `--es request R` keys a second JSON line `{request, now, records}` with
+ * SDK IDs, null client IDs and exact timestamps/values. Same package, SDK-assigned dataOrigin.
  */
 class QaHealthWrite : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,11 +48,23 @@ class QaHealthWrite : Activity() {
         val hr = intent.getIntExtra("hr", 0).toLong()
         val spo2 = intent.getIntExtra("spo2", 0).toDouble()
         val spo2n = intent.getIntExtra("spo2n", 1).coerceAtLeast(1)
+        val kg = intent.getIntExtra("grams", 0) / 1000.0
+        val sleepDays = intent.getIntExtra("sleepDays", 0)
+        val request = intent.getStringExtra("request").orEmpty()
         val now = Instant.now()
         val utc = ZoneOffset.UTC
         val records = buildList<Record> {
             add(BloodPressureRecord(time = now.minusSeconds(5), zoneOffset = utc, metadata = Metadata.manualEntry(),
                 systolic = Pressure.millimetersOfMercury(sys), diastolic = Pressure.millimetersOfMercury(dia)))
+            if (kg > 0) add(WeightRecord(time = now.minusSeconds(5), zoneOffset = utc,
+                weight = Mass.kilograms(kg), metadata = Metadata.manualEntry()))
+            // Completed UTC night, comfortably beyond importer's 3h settling window.
+            // Null clientRecordId is intentional: same package, SDK-assigned dataOrigin.
+            if (sleepDays > 0) {
+                val end = now.atOffset(utc).toLocalDate().minusDays(sleepDays.toLong()).atTime(6, 0).toInstant(utc)
+                add(SleepSessionRecord(startTime = end.minusSeconds(8 * 3600), startZoneOffset = utc,
+                    endTime = end, endZoneOffset = utc, metadata = Metadata.manualEntry()))
+            }
             if (steps > 0) add(StepsRecord(startTime = now.minusSeconds(3600), startZoneOffset = utc,
                 endTime = now.minusSeconds(60), endZoneOffset = utc, count = steps, metadata = Metadata.manualEntry()))
             if (hr > 0) add(HeartRateRecord(startTime = now.minusSeconds(600), startZoneOffset = utc,
@@ -60,7 +80,23 @@ class QaHealthWrite : Activity() {
         CoroutineScope(Dispatchers.Main).launch {
             runCatching {
                 HealthConnectClient.getOrCreate(this@QaHealthWrite).insertRecords(records)
-            }.onSuccess { Log.i(TAG, "ok $sys/$dia ${it.recordIdsList}") }
+            }.onSuccess {
+                Log.i(TAG, "ok $sys/$dia ${it.recordIdsList}")
+                Log.i(TAG, JSONObject().put("request", request).put("now", now.toEpochMilli())
+                    .put("records", JSONArray().apply {
+                        records.forEachIndexed { i, record ->
+                            put(JSONObject().put("type", record.javaClass.simpleName).put("id", it.recordIdsList[i])
+                                .put("clientId", record.metadata.clientRecordId ?: JSONObject.NULL)
+                                .apply {
+                                    when (record) {
+                                        is WeightRecord -> put("kg", record.weight.inKilograms).put("at", record.time.toEpochMilli())
+                                        is SleepSessionRecord -> put("start", record.startTime.toEpochMilli()).put("end", record.endTime.toEpochMilli())
+                                        is BloodPressureRecord -> put("systolic", sys).put("diastolic", dia).put("at", record.time.toEpochMilli())
+                                    }
+                                })
+                        }
+                    }).toString())
+            }
                 .onFailure { Log.e(TAG, "failed ${it.javaClass.simpleName}: ${it.message}") }
             finish()
         }

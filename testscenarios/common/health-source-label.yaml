@@ -12,6 +12,6 @@ invariants:
   - Rows imported from a Mi Band backup keep showing with their label after the in-app import control is gone
 covered_by:
   web: web/static/js/tests/bp.history.test.js  # BP: label on the imported row, none on typed-in ones; weight: weight.history.test.js; sleep: health.sleep.test.js; Mi Band import control gone and a retained Mi Band night keeping its label: health.summary.test.js (med-fi1k); the web renders rows synced from a phone, the import that marks them is web/cloud/js/tests/health-import.test.js
-  android: manual  # health-connect.mjs has no imported BP/weight/sleep source-label assertions; foreign SDK fixture lacks weight/sleep, and web rendering tests do not prove the native import path (med-sz4k.4.3)
+  android: android/qa/scenarios/health-connect.mjs#healthConnect  # SDK BP/weight/sleep labels, BP/weight manual entries and a hand-authored non-Health sleep day row, dedupe, retained Mi Band/control absence; same package, SDK-assigned dataOrigin; real third-party origin remains manual
   ios: manual
 source: [med-w6gx.32]

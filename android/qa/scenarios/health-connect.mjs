@@ -12,8 +12,10 @@
 // Steps / Heart Rate / SpO2 cards must be populated (screenshot vitals-cards).
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
+import { healthRecordId } from '../../../web/domain/healthsource.js';
+
 export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
-const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION', 'EXERCISE'];
+const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION', 'EXERCISE'];
 
 export default async function healthConnect(ctx) {
   const { shell, pkg, sleep } = ctx;
@@ -84,7 +86,10 @@ export default async function healthConnect(ctx) {
 
   try {
     await ctx.step('cold start in local mode', async () => {
-      const p = await ctx.launchLocal('today');
+      let p = await ctx.launchLocal('today');
+      // Stop the visual clock/seed driver before native Instant comparisons or scans.
+      await p.goto(`${ctx.LOCAL_ORIGIN}/`, { waitUntil: 'load' });
+      await ctx.waitLocalReady(p);
       await p.evaluate(() => {
         window.__qaVis = [];
         document.addEventListener('visibilitychange', () => window.__qaVis.push(document.visibilityState));
@@ -215,6 +220,138 @@ export default async function healthConnect(ctx) {
       await ctx.page.waitForFunction(() => !!document.getElementById('health-view')?.offsetParent, null, { timeout: 15_000 });
       await sleep(1500);
       await ctx.stableShot('vitals-cards');
+    });
+
+    await ctx.step('B3 real SDK BP/weight/settled sleep → explicit rescan → exact source labels and dedupe', async () => {
+      // Source-label proof uses the accepted same-package/null-client-ID stand-in;
+      // dataOrigin is assigned by the SDK, never spoofed. No Home/foreground claim.
+      const access = await sdkAccess();
+      for (const permission of ['READ_WEIGHT', 'WRITE_WEIGHT', 'READ_SLEEP', 'WRITE_SLEEP']) {
+        if (!access.granted.includes(`android.permission.health.${permission}`)) throw new Error(`SDK lacks ${permission}`);
+      }
+      const beforeClock = Number(await shell('date +%s')) * 1000;
+      const prior = await ctx.page.evaluate(async () => ({
+        pinned: !!Date.wgQAPinned, now: Date.now(),
+        vault: JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data.vitals.sleep,
+        provider: await window.Health.query({ type: 'sleep', from: Date.now() - 7 * 86400_000, to: Date.now() }),
+        overview: await window.apiCall('/api/health/overview'),
+      }));
+      const afterClock = Number(await shell('date +%s')) * 1000 + 999;
+      if (prior.pinned || prior.now < beforeClock - 2000 || prior.now > afterClock + 2000) throw new Error('Health assertion page is not on native real clock');
+      const occupied = new Set([...prior.vault.map((s) => s.day), ...(prior.provider.samples || []).map((s) => new Date(s.end).toISOString().slice(0, 10))]);
+      const sleepDays = [2, 3, 4, 5, 6].find((days) => !occupied.has(new Date(beforeClock - days * 86400_000).toISOString().slice(0, 10)));
+      if (!sleepDays) throw new Error('no distinct readable fixture sleep day');
+      const manualOffset = [1, 2, 3, 4, 5, 6].find((days) => days !== sleepDays && !occupied.has(new Date(beforeClock - days * 86400_000).toISOString().slice(0, 10)));
+      if (!manualOffset) throw new Error('no distinct manual comparison sleep day');
+      // A bounded hand-authored non-Health DAY ROW, not a claim of a Sleep editor.
+      // Use the canonical day id intentionally: healthsource.unifySleep projects EVERY
+      // non-Health legacy session as Mi Band, hiding the unknown-source comparison.
+      // This unused day differs from all golden/provider/SDK days, so no Health row can
+      // overwrite it in this fixture. The golden Mi Band night is asserted separately.
+      const manualDay = new Date(beforeClock - manualOffset * 86400_000).toISOString().slice(0, 10);
+      prior.overview = await ctx.page.evaluate(async (day) => {
+        const end = Date.parse(`${day}T06:00:00Z`);
+        await (await import('/js/sync.js')).localRecordsPort().put('sleep', {
+          recordId: `sleep-hk-${day}`, clientTs: Date.now(), deleted: false, day,
+          start_time: new Date(end - 7 * 3600_000).toISOString(), end_time: new Date(end).toISOString(),
+          timezone_offset: 0, total_minutes: 420, source: 'unknown', user_modified: true,
+          notes: 'B3 hand-authored comparison',
+        });
+        return window.apiCall('/api/health/overview');
+      }, manualDay);
+      const request = `b3-${Date.now()}`;
+      const kg = 130 + Math.floor(Math.random() * 200) / 10;
+      const sys = SECOND[0] + 2;
+      const before = Number(await shell('date +%s')) * 1000;
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --es request ${request} --ei sys ${sys} --ei dia 101 --ei grams ${Math.round(kg * 1000)} --ei sleepDays ${sleepDays}`);
+      let inserted;
+      for (const until = Date.now() + 20_000; Date.now() < until;) {
+        const line = (await shell('logcat -d -s qa-health-write:*')).split('\n').findLast((l) => l.includes(`"request":"${request}"`));
+        if (line) { inserted = JSON.parse(line.slice(line.indexOf('{"request":'))); break; }
+        await sleep(500);
+      }
+      const after = Number(await shell('date +%s')) * 1000 + 999;
+      if (!inserted || inserted.now < before || inserted.now > after || inserted.records.length !== 3) throw new Error('SDK insertion/real timestamp evidence missing');
+      const bp = inserted.records.find((s) => s.type === 'BloodPressureRecord');
+      const weight = inserted.records.find((s) => s.type === 'WeightRecord');
+      const night = inserted.records.find((s) => s.type === 'SleepSessionRecord');
+      if (inserted.records.some((s) => !s.id || s.clientId !== null) || night.end > before - 3 * 3600_000) throw new Error('fixture identity/settling boundary invalid');
+      const provider = await ctx.page.evaluate(async ({ from, to }) => {
+        const out = {};
+        for (const type of ['bp', 'weight', 'sleep']) out[type] = await window.Health.query({ type, from, to, anchor: null });
+        return out;
+      }, { from: night.start - 86400_000, to: after });
+      for (const [type, record] of [['bp', bp], ['weight', weight], ['sleep', night]]) {
+        if (!provider[type].samples.some((s) => s.uuid === record.id)) throw new Error(`SDK-assigned ${type} UUID absent from real bridge scan`);
+      }
+      const sleepSample = provider.sleep.samples.find((s) => s.uuid === night.id);
+      if (sleepSample.source !== pkg || sleepSample.start !== night.start || sleepSample.end !== night.end) throw new Error('SDK-assigned sleep origin/window mismatch');
+      r.b3 = { stage: 'SDK rows verified', access, before, after, inserted, sleepOrigin: sleepSample.source,
+        providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
+        provenance: 'same package, SDK-assigned dataOrigin' };
+      await ctx.page.locator('[data-nav-to="settings"]:visible').first().click();
+      await toggle(); await sleep(1000); await toggle();
+      const imported = async () => ctx.page.evaluate(async () => JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data);
+      let data;
+      const day = new Date(night.end).toISOString().slice(0, 10);
+      for (const until = Date.now() + 30_000; Date.now() < until;) {
+        data = await imported();
+        if (data.bp.readings.some((s) => s.source_id === bp.id) && data.weight.logs.some((s) => s.source_id === weight.id) && data.vitals.sleep.some((s) => s.source_id === day)) break;
+        await sleep(500);
+      }
+      const importedBp = data.bp.readings.find((s) => s.source_id === bp.id);
+      const importedWeight = data.weight.logs.find((s) => s.source_id === weight.id);
+      const importedSleep = data.vitals.sleep.find((s) => s.source_id === day);
+      if (importedBp?.source !== 'apple_health' || importedBp.systolic !== sys || importedWeight?.source !== 'apple_health' || importedWeight.weight !== kg ||
+        importedSleep?.source !== 'apple_health' || Date.parse(importedSleep.start_time) !== night.start || Date.parse(importedSleep.end_time) !== night.end || importedSleep.total_minutes !== 480) throw new Error('exact SDK fixture not imported');
+      // Public BP/weight responses expose record `id`, not the vault-only source_id.
+      // Use the owning domain identity transform to join the exact SDK UUID to the UI.
+      const identities = await ctx.page.evaluate(async ({ bpId, weightId, sys, kg }) => {
+        const rows = (r, kind) => Array.isArray(r) ? r : (r.items || r.data || r[kind] || []);
+        const bp = rows(await window.apiCall('/api/bp?days=60'), 'readings');
+        const weight = rows(await window.apiCall('/api/weight?days=0&limit=1000'), 'logs');
+        return { bp: bp.find((s) => s.id === bpId && s.source === 'apple_health' && s.systolic === sys)?.id,
+          weight: weight.find((s) => s.id === weightId && s.source === 'apple_health' && s.weight === kg)?.id,
+          manualBp: bp.find((s) => s.source !== 'apple_health')?.id, manualWeight: weight.find((s) => s.source !== 'apple_health')?.id };
+      }, { bpId: healthRecordId('bp', bp.id), weightId: healthRecordId('weight', weight.id), sys, kg });
+      if (Object.values(identities).some((id) => id == null) || Object.keys(identities).length !== 4) throw new Error('missing imported/manual UI identities');
+      await ctx.page.evaluate(() => window.switchTab('bp'));
+      const bpRow = ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${identities.bp}"]`);
+      await bpRow.locator('.wg-source-label').getByText('Health import', { exact: true }).waitFor();
+      const manualBp = ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${identities.manualBp}"]`);
+      await manualBp.waitFor();
+      if (await manualBp.locator('.wg-source-label').count()) throw new Error('manual BP comparison row carries Health import label');
+      await ctx.stableShot('b3-bp-source-label');
+      await ctx.page.evaluate(() => window.switchTab('weight'));
+      const weightRow = ctx.page.locator(`.wg-weight-history-row[data-weight-id="${identities.weight}"]`);
+      await weightRow.locator('.wg-source-label').getByText('Health import', { exact: true }).waitFor();
+      const manualWeight = ctx.page.locator(`.wg-weight-history-row[data-weight-id="${identities.manualWeight}"]`);
+      await manualWeight.waitFor();
+      if (await manualWeight.locator('.wg-source-label').count()) throw new Error('manual weight comparison row carries Health import label');
+      await ctx.stableShot('b3-weight-source-label');
+      await ctx.page.evaluate(() => window.switchTab('health'));
+      await ctx.page.locator('.wg-sleep-card__sources').getByText(/Health import/).waitFor();
+      await ctx.page.locator('.wg-sleep-card__sources').getByText(/Mi Band/).waitFor();
+      if (await ctx.page.locator('#health-import-miband, #importexport-nxk-btn').count()) throw new Error('removed Mi Band import control reappeared');
+      const overview = await ctx.page.evaluate(() => window.apiCall('/api/health/overview'));
+      const stats = overview.sleep_stats_7d;
+      const retainedMiBand = prior.vault.filter((s) => s.source === 'miband');
+      if (!retainedMiBand.length || retainedMiBand.some((old) => !data.vitals.sleep.some((s) => JSON.stringify(s) === JSON.stringify(old)))) throw new Error('SDK import lost/changed retained Mi Band night');
+      if (!stats.some((s) => s.date === day && s.sources.includes('apple_health') && s.total_mins === 480)) throw new Error('matching SDK sleep day/source absent from rendered overview');
+      const manualDays = prior.overview.sleep_stats_7d.filter((s) => s.date === manualDay && s.sources.length === 1 && s.sources[0] === 'unknown' && s.total_mins === 420);
+      if (!manualDays.length || manualDays.some((m) => !stats.some((s) => s.date === m.date && !s.sources.includes('apple_health')))) throw new Error('manual sleep comparison day lost or mislabeled');
+      // Sleep's source hint aggregates the visible days; it is not a per-row label.
+      await ctx.stableShot('b3-sleep-sources');
+      await ctx.page.locator('[data-nav-to="settings"]:visible').first().click();
+      await toggle(); await sleep(1000); await toggle();
+      await sleep(4000);
+      const again = await imported();
+      const matches = (d) => ({ bp: d.bp.readings.filter((s) => s.source_id === bp.id), weight: d.weight.logs.filter((s) => s.source_id === weight.id), sleep: d.vitals.sleep.filter((s) => s.source_id === day) });
+      if (JSON.stringify(matches(again)) !== JSON.stringify(matches(data)) || Object.values(matches(again)).some((rows) => rows.length !== 1)) throw new Error('explicit rescan duplicated/changed imported fixture');
+      Object.assign(r.b3, { stage: 'complete',
+        day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date),
+        manualSleepBoundary: 'hand-authored non-Health day row at an unused canonical day ID; no Sleep editor claimed', dedupe: true,
+      });
     });
 
     await ctx.step('another app saves #2 while in the background → back in the foreground → #2 arrives', async () => {

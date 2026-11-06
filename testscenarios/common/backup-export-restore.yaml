@@ -10,8 +10,8 @@ steps:
 invariants:
   - 'Every record is back: medications and doses, BP, weight, food, workouts, sleep, settings'
   - A wrong or corrupt file is refused and nothing is replaced
-  - Merge keeps this device's records and adds the file's; Replace replaces them
+  - Restore from a file replaces this device’s records after the typed REPLACE confirm; it offers no Merge
 covered_by:
-  web: 'web/static/js/tests/settings.importexport.test.js#testscenarios: Settings → Backup over the real account store'  # export → erase → restore vs tests/fixtures/vault-v1.json; wrong/corrupt refused; Merge vs Replace
-  android: manual  # partial: android/qa/scenarios/local-to-cloud.mjs (export/empty-account restore); no local erase/restore, corrupt-file preservation or Merge/Replace; local-backup.mjs proves Auto Backup only (med-sz4k.4.3)
+  web: 'web/static/js/tests/settings.importexport.test.js#testscenarios: Settings → Backup over the real account store'  # export → erase → restore vs tests/fixtures/vault-v1.json; wrong/corrupt refused; typed file Replace (move-pickup Merge is separate, ruling17664/17666)
+  android: android/qa/scenarios/file-backup.mjs#fileBackup  # real SAF Save/readback/erase/same-file Replace/corrupt refusal; Replace-only catalogue ruling Archie17664/Miles17666
   ios: manual  # partial: ios/UITests/FlowQABackupTests.swift#testBackupExport and #testRestoreFromFile (export to Files; erase, then restore the fixture, not the exported file; one medication checked, no corrupt file, no Merge or Replace)

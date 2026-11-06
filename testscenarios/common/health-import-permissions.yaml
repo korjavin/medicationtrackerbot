@@ -14,6 +14,6 @@ invariants:
   - Where there is no Health store (the web) the toggle flips back with a message
 covered_by:
   web: manual  # n/a on web as written: a browser shows no Health import toggle at all (cloud-boot.js loads health-import.js only where Health is supported; web/cloud/js/tests/health-import.test.js asserts startHealthImport returns null there), so "the toggle flips back" cannot happen; the flip-back copy is pinned for a store that refuses (same file, Settings row)
-  android: manual  # partial: android/qa/scenarios/health-connect.mjs (pm-granted SDK import, steps/HR/SpO2 in Vitals); no real permission sheet, sleep fixture/import, full denied message path or real-user Health data
+  android: manual  # partial: android/qa/scenarios/health-connect.mjs (real SDK-granted steps/sleep/HR/SpO2 import into Vitals; same package, SDK-assigned dataOrigin); real requested-kinds system sheet, full denied guidance and real third-party origin/user Health data remain unasserted
   ios: manual
 source: [Zulip 11260]
