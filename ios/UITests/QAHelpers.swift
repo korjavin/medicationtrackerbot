@@ -261,12 +261,21 @@ enum QA {
         return (false, last)
     }
 
+    /// A web button by label. Segmented sub-tabs (aria-pressed buttons: Meds
+    /// Timeline/Schedule, Food Log/Food DB, Health BP/Weight) are exposed as
+    /// Switch elements, the tab bar and the rest as Button.
+    static func control(_ app: XCUIApplication, _ label: String, prefix: Bool = false) -> XCUIElement {
+        app.webViews.descendants(matching: .any).matching(NSPredicate(
+            format: "(elementType == %d OR elementType == %d) AND " + (prefix ? "label BEGINSWITH %@" : "label == %@"),
+            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.switch.rawValue, label)).firstMatch
+    }
+
     /// A web button by its accessible label (a tab, a segment), tapped until
     /// the flow state says `done`, at most three taps.
     @discardableResult
     static func tapLabel(_ app: XCUIApplication, _ label: String, prefix: Bool = false, timeout: TimeInterval = 10,
                          until done: ([String: Any]) -> Bool) -> (Bool, [String: Any]?) {
-        let button = app.webViews.buttons.matching(NSPredicate(format: prefix ? "label BEGINSWITH %@" : "label == %@", label)).firstMatch
+        let button = control(app, label, prefix: prefix)
         var last: [String: Any]?
         for _ in 0..<3 {
             if button.waitForExistence(timeout: 5) { button.tap() }

@@ -182,7 +182,7 @@ final class FlowQAOfflineAccountTests: XCTestCase {
         for _ in 0..<3 {
             if tabButton.waitForExistence(timeout: 5) { tabButton.tap() }
             for sub in subs {
-                let b = app.webViews.buttons[sub]
+                let b = QA.control(app, sub)
                 if b.waitForExistence(timeout: 5) { b.tap() }
             }
             t0 = Date()
