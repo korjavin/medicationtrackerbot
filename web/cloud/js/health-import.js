@@ -1038,7 +1038,8 @@ export function startHealthImport(ctx, {
         const entry = kind === 'hr' ? 'bp' : kind;
         const ids = Array.isArray(job.ids[entry]) ? job.ids[entry] : [];
         const dropped = (job.dropped && job.dropped[entry]) || [];
-        if (kind === 'hr') return ids.includes(id) || dropped.includes(id);
+        // Already dropped (the page died before the ledger write): drop again, count once.
+        if (kind === 'hr' || dropped.includes(id)) return ids.includes(id) || dropped.includes(id);
         if (!ids.includes(id)) return false;
         job.ids[entry] = ids.filter((x) => x !== id);
         job.dropped = { ...job.dropped, [entry]: [...dropped, id] };
@@ -1071,6 +1072,11 @@ export function startHealthImport(ctx, {
             }
         }
         for (const [kind, ids] of Object.entries(blocked)) left[kind] = (left[kind] || 0) + (Array.isArray(ids) ? ids.length : 0);
+        // A dropped id still in the ledger (the page died mid-drop): the job
+        // stays open until a pass drops it again.
+        for (const [kind, ids] of Object.entries(job.dropped || {})) {
+            for (const id of Array.isArray(ids) ? ids : []) if (l[kind] && l[kind][id] !== undefined) left[kind] = (left[kind] || 0) + 1;
+        }
         const refused = ENTRY_KINDS.filter((k) => left[k] && (blocked[k] || (lastGranted && !lastGranted.includes(k))));
         const running = Object.keys(left).some((k) => !refused.includes(k));
         // A pulse is not an entry, but its copy is part of this job: while one

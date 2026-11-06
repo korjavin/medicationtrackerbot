@@ -2744,6 +2744,16 @@ describe('Health write-back', () => {
                 expect(JSON.parse(storage.getItem('wg.health.copied')).bp).not.toHaveProperty('bp-c');
             });
 
+            it('(c) a drop the page died in the middle of (job written, ledger not) replays once, counted once (Argus 17242 #1)', async () => {
+                allowConsoleNoise();
+                storage.setItem('wg.health.dirty', JSON.stringify({ bp: { 'bp-c': 1 } }));
+                storage.setItem('wg.health.backfill', JSON.stringify({ startedAt: 1, total: 1, ids: { bp: [] }, blocked: {}, dropped: { bp: ['bp-c'] } }));
+                await open({ ...health, write: vi.fn(async () => { throw new Error('bad write: systolic'); }) });
+                await vi.waitFor(() => expect(dirty().bp).toEqual({}));
+                expect(job().dropped).toEqual({ bp: ['bp-c'] });
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]));
+            });
+
             it('(c) a reading and its pulse both rejected, in one batch or across passes: neither stays queued, one entry named (Argus 17229 #1)', async () => {
                 allowConsoleNoise();
                 health.write = shellWrite(async (a) => (a.id === 'bp-a' ? 'bad write: systolic' : a.id === 'bp-a/pulse' ? 'invalid heart rate' : true));
