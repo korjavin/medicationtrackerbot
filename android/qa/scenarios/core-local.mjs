@@ -1,5 +1,7 @@
 // B1: real Android editor/IME/Back plus the shipped optimistic writes and durable ledger.
 // Fixture setup uses the existing golden-vault driver; all behavior under test goes through UI.
+import { readFileSync } from 'node:fs';
+
 export default async function coreLocal(ctx) {
   const r = (ctx.results.coreLocal = { schedules: {} });
   await ctx.shell(`pm clear ${ctx.pkg}`);
@@ -23,11 +25,21 @@ export default async function coreLocal(ctx) {
       })));
       return dbs.map((d) => d.name);
     });
+    // This scenario exercises local daily schedules, not travel. The golden vault's global
+    // Berlin transition history otherwise projects newly entered UTC times an hour earlier,
+    // even though the driver's settings timezone follows the device. Reuse its fixture hook
+    // before the first seeded boot; retain all unrelated golden records and real UI writes.
+    const fixture = JSON.parse(readFileSync(new URL('../../../tests/fixtures/vault-v1.json', import.meta.url), 'utf8'));
+    fixture.data.tz = { history: [], transition_plans: [], transitions: [] };
+    await p.addInitScript((vault) => { window.__wgQAFiles = { '/qa/vault-v1.json': vault }; }, fixture);
     await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
     r.setupClock = await p.evaluate(async () => ({ now: new Date().toISOString(), pinned: !!Date.wgQAPinned,
-      cut: await (await import('/js/sync.js')).localRecordsPort().list('ledgercut') }));
+      cut: await (await import('/js/sync.js')).localRecordsPort().list('ledgercut'),
+      transitions: await (await import('/js/sync.js')).localRecordsPort().list('tztransition'),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
     if (!r.setupClock.pinned || r.setupClock.cut.length !== 1 || Date.parse(r.setupClock.cut[0].at) > Date.parse(r.setupClock.now)) throw new Error(`invalid morning ledger setup: ${JSON.stringify(r.setupClock)}`);
+    if (r.setupClock.transitions.length) throw new Error('core fixture retained unrelated timezone transitions');
     // Keep the golden records, but remove competing due medications from this focused flow.
     await p.evaluate(async () => {
       for (const m of await window.apiCall('/api/medications')) {
