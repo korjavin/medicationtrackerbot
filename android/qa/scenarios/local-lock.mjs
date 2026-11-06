@@ -19,6 +19,9 @@ export default async function localLock(ctx) {
   const credential = async (pin = '1234') => {
     // BiometricPrompt falls back to Android's real credential activity on this image.
     await ctx.waitFor({ clazz: 'android.widget.EditText' }, 20_000);
+    const field = await device.info({ clazz: 'android.widget.EditText' });
+    (r.credentialPrompts ||= []).push({ pkg: field.pkg, res: field.res, clazz: field.clazz });
+    if (field.pkg === pkg) throw new Error('credential entry is not in the Android system UI');
     await device.fill({ clazz: 'android.widget.EditText' }, '');
     await shell(`input text ${pin}`);
     await shell('input keyevent KEYCODE_ENTER');
