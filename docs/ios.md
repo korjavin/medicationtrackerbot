@@ -116,7 +116,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
 - **Job (bd med-5yr8):** `ios.yml` → four `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
-  shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 30 min
+  shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
   CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; the
   only part that waits for healthd, `QA_HEALTH_READY=1`), **data** (Backup,

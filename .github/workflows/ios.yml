@@ -516,8 +516,9 @@ jobs:
       group: ${{ github.workflow }}-qa-${{ github.ref }}-${{ matrix.part }}
       cancel-in-progress: true
     runs-on: xcode-27
-    # Worst setup ~17 min + a part's flows <= 8 min + margin.
-    timeout-minutes: 30
+    # Green parts have run up to 29m39 on a slow runner (bd med-5yr8, Archie
+    # 19273): a 30 min cap would cancel a part that was going to pass.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
