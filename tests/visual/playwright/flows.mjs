@@ -345,15 +345,15 @@ if (setupOk) await flow('boot-degraded-reload', async () => {
   await page.evaluate(() => window.MedTrackerDB.ApiCache.clear());
   await page.evaluate(() => window.switchTab('food'));
   await page.locator('.food-tab[data-tab="fooddb"]').click();
-  const empty = page.locator('#food-fooddb-tab').getByText('Some saved data did not load. Reload to fix.');
+  const empty = page.locator('#food-fooddb-tab .wg-empty');
   await empty.first().waitFor({ timeout: 10000 }).catch(() => {});
   const dbText = (await page.locator('#food-fooddb-tab').innerText()).replace(/\s+/g, ' ');
-  check(await empty.count() > 0, `Food DB empty state does not say Reload: ${dbText.slice(0, 300)}`);
-  // Its title is still "No cached data yet" (empty-state.js), which the
-  // scenario's "not 'no data'" excludes, so the web line stays manual until
-  // med-31gk ships; asserted here: the body, no plain empty state, and no
-  // promise that reconnecting fixes it.
-  check(!/loads once you are back online|Nothing to show yet/i.test(dbText), `Food DB says "no data": ${dbText.slice(0, 300)}`);
+  check(await empty.count() === 1, `Food DB shows ${await empty.count()} empty states: ${dbText.slice(0, 300)}`);
+  const title = (await empty.locator('.wg-empty__title').textContent().catch(() => '')).trim();
+  const body = (await empty.locator('.wg-empty__body').textContent().catch(() => '')).trim();
+  check(title === 'Some saved data did not load' && body === 'Reload to fix.',
+    `Food DB empty state reads "${title}" / "${body}", expected "Some saved data did not load" / "Reload to fix."`);
+  check(!/No cached data yet|loads once you are back online|Nothing to show yet/i.test(dbText), `Food DB says "no data": ${dbText.slice(0, 300)}`);
 
   // Reload, host still down: one load, the shim installs from the worker's
   // cache, the current build, the vault's data.
