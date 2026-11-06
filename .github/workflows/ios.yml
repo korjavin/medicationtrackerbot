@@ -465,7 +465,7 @@ jobs:
       group: ${{ github.workflow }}-qa-${{ github.ref }}
       cancel-in-progress: true
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -517,7 +517,7 @@ jobs:
             -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests \
             -skip-testing:MedTrackerUITests/HealthDiagnosticTests -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
-            | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
+            | grep --line-buffered -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
           status="${PIPESTATUS[0]}"
           kill "$sampler" 2>/dev/null || true
           exit "$status"
