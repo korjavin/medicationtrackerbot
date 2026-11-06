@@ -1,9 +1,11 @@
 package com.example.medtracker
 
 import android.app.Activity
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import java.io.File
 
 /**
  * Debug source set only (bd med-nt9p.25, docs/android.md → Agent QA harness): the
@@ -19,6 +21,33 @@ internal object DebugHooks {
 
     fun onWebView(activity: Activity, w: WebView, rules: Set<String>, diag: (String) -> Unit) {
         if (!BuildConfig.DEBUG || BuildConfig.BASE_DOMAIN != QA_BASE) return
+        if (activity.intent?.getBooleanExtra("wgQANetWatch", false) == true &&
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            // The QA harness must attach its CDP listener before the first application
+            // script runs, including after a force-stop. This gate runs once per WebView
+            // and is absent from release builds. Only the already selected local asset
+            // document is navigated before the listener is attached.
+            val ready = File(activity.filesDir, "qa-net-watch-ready")
+            val release = File(activity.filesDir, "qa-net-watch-release")
+            val gate = object {
+                private var used = false
+                @JavascriptInterface fun awaitListener(): Boolean {
+                    if (used) return true
+                    used = true
+                    ready.writeText("waiting")
+                    val deadline = System.currentTimeMillis() + 90_000
+                    while (!release.exists() && System.currentTimeMillis() < deadline) Thread.sleep(50)
+                    val released = release.exists()
+                    ready.writeText(if (released) "released" else "timeout")
+                    return released
+                }
+            }
+            w.addJavascriptInterface(gate, "QANetWatchGate")
+            WebViewCompat.addDocumentStartJavaScript(w,
+                "if (!window.QANetWatchGate.awaitListener()) throw new Error('QA network listener not attached');",
+                setOf("https://${LocalOrigin.HOST}"))
+            diag("shell qa network watch gate ON")
+        }
         if (activity.intent?.getBooleanExtra("qaSoftAuthn", false) != true) return
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
         runCatching {

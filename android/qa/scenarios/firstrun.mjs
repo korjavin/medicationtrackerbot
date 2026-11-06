@@ -14,13 +14,13 @@ export default async function firstrun(ctx) {
     return shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
   };
 
-  // Exercise a genuine first boot without connectivity, then replay the empty-origin
-  // boot under CDP: attachment necessarily happens after the native first navigation.
+  // Hold the local asset document at document-start until CDP is listening; the
+  // debug-only gate lets the genuine first boot and reopen run under observation.
   const radios = {
     wifi: (await shell('settings get global wifi_on')).trim(),
     data: (await shell('settings get global mobile_data')).trim(),
   };
-  r.offlineFirstRun = { egress: [] };
+  r.offlineFirstRun = { egress: [], localRequests: 0 };
   const rr = r.offlineFirstRun;
   if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
   const receiptCount = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).length;
@@ -33,33 +33,44 @@ export default async function firstrun(ctx) {
     rr.radiosOff = { wifi: (await shell('settings get global wifi_on')).trim(), data: (await shell('settings get global mobile_data')).trim() };
     expect(rr.radiosOff.wifi === '0' && rr.radiosOff.data === '0', 'guest radios are not off');
     rr.receiptsBefore = receiptCount(); // Starts before the first native navigation.
-    let p = await ctx.step('offline fresh install opens W1 without an invite', async () => {
-      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
-      const pg = await ctx.localPage((x) => x.locator('[data-firstrun-action="skip-all"]').waitFor({ state: 'visible', timeout: 90_000 }));
-      expect(!(await pg.evaluate(() => navigator.onLine)), 'fresh boot reports online');
-      expect(/name="wgLocalMode" value="true"/.test(await prefs()), 'fresh boot did not select local mode');
-      await ctx.shot('offline-fresh-w1');
-      return pg;
-    });
     const watch = (pg) => {
       const note = (url) => {
         const u = new URL(url);
-        if (/^(https?|wss?):$/.test(u.protocol) && u.host !== new URL(ctx.LOCAL_ORIGIN).host) rr.egress.push(url);
+        if (/^(https?|wss?):$/.test(u.protocol)) {
+          if (u.host !== new URL(ctx.LOCAL_ORIGIN).host) rr.egress.push(url);
+          else rr.localRequests++;
+        }
       };
       pg.on('request', (q) => note(q.url()));
       pg.on('websocket', (w) => note(w.url()));
     };
-    watch(p);
-    await ctx.step('listener-observed empty-origin replay and first run', async () => {
-      await p.goto(`${ctx.LOCAL_ORIGIN}/qa/scenes.json`, { waitUntil: 'load' });
-      await p.evaluate(async () => {
-        localStorage.clear(); sessionStorage.clear();
-        await Promise.all((await indexedDB.databases()).map((d) => new Promise((resolve, reject) => {
-          const q = indexedDB.deleteDatabase(d.name);
-          q.onsuccess = resolve; q.onerror = () => reject(q.error); q.onblocked = () => reject(new Error(`delete ${d.name} blocked`));
-        })));
-      });
-      await p.goto(`${ctx.LOCAL_ORIGIN}/`, { waitUntil: 'load' });
+    const gatedLaunch = async () => {
+      await shell(`am force-stop ${pkg}`);
+      await shell(`run-as ${pkg} rm -f files/qa-net-watch-ready files/qa-net-watch-release`);
+      await shell(`am start -n ${pkg}/com.example.medtracker.MainActivity --ez wgQANetWatch true`);
+      const end = Date.now() + 45_000;
+      while (Date.now() < end && !(await shell(`run-as ${pkg} ls files/qa-net-watch-ready 2>/dev/null`))) await sleep(250);
+      expect(!!(await shell(`run-as ${pkg} ls files/qa-net-watch-ready 2>/dev/null`)), 'document-start network gate did not become ready');
+      const pg = await ctx.attachPage();
+      expect(!!pg, 'no WebView while document-start gate held');
+      expect((await shell(`run-as ${pkg} cat files/qa-net-watch-ready`)).trim() === 'waiting', 'network gate expired before listener attach');
+      watch(pg);
+      await shell(`run-as ${pkg} touch files/qa-net-watch-release`);
+      await pg.waitForURL((u) => u.href.startsWith(`${ctx.LOCAL_ORIGIN}/`), { timeout: 30_000 });
+      await pg.waitForLoadState('domcontentloaded', { timeout: 60_000 });
+      expect((await shell(`run-as ${pkg} cat files/qa-net-watch-ready`)).trim() === 'released', 'document-start network gate did not release');
+      return pg;
+    };
+    let p = await ctx.step('offline fresh install opens W1 with listener attached', async () => {
+      const pg = await gatedLaunch();
+      await pg.locator('[data-firstrun-action="skip-all"]').waitFor({ state: 'visible', timeout: 90_000 });
+      expect(!(await pg.evaluate(() => navigator.onLine)), 'fresh boot reports online');
+      expect(/name="wgLocalMode" value="true"/.test(await prefs()), 'fresh boot did not select local mode');
+      expect(rr.localRequests > 0, 'listener saw no local app resources after release');
+      await ctx.shot('offline-fresh-w1');
+      return pg;
+    });
+    await ctx.step('complete first run without an invite', async () => {
       await p.locator('[data-firstrun-action="skip-all"]').click();
       await p.waitForFunction(() => !document.getElementById('wg-firstrun-overlay') || !!document.querySelector('[data-firstrun-action="not-now"]'), null, { timeout: 15_000 });
       if (await p.locator('[data-firstrun-action="not-now"]').isVisible()) await p.locator('[data-firstrun-action="not-now"]').click();
@@ -116,8 +127,10 @@ export default async function firstrun(ctx) {
       await ctx.shot('offline-dose-logged');
     });
     await ctx.step('offline force-stop and reopen retains edited BP and dose, not deleted weight', async () => {
-      p = await ctx.launchLocal(undefined, { extra: false });
-      watch(p);
+      const before = rr.localRequests;
+      p = await gatedLaunch();
+      await ctx.waitLocalReady(p);
+      expect(rr.localRequests > before, 'listener saw no local app resources after reopen');
       const data = await p.evaluate(async () => ({
         vault: JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data,
         bp: await window.apiCall('/api/bp?days=60'), weight: await window.apiCall('/api/weight?days=60'),
