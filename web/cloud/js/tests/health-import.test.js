@@ -3091,6 +3091,41 @@ describe('Health write-back', () => {
                 expect(storage.getItem('wg.health.anchors')).toBe(ANCHORS);
             });
 
+            it('(d) admitting a granted kind whose job save fails takes its marks back; the next pass admits, counts and names them (Argus 17374)', async () => {
+                allowConsoleNoise();
+                theirs.weight = null;
+                await open(health, { copyBackoffMs: 0 });
+                await tap();
+                await finished();
+                expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
+                // w-2 is admitted, then the store always rejects it.
+                health.write.mockImplementation(answer(async (a) => (a.id === 'w-2' ? 'bad write: weight' : true)));
+                theirs.weight = [kgSample(U2, at('2026-10-01T20:00:00Z'), 80)];
+                failJobWriteOnce();
+                let afterFailed = null;
+                const set = storage.setItem;
+                let failed = false;
+                storage.setItem = (k, v) => {
+                    try {
+                        set(k, v);
+                    } catch (e) {
+                        failed = true;
+                        throw e;
+                    }
+                    // The rollback: the ledger write right after the failed job save.
+                    if (k === 'wg.health.dirty' && failed && afterFailed === null) afterFailed = { weight: dirty().weight, blocked: job().blocked };
+                };
+                foreground();
+                await vi.waitFor(() => expect(afterFailed).toEqual({ weight: undefined, blocked: { weight: ['w-1', 'w-2'] } }));
+                await tick();
+                expect(health.write).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'w-2' }));
+                // The next pass (here the next foreground) admits them again.
+                foreground();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied. It's still in the app."]));
+                expect(job()).toMatchObject({ total: 5, blocked: {}, ids: { weight: [] }, dropped: { weight: ['w-2'] } });
+                expect(ledgerSize()).toBe(0);
+            });
+
             it('(d) a read that throws toasts the error: no dialog, no job, nothing marked', async () => {
                 allowConsoleNoise();
                 const failing = vi.fn(async () => { throw new Error('store busy'); });

@@ -1058,6 +1058,17 @@ export function startHealthImport(ctx, {
         return writeJSON(storage, JOB_KEY, job);
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess, onPermanent });
+    // Copy rows marked into the ledger and the job that owns them, as one
+    // step: a job that did not save takes its marks back, else the rows would
+    // go out as nobody's (a re-plan skips dirty rows). Synchronous: nothing
+    // marks in between. (Argus 17374)
+    const markWithJob = (rows, job) => {
+        const before = storage.getItem(DIRTY_KEY);
+        if (rows.length && !writeBack.mark(rows)) return false;
+        if (writeJSON(storage, JOB_KEY, job)) return true;
+        try { storage.setItem(DIRTY_KEY, before); } catch { /* the rows go out as live ids */ }
+        return false;
+    };
 
     // Copy past entries (bd med-8f4s.11, kit HW6-HW9b): mark every past entry
     // Health does not already hold into the write-back ledger, then let the
@@ -1182,10 +1193,8 @@ export function startHealthImport(ctx, {
             job.total = job.total - job.blocked[k].length + got.length;
             delete job.blocked[k];
         }
-        if (rows.length && !writeBack.mark(rows)) return 0;
         // Not saved: the kinds stay blocked and are retried; no progress.
-        if (!writeJSON(storage, JOB_KEY, job)) return 0;
-        return rows.length;
+        return markWithJob(rows, job) ? rows.length : 0;
     };
     let copying = null;
     let copyTimer = null;
@@ -1323,7 +1332,7 @@ export function startHealthImport(ctx, {
             if (!ok || readJob() || !isHealthWriteEnabled(storage)) return;
             const ids = Object.fromEntries(Object.entries(plan.rows).map(([k, rs]) => [k, rs.map((r) => r.recordId)]));
             const job = { startedAt: Date.now(), total: plan.total, ids, blocked: plan.blocked };
-            if (!writeBack.mark(Object.values(plan.rows).flat()) || !writeJSON(storage, JOB_KEY, job)) {
+            if (!markWithJob(Object.values(plan.rows).flat(), job)) {
                 console.error('[health] copy could not be stored');
                 toast("Couldn't start the copy — try again.", 'error');
                 return;
