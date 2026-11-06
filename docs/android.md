@@ -926,8 +926,8 @@ the same way.
   iOS's and skipped. Artifact `visual/android/<scene>.png` (full device) +
   `visual/android/<scene>.json` (the ready node's report: probes, `failed`). Dark,
   font scale and landscape are the dispatch inputs, applied to every scene.
-  As on iOS only lost ready content fails a scene (one retry each, from
-  a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
+  Lost ready content and an `inView` failure fail a scene (one retry each, from
+  a fresh `pm clear`; `firstError` keeps attempt 1's failure); other probes are
   findings. First full run 39257278592: every scene shot, all passing on
   retry; the Settings-page scenes lost their page on a seeded cold start
   (bd med-nt9p.39: WebView landed the app's own `history.back()` 3-4 s late
