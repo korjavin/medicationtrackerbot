@@ -11,7 +11,7 @@ invariants:
   - 21:00 replaces 20:00 today
   - With 08:00 untaken instead, 09:00 replaces it even though it is already past
 covered_by:
-  web: manual  # partial: web/static/js/tests/lineage.domain.test.js (the domain pairing); missing: the editor save, then Timeline, for the taken and the untaken branch (med-sz4k.2)
-  android: manual  # lineage.domain.test.js asserts pairing logic only; no native schedule editor → Timeline checks for taken and untaken branches (med-sz4k.4.1)
+  web: web/static/js/tests/cloud.shim-contract.meds.test.js#editing a twice-daily schedule mid-day  # both branches: taken 08:00 kept, untaken 08:00 → 09:00
+  android: android/qa/scenarios/core-local.mjs#schedule
   ios: manual
 source: [med-wi09.12, '#1352']
