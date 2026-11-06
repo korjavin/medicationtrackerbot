@@ -12,7 +12,7 @@ invariants:
   - Picking Daily shows one empty time row; saving stores a daily schedule with that time
   - Every existing medication opens on its own schedule type and times
 covered_by:
-  web: web/static/js/tests/meds.modal.test.js
-  android: manual  # core-local explicitly chooses Daily; no native assertions for the blank As-needed default, hidden times or all existing schedule types
-  ios: manual  # partial: data/logic only: web/static/js/tests/meds.modal.test.js (the blank editor on As needed with times hidden; Daily shows one time row and saves a daily schedule; existing daily and weekly medications open on their type and times); missing: an existing As-needed medication opening on As needed (the as-needed edit case asserts pack size only), a web R1 gap tracked as item 6 of med-sz4k.8 (Argus 18165, Archie 18181)
+  web: web/static/js/tests/meds.modal.test.js#Medication editor page (kit M5–M6)
+  android: web/static/js/tests/meds.modal.test.js#Medication editor page (kit M5–M6)  # data/logic only
+  ios: web/static/js/tests/meds.modal.test.js#Medication editor page (kit M5–M6)  # data/logic only
 source: [med-cb7i]

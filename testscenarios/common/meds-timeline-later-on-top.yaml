@@ -11,7 +11,7 @@ invariants:
   - The overdue dose's Take / Skip in the focus card is visible without scrolling, however many doses are still ahead today
   - '"Show 3 more days ahead" stays the first thing on the page, and the folded future row still names the day''s first dose ("2 doses · first 08:20")'
 covered_by:
-  web: web/static/js/tests/meds.timeline.test.js  # invariant 2: tests/visual/scenes.json#meds-timeline-focus-in-view (inView probe, Playwright local and cloud passes: iPhone 390/440, Pixel 7, desktop)
-  android: tests/visual/scenes.json#meds-timeline-focus-in-view  # invariant 2: inView probe in the android-qa local-visual dispatch (a probe failure is reported in the scene JSON, not a job failure); invariants 1 and 3 data/logic only: web/static/js/tests/meds.timeline.test.js
-  ios: tests/visual/scenes.json#meds-timeline-focus-in-view  # invariant 2: inView probe in ios-visual on iPhone 16e (390pt) and 17 Pro Max (a probe failure is reported in the scene JSON, not a job failure); invariants 1 and 3 data/logic only: web/static/js/tests/meds.timeline.test.js
+  web: web/static/js/tests/meds.timeline.test.js  # invariant 2: tests/visual/playwright/flows.mjs#meds-timeline-focus-in-view (gates the scene's inView probe, Pixel 7 and 390 wide)
+  android: manual  # partial: data/logic only: web/static/js/tests/meds.timeline.test.js (invariants 1 and 3); invariant 2 has the tests/visual/scenes.json#meds-timeline-focus-in-view inView probe in the android-qa local-visual dispatch, which reports it in the scene JSON and does not fail on it; no gating Android run of the focus card's Take/Skip in view
+  ios: manual  # partial: data/logic only: web/static/js/tests/meds.timeline.test.js (invariants 1 and 3); invariant 2 has the tests/visual/scenes.json#meds-timeline-focus-in-view inView probe in ios-visual (iPhone 16e 390pt, 17 Pro Max), which reports it in the scene JSON and does not fail on it; no gating iOS run of the focus card's Take/Skip in view
 source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, bd med-5y49]

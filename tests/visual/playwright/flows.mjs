@@ -10,6 +10,9 @@
 //   boot-degraded-reload  one module answers 503 once → the degraded banner
 //                         (replacing an update banner) → Reload recovers with
 //                         the host down, from the service worker's cache
+//   meds-timeline-later-on-top (invariant 2)  the meds-timeline-focus-in-view
+//                         scene's inView probe as a gate: the overdue dose's
+//                         Take/Skip in view with two doses ahead (Pixel 7, 390)
 //
 // and two-device flows (bd med-sz4k.2.3), device B being a second Chromium
 // context that joined the account through Settings → Add a device:
@@ -397,6 +400,35 @@ if (setupOk) await flow('boot-degraded-reload', async () => {
   await server.start(binB);
   await context.setOffline(false);
   return 'update banner replaced; Food DB empty state says Reload; Reload recovered offline in 1 load';
+});
+
+// --- meds-timeline-later-on-top invariant 2 (geometry) -------------------------------
+// The visual scene meds-timeline-focus-in-view (06:00: Next today 09:00, Later
+// today 21:00, an overdue Pending dose), run here as a gate: its inView probe
+// must find the focus card's Take and Skip inside the viewport, above the tab
+// bar, on Pixel 7 and at the iPhone 390pt width (the ios-visual and Android
+// local-visual runs only report it).
+if (setupOk) await flow('meds-timeline-focus-in-view', async () => {
+  const sizes = { 'pixel-7': DEVICE.viewport, 'iphone-390': { width: 390, height: 844 } };
+  const notes = [];
+  try {
+    for (const [name, size] of Object.entries(sizes)) {
+      await page.setViewportSize(size);
+      await page.goto('about:blank');
+      await page.goto(`${origin}/?qa=meds-timeline-focus-in-view`);
+      const ready = page.locator('#wg-qa-ready');
+      await ready.waitFor({ state: 'attached', timeout: 60000 });
+      const report = JSON.parse(await ready.getAttribute('aria-label'));
+      check(!report.error, `${name}: the scene failed: ${report.error}`);
+      const inView = report.probes?.inView || [];
+      check(inView.length === 2 && inView.every((v) => v.ok), `${name}: Take/Skip not in view: ${JSON.stringify(inView)}`);
+      check(report.ok, `${name}: the scene report failed ${JSON.stringify(report.failed)}`);
+      notes.push(`${name} Take/Skip ${Math.round(inView[0].bottom)}/${Math.round(inView[0].floor)} px`);
+    }
+  } finally {
+    await page.setViewportSize(DEVICE.viewport);
+  }
+  return notes.join('; ');
 });
 
 // --- a second device ----------------------------------------------------------------

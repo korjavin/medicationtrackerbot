@@ -176,6 +176,7 @@
     { "name": "meds-timeline-focus-in-view",
       "steps": [{ "clockAdvance": -1020 }, { "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }, { "click": ".med-tab[data-tab=\"timeline\"]" }],
       "ready": ["#med-timeline-tab.active", "#med-timeline-list .wg-timeline__today .wg-tl-day", "#med-timeline-list .wg-tl-focus .wg-timeline__row[data-state=\"upcoming\"]", "#med-timeline-list .wg-tl-focus .wg-timeline__row[data-state=\"due\"] .wg-btn--primary"],
+      "rendered": [{ "selector": "#med-timeline-list .wg-timeline__today .wg-tl-day .wg-row__meta", "text": "1 dose · 21:00" }],
       "inView": ["#med-timeline-list .wg-tl-focus .wg-timeline__row[data-state=\"due\"] .wg-btn--primary", "#med-timeline-list .wg-tl-focus .wg-timeline__row[data-state=\"due\"] .wg-btn--ghost"] },
     { "name": "meds-timeline-scrolled-top",
       "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }, { "click": ".med-tab[data-tab=\"timeline\"]" },
