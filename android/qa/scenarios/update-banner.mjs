@@ -47,6 +47,10 @@ export async function foreground(ctx, page) {
   await ctx.sleep(1000);
   await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
   await page.waitForFunction(() => document.visibilityState === 'visible');
+  // Android WebView Home/return did not emit a check event in run42159109277
+  // (no subsequent version/SW receipt). Deliver the real DOM event to the real
+  // listener without changing visibilityState, version, SW or update functions.
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 }
 
 export async function prepareAccount(ctx, r) {

@@ -766,8 +766,10 @@ and exists only when `-cloud-a`/`-cloud-b` are supplied. It is runner tooling, n
 Later hides the settled notice, and a new A document with B already waiting still shows one notice
 (state C). The real Reload must activate B with exactly one new document, including after the
 two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
-must identify B, with the saved note intact. It exercises native Home/return as well as repeated
-visibility signals. Local mode is bundled and outside this account update flow; Play-installed
+must identify B, with the saved note intact. It exercises native Home/return and explicitly delivers
+DOM visibility events to the real check listener; the emulator's Home/return alone did not emit a
+check in run42159109277 (no version/SW receipt). This proves the real handler and update path,
+not automatic delivery of the native resume signal. Local mode is bundled and outside this account update flow; Play-installed
 updates remain a manual real-device check. This does not implement or deploy local-mode OTA.
 The dismiss-during-install race stays covered by the owning update-check logic suite; the native
 run dismisses after B reaches waiting and does not claim that race as device evidence.
