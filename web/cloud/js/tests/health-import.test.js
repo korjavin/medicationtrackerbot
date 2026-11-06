@@ -1651,6 +1651,25 @@ describe('Health write-back', () => {
         expect(ledgerSize()).toBe(0);
     });
 
+    it('a single write whose wg.health.copied save fails stays queued, is resent, and ends with its marker (breakage review 1588 #2)', async () => {
+        await records.put('weight', { recordId: 'w-1', clientTs: 7, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', weight: 80 });
+        const set = storage.setItem;
+        let failOnce = true;
+        storage.setItem = (k, v) => {
+            if (k === 'wg.health.copied' && failOnce) { failOnce = false; throw new Error('quota'); }
+            return set(k, v);
+        };
+        const wb = startHealthWriteBack({ health, storage, records, diag: () => {} });
+        storage.setItem('wg.health.dirty', JSON.stringify({ weight: { 'w-1': 7 } }));
+        expect(await wb.drain()).toBe(0);
+        expect(dirty()).toEqual({ weight: { 'w-1': 7 } });
+        expect(storage.getItem('wg.health.copied')).toBeNull();
+        await wb.drain();
+        expect(wrote().map((a) => a.id)).toEqual(['w-1', 'w-1']);
+        expect(ledgerSize()).toBe(0);
+        expect(JSON.parse(storage.getItem('wg.health.copied'))).toEqual({ weight: { 'w-1': 7 } });
+    });
+
     it('120 bp rows with pulses drain both kinds over passes, interleaved, none dropped', async () => {
         const rows = Array.from({ length: 120 }, (_, i) => ({ recordId: `bp-${i}`, clientTs: 10, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 120, diastolic: 80, pulse: 60 + (i % 30) }));
         for (const r of rows) await records.put('bp', r); // before the hook: marked by hand below
@@ -2752,19 +2771,24 @@ describe('Health write-back', () => {
                     if (k === 'wg.health.copied' && failOnce) { failOnce = false; throw new Error('quota'); }
                     return set(k, v);
                 };
-                let dirtyAfterFirst = null;
-                health.write = shellWrite(async () => true);
-                const batch = health.write;
+                // The ledger as the second batch starts = what the first pass left queued.
+                let queuedBeforeSecond = null;
+                const batch = shellWrite(async () => true);
                 health.write = vi.fn(async (a) => {
-                    const r = await batch(a);
-                    if (a.entries && dirtyAfterFirst === null) queueMicrotask(() => { dirtyAfterFirst = ledgerSize(); });
-                    return r;
+                    if (a.entries && health.write.mock.calls.filter(([x]) => x.entries).length === 2) {
+                        queuedBeforeSecond = Object.entries(dirty()).flatMap(([k, m]) => Object.keys(m).map((id) => `${k}:${id}`)).sort();
+                    }
+                    return batch(a);
                 });
                 await open();
                 await tap();
                 await finished();
-                expect(dirtyAfterFirst).toBeGreaterThan(0);
-                expect(health.write.mock.calls.filter(([a]) => a.entries).length).toBe(2);
+                const batches = health.write.mock.calls.filter(([a]) => a.entries).map(([a]) => a.entries.map((e) => `${e.type}:${e.id}`).sort());
+                expect(batches).toHaveLength(2);
+                const firstEntries = batches[0].filter((s) => !s.startsWith('hr:')); // pulses carry no copied marker
+                expect(firstEntries.length).toBeGreaterThan(1);
+                expect(queuedBeforeSecond).toEqual(firstEntries);
+                expect(batches[1]).toEqual(firstEntries);
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
                 expect(ledgerSize()).toBe(0);
                 const copied = JSON.parse(storage.getItem('wg.health.copied'));

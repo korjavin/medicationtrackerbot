@@ -377,7 +377,8 @@ export function startHealthWriteBack({
                 const c = readJSON(storage, COPIED_KEY, {});
                 if (wrote) (c[kind] = c[kind] || {})[id] = row.clientTs;
                 else if (c[kind]) delete c[kind][id];
-                writeJSON(storage, COPIED_KEY, c);
+                // Not saved: the id stays queued (catch below) and is resent.
+                if (!writeJSON(storage, COPIED_KEY, c)) throw new Error('copied write failed');
             }
         } catch (e) {
             // Revoked since the last read: hold the kind back until the next one.
