@@ -13,6 +13,6 @@ invariants:
   - Every existing medication opens on its own schedule type and times
 covered_by:
   web: web/static/js/tests/meds.modal.test.js
-  android: manual
+  android: manual  # core-local explicitly chooses Daily; no native assertions for the blank As-needed default, hidden times or all existing schedule types
   ios: manual
 source: [med-cb7i]

@@ -89,14 +89,13 @@ function createOfflineEmptyState({ tag = 'div', reason } = {}) {
     if (local || (navigator.onLine !== false && !isNetworkMiss(reason))) {
         return createEmptyState({ title: 'Nothing to show yet', inline: true, tag });
     }
+    // bd med-kk1q.4: the account shim never installed on this page, so
+    // reconnecting would not help; the boot banner owns the Reload action.
+    const degraded = !!window.MedTrackerCloud?.degraded;
     return createEmptyState({
         icon: 'cloud-off',
-        title: 'No cached data yet',
-        // bd med-kk1q.4: the account shim never installed on this page, so
-        // reconnecting would not help; the boot banner owns the Reload action.
-        body: window.MedTrackerCloud?.degraded
-            ? 'Some saved data did not load. Reload to fix.'
-            : 'This loads once you are back online.',
+        title: degraded ? 'Some saved data did not load' : 'No cached data yet',
+        body: degraded ? 'Reload to fix.' : 'This loads once you are back online.',
         inline: true,
         tag,
     });

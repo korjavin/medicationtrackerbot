@@ -43,6 +43,9 @@ preconditions. For an Android coverage audit, count the Android obligations sepa
 Keep `manual # reason` when a linked test asserts only part of the scenario. The comment names
 the existing evidence and the missing checks; a partial test does not remove the release check.
 
+The Android harness [runbook](../docs/android.md) describes `core-local` and
+`offline-account`, including their real-device interactions and receipt-counting evidence.
+
 ## Where automation lives
 
 - Android: `android/qa/scenarios/*.mjs`, run by `.github/workflows/android-qa.yml`.

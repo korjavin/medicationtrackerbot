@@ -6,6 +6,9 @@
 // network — same pattern as cloud.shim-contract.meds.test.js. Divergences
 // here are contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) food.*.test.js files keep running unshimmed.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
@@ -722,5 +725,62 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
         await openFood(window, document, today);
         expect(nudge(document).classList.contains('hidden')).toBe(true);
         expect(await flagged(window, yesterday)).toBe(false);
+    });
+});
+
+// testscenarios/common/meal-kcal-total.yaml, end to end on one account store:
+// Food → Add → Enter manually, Save with the time left at Now; the Food day
+// header and Today's Fuel tile (today-loader's render) both count it at once.
+describe('testscenarios: a meal logged now is in today\'s kcal total on Food and Today', () => {
+    let env;
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('the Food day header and the Today Fuel tile include the meal right after saving', async () => {
+        env = loadCloudShimFrontendEnv();
+        const { window, document } = env;
+        const cache = installApiCache(window);
+        // db.js keeps the write time beside each entry; Today's loader reads it.
+        const stamps = new Map();
+        const api = window.MedTrackerDB.ApiCache;
+        const set = api.set;
+        api.set = async (k, v) => { stamps.set(k, Date.now()); return set(k, v); };
+        api.getWithMeta = async (k) => (cache.has(k) ? { data: cache.get(k), timestamp: stamps.get(k) ?? 0 } : null);
+        window.MedTrackerDB.FoodProductsStore = { getCache: async () => null, saveCache: async () => {} };
+        document.getElementById('food-scanner-video').pause = vi.fn();
+        window.featureSettings = { medication: false, bp: false, weight: false, food: true, workout: false, health: false, gamification: false };
+        window.featureSettingsLoaded = true;
+        window.eval(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js'), 'utf8'));
+        const header = () => document.getElementById('food-macros-card-kcal').textContent;
+        // Open Today (loadToday: cache paint, refetch, repaint), then back to Food.
+        const fuel = async () => {
+            window.AppStore.set('currentTab', 'today');
+            await window.loadToday();
+            window.AppStore.set('currentTab', 'food');
+            return document.querySelector('#today-content [data-section="fuel"] .wg-stat__value').textContent;
+        };
+        window.AppStore.set('currentTab', 'food');
+
+        // An earlier meal today: 300 kcal on both surfaces.
+        const day = localDateStr();
+        await createLog(window, { name: 'Oats', eaten_at: new Date(atTime(day, 0, 0)).toISOString(), weight: 0, carbs: 50, protein: 10, fat: 5, calories: 300 });
+        await window.loadFoodLogs();
+        expect(header()).toBe('300');
+        expect(await fuel()).toBe('300');
+
+        // Food → Add → Enter manually: 450 kcal total, time left at Now.
+        window.showAddFoodModal();
+        document.getElementById('food-add-manual-btn').click();
+        expect(document.getElementById('food-datetime').value.slice(0, 10)).toBe(day); // When: left at now
+        document.getElementById('food-name').value = 'Lunch';
+        document.querySelector('#food-per-100g-seg [data-per100g="false"]').click();
+        document.getElementById('food-calories').value = '450';
+        document.getElementById('food-modal-save-btn').click();
+        // The save itself repaints Food's header; Today counts it on open.
+        await vi.waitFor(() => expect(header()).toBe('750'));
+        expect(await fuel()).toBe('750');
+        expect((await window.apiCall(`/api/food/log?date=${day}`)).flatMap((g) => g.logs).map((l) => l.name).sort()).toEqual(['Lunch', 'Oats']);
     });
 });
