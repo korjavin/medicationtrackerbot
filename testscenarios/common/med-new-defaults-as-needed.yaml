@@ -6,14 +6,14 @@ preconditions:
 steps:
   - Tap Add medication
   - Pick Daily in the Schedule section, enter a name and a time, save
-  - Open an existing daily medication in the editor
+  - Open an existing medication in the editor
 invariants:
   - The blank editor has As needed selected and no time rows shown
   - Picking Daily shows one empty time row; saving stores a daily schedule with that time
-  - An existing medication opens on its own schedule type and times, never As needed
-  - AI, onboarding, MCP and Telegram adds keep the schedule they parse
+  - Every existing medication opens on its own schedule type and times
+  - Creation through the shim and MCP keeps the schedule it is given (not as_needed); AI, onboarding and Telegram adds are not asserted in automation
 covered_by:
-  web: web/static/js/tests/meds.modal.test.js
+  web: web/static/js/tests/meds.modal.test.js  # partial: editor default/Daily/edit; create-keeps-schedule in web/static/js/tests/cloud.shim-contract.meds.test.js and web/cloud/js/tests/mcp-responder.test.js; AI/onboarding/Telegram paths manual
   android: manual
   ios: manual
 source: [med-cb7i]
