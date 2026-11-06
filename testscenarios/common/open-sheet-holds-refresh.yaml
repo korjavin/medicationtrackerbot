@@ -18,4 +18,4 @@ source: [med-vhdk]
 covered_by:
   web: web/static/js/tests/app.refresh-dispatch.test.js
   android: manual  # web/static/js/tests/app.refresh-dispatch.test.js proves shared hold/apply logic only; no Android workout/field editing across background, Health import, radios and second-device changes through close/recovery
-  ios: manual  # web/static/js/tests/app.refresh-dispatch.test.js proves shared hold/apply logic only; no iOS workout/field editing across background, Health import and second-device changes through close
+  ios: manual  # partial: data/logic only: web/static/js/tests/app.refresh-dispatch.test.js (shared hold/apply logic: held under an open session, sheet or focused field, applied on close or blur); missing, owned by med-sz4k.6.4: an iOS session open across home/relaunch while a fake-server BP arrives: no toast, Notes untouched, the entry shown after close

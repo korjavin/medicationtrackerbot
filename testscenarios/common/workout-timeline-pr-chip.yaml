@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/workout.history.test.js#two logs of one lift beating the max inside one session count as one PR
   android: manual  # partial: web/static/js/tests/workout.history.test.js (deduplicated PR counts, Stats weight, outlier/no-PR counts); no assertions of the rendered Timeline chip or its absence
-  ios: manual  # partial: web/static/js/tests/workout.history.test.js (deduplicated PR counts, Stats weight, outlier/no-PR counts); no assertions of the rendered Timeline chip or its absence
+  ios: manual  # partial: data/logic only: web/static/js/tests/workout.history.test.js#two logs of one lift beating the max inside one session count as one PR (deduplicated PR counts, Stats weight, outlier/no-PR counts); missing, owned by med-sz4k.8: the rendered Timeline row's "1 PR" chip and no chip without a record
 source: [med-soo0.5]

@@ -14,5 +14,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/meds.modal.test.js
   android: manual  # core-local explicitly chooses Daily; no native assertions for the blank As-needed default, hidden times or all existing schedule types
-  ios: manual  # web/static/js/tests/meds.modal.test.js pins the editor; no iOS run of the blank As-needed editor, the Daily time row or existing schedule types
+  ios: manual  # partial: data/logic only: web/static/js/tests/meds.modal.test.js (the blank editor on As needed with times hidden; Daily shows one time row and saves a daily schedule; existing daily and weekly medications open on their type and times); missing: an existing As-needed medication opening on As needed (the as-needed edit case asserts pack size only), a web R1 gap not yet in med-sz4k.8's list (Argus 18165)
 source: [med-cb7i]
