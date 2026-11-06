@@ -2738,10 +2738,19 @@ describe('Health write-back', () => {
                 await tap();
                 await finished();
                 expect(health.write).toHaveBeenCalledTimes(1);
-                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied."]);
+                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied. It's still in the app."]);
                 expect(job()).toMatchObject({ dropped: { bp: ['bp-c'] }, ids: { bp: ['bp-a', 'bp-e'] } });
                 expect(ledgerSize()).toBe(0);
                 expect(JSON.parse(storage.getItem('wg.health.copied')).bp).not.toHaveProperty('bp-c');
+            });
+
+            it('(c) two rejected entries read in the plural (Miles 17327)', async () => {
+                allowConsoleNoise();
+                health.write = shellWrite(async (a) => (a.id === 'bp-c' || a.id === 'bp-e' ? 'bad write: systolic' : true));
+                await open();
+                await tap();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', "3 entries. 2 entries couldn't be copied. They're still in the app."]);
             });
 
             it('(c) a drop the page died in the middle of (job written, ledger not) replays once, counted once (Argus 17242 #1)', async () => {
@@ -2751,7 +2760,7 @@ describe('Health write-back', () => {
                 await open({ ...health, write: vi.fn(async () => { throw new Error('bad write: systolic'); }) });
                 await vi.waitFor(() => expect(dirty().bp).toEqual({}));
                 expect(job().dropped).toEqual({ bp: ['bp-c'] });
-                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]));
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied. It's still in the app."]));
             });
 
             it('(c) a reading and its pulse both rejected, in one batch or across passes: neither stays queued, one entry named (Argus 17229 #1)', async () => {
@@ -2760,7 +2769,7 @@ describe('Health write-back', () => {
                 await open();
                 await tap();
                 await finished();
-                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied."]);
+                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied. It's still in the app."]);
                 expect(ledgerSize()).toBe(0);
                 expect(job().dropped).toEqual({ bp: ['bp-a'] });
 
@@ -2784,7 +2793,7 @@ describe('Health write-back', () => {
                 await vi.waitFor(() => expect(ledgerSize()).toBe(0));
                 expect(held).toBe(true);
                 expect(job().dropped).toEqual({ bp: ['bp-a'] });
-                expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]);
+                expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied. It's still in the app."]);
             });
 
             it('(c) a row read failing while a batch is prepared sends that id per id; the rest go in the batch (Argus 17229 #2)', async () => {
@@ -2831,7 +2840,7 @@ describe('Health write-back', () => {
                 storage.setItem('wg.health.backfill', JSON.stringify({ startedAt: 1, total: 1, ids: { bp: ['bp-c'] }, blocked: {} }));
                 const write = vi.fn(async () => { throw new Error('invalid blood pressure'); });
                 await open({ ...health, write });
-                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]));
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied. It's still in the app."]));
                 expect(write.mock.calls.map(([a]) => a.entries)).toEqual([undefined]);
                 expect(dirty().bp).toEqual({});
                 expect(job()).toMatchObject({ dropped: { bp: ['bp-c'] }, ids: { bp: [] } });

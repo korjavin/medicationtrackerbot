@@ -952,7 +952,7 @@ function copyText(health, st, paused) {
     if (st.running && !paused) return { title: 'Copying past entries…', desc: `${st.done} of ${st.total}`, meter: true };
     if (st.running) return { title: 'Copy paused', desc: `${label} is busy. ${st.done} of ${st.total} so far; it continues when the app is open.` };
     // Entries the store always rejected (bd med-8f4s.15).
-    const failed = st.failed > 0 ? ` ${entriesText(st.failed)} couldn't be copied.` : '';
+    const failed = st.failed > 0 ? ` ${entriesText(st.failed)} couldn't be copied. ${st.failed === 1 ? "It's" : "They're"} still in the app.` : '';
     if (!st.refused.length) return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}.${failed}` };
     return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}.${failed} ${notAllowed(st.refused)} in ${label} settings, then tap Copy past entries again.` };
 }

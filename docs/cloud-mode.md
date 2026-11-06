@@ -502,7 +502,7 @@ never turns it off (below).
   pass. A thrown batch keeps every id; an entry answered `"denied"` is kept and
   its kind held back; any other entry error, or a single write rejected `bad
   write…`/`unknown…`/`invalid…`, is permanent: a Copy id leaves the job and
-  the ledger into the job's `dropped` ("N entries couldn't be copied." on HW9/HW9b,
+  the ledger into the job's `dropped` ("N entries couldn't be copied. They're still in the app." on HW9/HW9b,
   never a step toward stuck; a dropped bp's pulse stays the Copy's), while a live-hook id is kept and retried. A
   pulse-less bp in a Copy marks no hr (no no-op remove).
   The shell reports the provider's raw boundary and never pads it; the page
