@@ -397,7 +397,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(text(next.querySelector('.wg-row__title'))).toBe('14:00');
         const today = document.querySelector('.wg-timeline__today');
         expect(labels(today)).toEqual(['Done']);
-        expect(text(today.querySelector('.wg-timeline__later .wg-row__meta'))).toBe('1 dose · first 20:00');
+        expect(text(today.querySelector('.wg-timeline__later .wg-row__meta'))).toBe('1 dose · 20:00');
         expect(blockRows(today, 'Done').map((r) => text(r.querySelector('.wg-row__title')))).toEqual(['08:00']);
         const yesterday = document.querySelector('section[data-local-date="2026-10-22"]');
         expect(text(yesterday.querySelector('.wg-section__head .wg-meta'))).toBe('1 pending');
