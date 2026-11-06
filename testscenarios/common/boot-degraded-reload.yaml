@@ -12,7 +12,7 @@ invariants:
   - An empty state caused by the failure says Reload, not "no data"
   - Reload loads the current build and works offline
 covered_by:
-  web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (one banner wired to Reload; not the offline reload)
+  web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (one banner wired to Reload, and it replaces an update banner already up), web/static/js/tests/core.components.test.js (a degraded empty state says Reload); missing: Reload loading the current build offline needs a real service worker (med-sz4k.2)
   android: manual  # load-error.mjs covers native host-down N4 only; no degraded post-unlock banner, replacement/empty-state or offline recovery run (med-sz4k.4.2)
   ios: manual
 source: [med-kk1q.4]
