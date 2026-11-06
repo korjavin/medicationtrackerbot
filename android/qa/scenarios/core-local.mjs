@@ -3,9 +3,9 @@
 export default async function coreLocal(ctx) {
   const r = (ctx.results.coreLocal = { schedules: {} });
   await ctx.shell(`pm clear ${ctx.pkg}`);
-  let page = await ctx.step('golden local vault at 10:00', async () => {
+  let page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
     const p = await ctx.launchLocal('today');
-    await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=10:00`, { waitUntil: 'load' });
+    await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
     // Keep the golden records, but remove competing due medications from this focused flow.
     await p.evaluate(async () => {
@@ -60,6 +60,15 @@ export default async function coreLocal(ctx) {
     await page.locator(`#med-timeline-list [data-med-ids~="${med.id}"]`).first().waitFor({ timeout: 20_000 });
     return page.locator(`#med-timeline-list [data-med-ids~="${med.id}"]`);
   };
+  // A medication created after 08:00 correctly has no earlier 08:00 dose. Establish the
+  // YAML's existing-medication precondition before its first slot, then advance the QA clock.
+  const scheduleMeds = {};
+  for (const taken of [true, false]) {
+    scheduleMeds[taken] = await ctx.step(`schedule ${taken}: existing 08:00 and 20:00 medication`, () =>
+      editor(`QA B1 Schedule ${taken ? 'Taken' : 'Untaken'}`, ['08:00', '20:00']));
+  }
+  await page.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=10:00`, { waitUntil: 'load' });
+  await ctx.waitLocalReady(page, 'today');
   const doseTime = await page.evaluate(() => {
     const d = new Date(Date.now() + 120000); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   });
@@ -121,7 +130,7 @@ export default async function coreLocal(ctx) {
   });
   for (const taken of [true, false]) {
     const name = `QA B1 Schedule ${taken ? 'Taken' : 'Untaken'}`;
-    const med = await ctx.step(`schedule ${taken}: add 08:00 and 20:00`, () => editor(name, ['08:00', '20:00']));
+    const med = scheduleMeds[taken];
     if (taken) await ctx.step('schedule: take the 08:00 row through Timeline', async () => {
       const rows = await timeline(med);
       await rows.filter({ hasText: '08:00' }).getByRole('button', { name: /Take|Log/ }).first().click();
