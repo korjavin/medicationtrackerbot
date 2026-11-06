@@ -175,6 +175,16 @@ final class FlowQACoreLocalTests: XCTestCase {
     private func save(_ app: XCUIApplication, _ what: String, modal: String, until: @escaping ([String: Any]) -> Bool = { _ in true }) {
         let (ok, f) = QA.tapTarget(app, "save", until: { !Self.modal($0, modal) && until($0) })
         XCTAssertTrue(ok, "Save did not keep \(what): \(QA.json(f))")
+        // A keyboard left up scrolls the web view's content (the page sat 317 pt
+        // up in CI) and the next coordinate tap missed its row: wait it down;
+        // the driver republishes rects on the viewport resize.
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists && !keyboard.waitForNonExistence(timeout: 3) {
+            let done = app.toolbars.buttons["Done"]
+            if done.exists { done.tap() }
+        }
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "the keyboard stayed up after saving \(what)")
+        Thread.sleep(forTimeInterval: 0.5) // the scroll view settles; the report follows it
     }
 
     /// Meds → Timeline, "Later today" unfolded, the text of today's rows of that med.

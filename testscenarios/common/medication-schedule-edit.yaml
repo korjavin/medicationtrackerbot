@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.meds.test.js#editing a twice-daily schedule mid-day  # both branches: taken 08:00 kept, untaken 08:00 → 09:00
   android: android/qa/scenarios/core-local.mjs#schedule
-  ios: manual  # no iOS run yet: the local-mode core flow is med-sz4k.6.1
+  ios: ios/UITests/FlowQACoreLocalTests.swift#testCoreLocal  # both branches: taken 08:00 kept, untaken 08:00 → 09:00
 source: [med-wi09.12, '#1352']
