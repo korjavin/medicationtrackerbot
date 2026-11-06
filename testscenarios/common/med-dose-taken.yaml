@@ -11,7 +11,7 @@ invariants:
   - After Take the dose leaves Today's Next up at once, without a reload
   - Meds → Timeline shows it as "Taken HH:MM", and it stays taken after a reload
 covered_by:
-  web: manual  # partial: web/static/js/tests/today.render.test.js (renders prebuilt dose states); missing: add a med, Take on Today, then Timeline "Taken HH:MM" after a reload, asserted as one flow (med-sz4k.2)
+  web: web/static/js/tests/cloud.shim-contract.meds.test.js#the due dose shows with Take; Take drops it from Next up at once; Timeline says Taken HH:MM, also after a reload
   android: android/qa/scenarios/core-local.mjs#dose
   ios: manual
 source: [Zulip 11272]
