@@ -25,8 +25,9 @@ const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
 const diff = (a, b) => Object.fromEntries(Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).map((k) => [k, [a[k], b[k]]]));
 const dataHash = async (page) => createHash('sha256').update(await page.evaluate(async () => {
   const data = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data;
-  // Export synthesizes backupAt from its current clock; it is not a stored write.
-  delete data.protection;
+  // Local export synthesizes backupAt from its current clock; retain the
+  // protection nudge data and omit only that volatile, non-written field.
+  if (data.protection) delete data.protection.last_backup_at;
   return JSON.stringify(data);
 })).digest('hex');
 const faultControl = async (path, body) => {
@@ -54,6 +55,7 @@ export default async function localToCloudSeamless(ctx) {
     await page.locator('#med-register-choose').click();
     await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'EU register' }).click();
     await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register');
+    await page.waitForFunction(async () => JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data.settings.med_register === 'eu', null, { timeout: 30_000 });
     await ctx.stableShot('local-eu-register');
   });
   r.local = await vaultCounts(page);
@@ -285,7 +287,7 @@ export default async function localToCloudSeamless(ctx) {
     const button = confirm.locator('.mt-confirm-modal__confirm');
     const input = confirm.locator('.mt-confirm-modal__input');
     if (await button.isEnabled()) throw new Error('Replace enabled before typing');
-    await input.fill('replace');
+    await input.fill('REPLAC');
     if (await button.isEnabled()) throw new Error('Replace accepted incorrect phrase');
     await input.fill('REPLACE');
     if (!(await button.isEnabled())) throw new Error('Replace did not accept REPLACE');
