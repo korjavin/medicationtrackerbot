@@ -12,6 +12,6 @@ invariants:
   - With 08:00 untaken instead, 09:00 replaces it even though it is already past
 covered_by:
   web: manual  # partial: web/static/js/tests/lineage.domain.test.js (the domain pairing; not the editor or Timeline)
-  android: manual
+  android: manual  # lineage.domain.test.js asserts pairing logic only; no native schedule editor → Timeline checks for taken and untaken branches (med-sz4k.4.1)
   ios: manual
 source: [med-wi09.12, '#1352']

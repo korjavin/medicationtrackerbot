@@ -1,5 +1,5 @@
 id: local-to-cloud
-title: Moving local data into an account keeps every record and the local copy is retired
+title: Moving local data into an account keeps every record; the move stash is cleared, the phone’s local copy stays
 platforms: [web, android, ios]
 preconditions:
   - The phone app in local mode with records, and Settings → Features → "Check names in" set to EU register
@@ -11,12 +11,12 @@ steps:
 invariants:
   - Into an empty account the records arrive with no question asked
   - An account with data asks Merge or Replace; Replace needs REPLACE typed to confirm
-  - After the move the local copy is cleared, and after the reload "Sync is on · N records" shows once with nothing imported a second time
+  - After the move the stash is cleared, so a reopen imports nothing a second time; Switch account → local mode still shows the local records
   - A failed import shows the error and keeps the local copy
   - Into an empty account, or with Replace, "Check names in" still shows EU register and the first medication save sends no name to RxNav
   - With Merge into an account that has its own settings, the account's "Check names in" choice stays; a move with nothing logged into an account with records keeps the account's choice too (both disclosed in docs/features.md)
 covered_by:
   web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (move-pickup orchestration with a stubbed importAll and move.clear; the register choice through the pickup file, med-3u28.6)
-  android: manual  # partial: android/qa/scenarios/local-to-cloud-seamless.mjs (Turn on sync into an empty account and the toast; no Merge or Replace, no failed import)
+  android: manual  # partial: android/qa/scenarios/local-to-cloud-seamless.mjs (empty account, toast, stash cleared, local records intact); no Merge/Replace, failed import or register-choice carry-over assertions
   ios: manual  # partial: ios/UITests/FlowQAStashTests.swift#testMoveLocalSide (the local half: a seeded move stash keeps the records over a relaunch; no passkey, no account)
 source: [med-nt9p.32.18, med-3u28.6]

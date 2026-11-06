@@ -12,6 +12,6 @@ invariants:
   - Meds → Timeline shows it as "Taken HH:MM", and it stays taken after a reload
 covered_by:
   web: manual  # partial: web/static/js/tests/today.render.test.js (renders prebuilt dose states; no add, take or reload)
-  android: manual
+  android: manual  # no native add-med → Today Take → Timeline/reload assertion chain; existing reminder/local-smoke checks are separate partials (med-sz4k.4.1)
   ios: manual
 source: [Zulip 11272]

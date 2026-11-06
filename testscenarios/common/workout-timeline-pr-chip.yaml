@@ -12,6 +12,6 @@ invariants:
   - A session with no new record shows no chip, and an unconfirmed outlier weight never creates one
 covered_by:
   web: web/static/js/tests/workout.history.test.js#two logs of one lift beating the max inside one session count as one PR
-  android: manual
+  android: manual  # partial: web/static/js/tests/workout.history.test.js (deduplicated PR counts, Stats weight, outlier/no-PR counts); no assertions of the rendered Timeline chip or its absence
   ios: manual
 source: [med-soo0.5]

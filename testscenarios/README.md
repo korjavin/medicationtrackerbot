@@ -35,6 +35,14 @@ Release device checks are the scenarios whose `covered_by` for that platform is 
 then read the `title` of each hit (and check the platform's own `covered_by` line, since a
 `common/` file may be manual on one platform only).
 
+That grep counts files containing the word `manual` anywhere, including other platforms and
+preconditions. For an Android coverage audit, count the Android obligations separately:
+
+    grep -rhE '^  android: manual([[:space:]]|$)' testscenarios/common testscenarios/android | wc -l
+
+Keep `manual # reason` when a linked test asserts only part of the scenario. The comment names
+the existing evidence and the missing checks; a partial test does not remove the release check.
+
 ## Where automation lives
 
 - Android: `android/qa/scenarios/*.mjs`, run by `.github/workflows/android-qa.yml`.

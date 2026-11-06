@@ -18,6 +18,6 @@ invariants:
   - With only "Roast" saved, a log of "toast" shows as Roast; editing that log's name back to "toast" creates a Toast product, and later "toast" logs land on Toast
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
-  android: manual
+  android: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs reconcile against the catalog (med-5jq.3)  # data/logic only
   ios: manual
 source: [med-5jq.3]

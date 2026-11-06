@@ -16,6 +16,6 @@ invariants:
   - Products saved before this change keep their stored names
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
-  android: manual
+  android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-products.test.js (name/barcode reconciliation and no-fetch re-scan); no native scanner or offline re-scan flow
   ios: manual
 source: [med-5jq.6]

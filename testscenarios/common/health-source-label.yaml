@@ -11,6 +11,6 @@ invariants:
   - Entries typed in by hand carry no Health import label
 covered_by:
   web: manual  # partial: web/static/js/tests/health.sleep.test.js (sleep only, not BP or weight)
-  android: manual
+  android: manual  # health-connect.mjs has no imported BP/weight/sleep source-label assertions; foreign SDK fixture lacks weight/sleep, and web rendering tests do not prove the native import path (med-sz4k.4.3)
   ios: manual
 source: [med-w6gx.32]

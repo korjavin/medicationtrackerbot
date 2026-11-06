@@ -17,6 +17,6 @@ invariants:
   - The consent text says each call reserves its full time limit and the time not used comes back after the call ends
 covered_by:
   web: manual
-  android: manual
+  android: manual  # real vendor call duration, failed-start refund and subsequent budget/rate-limit copy need live trial calls
   ios: manual
 source: [med-dngs, med-v1uz.1, med-v1uz.3]

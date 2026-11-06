@@ -12,6 +12,6 @@ invariants:
   - Reload opens the new build (the version in Settings changes)
 covered_by:
   web: manual  # partial: web/cloud/js/tests/update-check.test.js (prompt and reload calls; never loads the new build)
-  android: manual
+  android: manual  # no two-served-build banner/Reload run yet (med-sz4k.4.2); a Play-installed update still needs a real device
   ios: manual
 source: [med-kk1q.6]

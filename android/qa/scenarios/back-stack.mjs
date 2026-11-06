@@ -30,13 +30,25 @@ export default async function backStack(ctx) {
     if (await ctx.inForeground()) throw new Error('activity still in the foreground after Back at Today');
   };
   const trail = async (label) => {
-    await ctx.step(`${label}: Today → Meds → Food`, async () => {
-      await go('meds');
+    await ctx.step(`${label}: Today → Food → Meds → medication sheet`, async () => {
       await go('food');
+      await go('meds');
+      await page.evaluate(() => window.showAddModal());
+      await page.locator('#med-modal').waitFor({ state: 'visible', timeout: 10_000 });
     });
-    await ctx.shot(`${label}-food`);
-    await ctx.step(`${label}: Back returns to Meds`, async () => { await back(); await expectTab('meds'); });
+    await ctx.shot(`${label}-meds-sheet`);
+    await ctx.step(`${label}: Back closes the medication sheet and stays on Meds`, async () => {
+      // The first Back may hide the name field's keyboard, as for the BP sheet below.
+      for (let n = 1; n <= 2; n++) {
+        await back();
+        await expectTab('meds');
+        if (!(await page.evaluate(() => window.ModalManager._isVisible('med-modal')))) return;
+      }
+      throw new Error('medication sheet still open after 2 Backs');
+    });
     await ctx.shot(`${label}-back-meds`);
+    await ctx.step(`${label}: Back returns to Food`, async () => { await back(); await expectTab('food'); });
+    await ctx.shot(`${label}-back-food`);
     await ctx.step(`${label}: Back returns to Today`, async () => { await back(); await expectTab('today'); });
     await ctx.shot(`${label}-back-today`);
   };
@@ -83,6 +95,19 @@ export default async function backStack(ctx) {
   await ctx.step('Back leaves Settings for Today', async () => { await back(); await expectTab('today'); });
 
   await trail('local');
+  await ctx.step('local: a section restored on cold launch goes straight back to Today', async () => {
+    // Drop the scene URL and its pinned clock before writing the real recent-visit timestamp.
+    await page.goto(`${ctx.LOCAL_ORIGIN}/`, { waitUntil: 'load', timeout: 60_000 });
+    await ctx.waitLocalReady(page);
+    await go('food');
+    page = await ctx.launchLocal(undefined, { extra: false });
+    await page.waitForFunction(() => window.AppStore?.get('currentTab') === 'food'
+      && !!document.getElementById('food-view')?.offsetParent && window.AppBack?.canStep(), null, { timeout: 30_000 });
+    await back();
+    await expectTab('today');
+    r.restoredSection = 'food';
+  });
+  await ctx.shot('local-restored-back-today');
   await ctx.step('local: Back at Today leaves the app', leaves);
   await ctx.shot('local-left');
 

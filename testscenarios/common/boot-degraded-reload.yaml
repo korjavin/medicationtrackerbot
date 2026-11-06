@@ -13,6 +13,6 @@ invariants:
   - Reload loads the current build and works offline
 covered_by:
   web: manual  # partial: web/cloud/js/tests/cloud-boot.test.js (one banner wired to Reload; not the offline reload)
-  android: manual
+  android: manual  # load-error.mjs covers native host-down N4 only; no degraded post-unlock banner, replacement/empty-state or offline recovery run (med-sz4k.4.2)
   ios: manual
 source: [med-kk1q.4]
