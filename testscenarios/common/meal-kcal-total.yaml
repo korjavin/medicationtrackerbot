@@ -12,5 +12,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-log.test.js#the Food day header and the Today Fuel tile include the meal right after saving
   android: android/qa/scenarios/core-local.mjs#meal
-  ios: manual  # no iOS run yet: the local-mode core flow is med-sz4k.6.1
+  ios: ios/UITests/FlowQACoreLocalTests.swift#testCoreLocal
 source: [Zulip 11272]

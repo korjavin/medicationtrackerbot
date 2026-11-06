@@ -15,5 +15,5 @@ invariants:
 covered_by:
   web: tests/visual/playwright/flows.mjs#offline-cold-open
   android: android/qa/scenarios/offline-account.mjs#offline
-  ios: manual  # no iOS run yet: account mode with the fake server stopped is med-sz4k.6.1 (the Simulator has no airplane mode)
+  ios: ios/UITests/FlowQAOfflineAccountTests.swift#testOfflineColdOpen  # the Simulator has no airplane mode: the fake server closes its port, so refused attempts are unobserved; no receipts after the stop on the server's own log; the note written offline is proven on the server by its own op (note:<id> record tag in a push answered 200 after the restart)
 source: [med-kk1q]

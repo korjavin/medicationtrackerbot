@@ -24,7 +24,7 @@
     const viewportBaseline = { width: window.innerWidth, height: Math.max(window.innerHeight, document.documentElement?.clientHeight || 0) };
 
     const scene = new URLSearchParams(window.location.search).get('qa');
-    const qa = { scene, done: null, probe };
+    const qa = { scene, done: null, probe, memo: {} };
     window.__wgQA = qa;
     if (!scene) return;
     // &clock=real (the iOS shell's -wgQACapture, add-device-from-link) keeps the
@@ -995,10 +995,102 @@
             } catch (e) {
                 throw new Error(`${e.message} (${seen})`);
             }
+        } else if (step.call) {
+            // An app entry point by its global name (showAddModal,
+            // showAddFoodModal…): the editor a native step then types into.
+            if (typeof window[step.call] !== 'function') throw new Error(`call ${step.call}: no such function`);
+            await window[step.call](...(step.args || []));
+            await settle();
+        } else if (step.fillAll) {
+            // fill for every visible match in order (a schedule's time rows).
+            await until(() => document.querySelectorAll(step.fillAll).length && firstVisible(step.fillAll), STEP_MS, `fillAll ${step.fillAll}`);
+            const els = Array.from(document.querySelectorAll(step.fillAll)).filter(visible);
+            if (els.length !== step.values.length) throw new Error(`fillAll ${step.fillAll}: ${els.length} fields for ${step.values.length} values`);
+            els.forEach((el, i) => {
+                el.value = step.values[i];
+                el.dispatchEvent(new window.Event('input', { bubbles: true }));
+                el.dispatchEvent(new window.Event('change', { bubbles: true }));
+            });
+        } else if (step.remember) {
+            // A value the flow test compares against later (the kcal total
+            // before a meal): the report's flow.memo[as].
+            await until(() => firstVisible(step.remember), STEP_MS, `remember ${step.remember}`);
+            if (!(step.as in qa.memo)) qa.memo[step.as] = firstVisible(step.remember).textContent.replace(/\s+/g, ' ').trim();
+        } else if (step.waitText) {
+            // Until that element shows that text (a list's data has loaded).
+            await until(() => { const el = firstVisible(step.waitText); return el && el.textContent.includes(step.text); }, STEP_MS, `waitText ${step.waitText} ${step.text}`);
+        } else if (step.coreLocal) {
+            await coreLocalSetup(step.coreLocal);
+        } else if (step.openMed) {
+            // The editor of the medication with that name, from Meds → Schedule.
+            const med = ((await window.apiCall('/api/medications')) || []).find((m) => m.name === step.openMed);
+            if (!med) throw new Error(`openMed: no medication ${step.openMed}`);
+            window.switchTab('meds');
+            await settle();
+            await until(() => firstVisible('.med-tab[data-tab="schedule"]'), STEP_MS, 'Meds Schedule tab');
+            firstVisible('.med-tab[data-tab="schedule"]').click();
+            await until(() => firstVisible(`[data-med-id="${med.id}"]`), STEP_MS, `schedule row ${med.id}`);
+            firstVisible(`[data-med-id="${med.id}"]`).click();
+            await until(() => firstVisible('#med-modal #med-name'), STEP_MS, 'medication editor');
+        } else if (step.takeDose) {
+            // Precondition writes (a dose already taken): today's due dose of
+            // that medication at that local time, through the app's own API.
+            // A redone scene finds it taken and does nothing.
+            const { med: name, at } = step.takeDose;
+            const med = ((await window.apiCall('/api/medications')) || []).find((m) => m.name === name);
+            if (!med) throw new Error(`takeDose: no medication ${name}`);
+            const rows = await window.apiCall(`/api/doses?status=due,snoozed&to=${new Date().toISOString()}`) || [];
+            const row = rows.find((r) => String(r.medId) === String(med.id) && r.localTime === at && r.localDate === localDate(new Date()));
+            if (row) await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [row.occId] });
+            await window.DataStore.invalidateTags(['medications', 'history']);
+            await settle();
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }
         await sleep(50);
+    }
+
+    function localDate(d) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    // FlowQACoreLocalTests' fixture (bd med-sz4k.6.1, twin of android/qa
+    // core-local.mjs's setup), idempotent across the flow's launches: the
+    // golden vault's timezone history and intake zones become the device's
+    // (a Berlin history moves today's slots; one reload after the import),
+    // its own medications are archived so no other dose competes, and
+    // `meds` (name → daily times) exist as the YAML's precondition says.
+    async function coreLocalSetup({ meds = {} } = {}) {
+        // The notification ask after a med write is not this flow's subject
+        // (Android pre-grants the permission): this device counts as asked.
+        window.localStorage.setItem('wg.notifyPermission.asked', '1');
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const vault = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false }));
+        const d = vault.data;
+        const foreign = (d.tz && ((d.tz.history || []).length || (d.tz.transitions || []).length || (d.tz.transition_plans || []).length || (d.tz.current && d.tz.current !== tz)))
+            || (d.medications.intakes || []).some((i) => i.tz && i.tz !== tz);
+        if (foreign) {
+            d.tz = { current: tz, history: [], transition_plans: [], transitions: [] };
+            d.settings.timezone = tz;
+            for (const intake of d.medications.intakes || []) if (intake.tz) intake.tz = tz;
+            await window.CloudVault.importAll(JSON.stringify(vault));
+            window.location.reload();
+            await new Promise(() => {}); // the next load runs the scene again
+        }
+        const all = (await window.apiCall('/api/medications?archived=true')) || [];
+        for (const m of all) {
+            if (!m.archived && !(m.name in meds) && !m.name.startsWith('QA B1')) {
+                await window.apiCall(`/api/medications/${m.id}`, 'POST', { ...m, archived: true });
+            }
+        }
+        for (const [name, times] of Object.entries(meds)) {
+            if (all.some((m) => m.name === name)) continue;
+            await window.apiCall('/api/medications', 'POST', {
+                name, dosage: '5mg', schedule: JSON.stringify({ type: 'daily', times }), archived: false, supplement: false,
+            });
+        }
+        await window.DataStore.invalidateTags(['medications', 'history']);
+        await settle();
     }
 
     // jsdom has no layout (every rect is empty), so there "visible" falls back
@@ -1038,6 +1130,7 @@
     function visibleTop(vv) {
         if (!vv) return 0;
         const marker = document.createElement('div');
+        marker.setAttribute('data-wg-qa', '');
         marker.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden';
         document.body.appendChild(marker);
         const layoutTop = marker.getBoundingClientRect().top;
@@ -1155,7 +1248,8 @@
             });
             if (probes.inView.some((v) => !v.ok)) failed.push('inView');
         }
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister,
+            flow: def.flow ? flowState(def) : undefined };
     }
 
     // The EU register check on this shell (bd med-3u28.4, twin of Android's
@@ -1309,6 +1403,53 @@
         return { x: round(x0), y: round(y0 - top), w: round(x1 - x0), h: round(y1 - y0) };
     }
 
+    // A flow scene's page state (bd med-sz4k.6.1, `flow` in scenes.json): what
+    // FlowQA asserts on, read from the DOM the user sees, plus `targets`: the
+    // on-screen rect (web view points, as paintRect) of each named element,
+    // for a native tap. A target is a selector, or {sel, text, inner}: the
+    // first visible `sel` whose text contains `text`, then its `inner` match.
+    function flowState(def) {
+        const text = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : null);
+        const all = (sel) => Array.from(document.querySelectorAll(sel)).filter(visible);
+        const find = (t) => {
+            if (typeof t === 'string') return firstVisible(t);
+            const host = all(t.sel).find((el) => !t.text || text(el).includes(t.text));
+            return host && t.inner ? Array.from(host.querySelectorAll(t.inner)).find(visible) || null : host || null;
+        };
+        const targets = {};
+        for (const [name, t] of Object.entries(def.targets || {})) {
+            const el = find(t);
+            // A field's value too: what native typing put there.
+            if (el) targets[name] = { ...screenRect(el), value: /^(INPUT|TEXTAREA)$/.test(el.tagName) ? el.value : undefined };
+        }
+        const kcal = firstVisible('#food-macros-card-kcal');
+        return {
+            tab: window.AppStore && window.AppStore.get('currentTab'),
+            today: localDate(new Date()),
+            clock: new Date().toTimeString().slice(0, 5),
+            modals: all('mt-modal').map((m) => m.id),
+            nextUp: all('[data-section="next-up"] .wg-row').map(text),
+            focus: all('#med-timeline-list .wg-tl-focus .wg-timeline__row').map((r) => ({ occIds: r.dataset.occIds, medIds: r.dataset.medIds, state: r.dataset.state, text: text(r) })),
+            timeline: all('#med-timeline-list .wg-timeline__row').map((r) => ({ medIds: r.dataset.medIds, state: r.dataset.state, date: r.dataset.localDate, text: text(r) })),
+            foodKcal: kcal ? text(kcal) : null,
+            food: all('#food-list .wg-food-item-row .wg-row__title').map(text),
+            fuel: all('#today-content [data-section="fuel"] .wg-stat__value').map(text),
+            bp: all('#bp-list .wg-bp-reading-row').map((r) => ({ id: r.dataset.readingId, text: text(r) })),
+            weight: all('#weight-list .wg-weight-history-row').map((r) => ({ id: r.dataset.weightId, text: text(r) })),
+            memo: qa.memo,
+            targets,
+        };
+    }
+
+    // An element's rect in points of the web view's visible area (as paintRect).
+    function screenRect(el) {
+        const r = el.getBoundingClientRect();
+        const vv = window.visualViewport;
+        const top = visibleTop(vv);
+        const s = (vv && vv.scale) || 1;
+        return { x: Math.round(r.left * s), y: Math.round((r.top - top) * s), w: Math.round(r.width * s), h: Math.round(r.height * s) };
+    }
+
     function lostReady(def) {
         return (def.ready || []).filter((sel) => !firstVisible(sel));
     }
@@ -1343,6 +1484,17 @@
             window.visualViewport.addEventListener('scroll', again);
         }
         ['focusin', 'focusout', 'input'].forEach((t) => document.addEventListener(t, again, true));
+        // A flow scene's state is DOM text: re-read it on any change (bd med-sz4k.6.1).
+        // Not the driver's own nodes (probe's marker, the report node): those would loop.
+        if (def.flow && window.MutationObserver) {
+            const own = (n) => n.nodeType === 1 && (n.id === 'wg-qa-ready' || n.hasAttribute('data-wg-qa'));
+            new window.MutationObserver((records) => {
+                if (records.some((r) => ![...r.addedNodes, ...r.removedNodes].every(own) || (r.type === 'characterData' && !own(r.target.parentNode || r.target))))
+                    again();
+            }).observe(document.body, { subtree: true, childList: true, characterData: true });
+            // A native drag scrolls the page: target rects move with it.
+            document.addEventListener('scroll', again, true);
+        }
         // Tab / sub-tab switches flip classes and [hidden]: re-check readiness.
         if (window.MutationObserver) {
             new window.MutationObserver(again).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });

@@ -110,6 +110,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             WKUserScript(source: Shell.pageJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page))
         config.userContentController.addUserScript(
             WKUserScript(source: Shell.sessionWipeJS, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        #if DEBUG
+        Shell.qaSoftAuthn(config)
+        #endif
         Downloads.shared.install(on: config)
         config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
@@ -218,8 +221,31 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     /// on the real clock (`&clock=real`, tests/visual/driver.js) so the page's
     /// 10-minute join check compares like with like.
     private static let qaCapture = UserDefaults.standard.string(forKey: "wgQACapture").flatMap { URL(string: $0) }
+    /// `-wgQAClock HH:MM` (FlowQACoreLocalTests): the scene's page clock reads
+    /// today at that time instead of 23:00 (`&clock=HH:MM`, tests/visual/driver.js).
+    private static let qaClock = UserDefaults.standard.string(forKey: "wgQAClock")
+        .flatMap { $0.range(of: #"^\d\d:\d\d$"#, options: .regularExpression) != nil ? $0 : nil }
     private static let localHome = LocalOrigin.qaHome(scene: UserDefaults.standard.string(forKey: LocalOrigin.qaSceneKey))
-        .flatMap { qaCapture == nil ? $0 : URL(string: $0.absoluteString + "&clock=real") } ?? LocalOrigin.home
+        .flatMap { url in
+            if qaCapture != nil { return URL(string: url.absoluteString + "&clock=real") }
+            return qaClock.flatMap { URL(string: url.absoluteString + "&clock=" + $0) } ?? url
+        } ?? LocalOrigin.home
+
+    /// `-wgQASoftAuthn YES` (FlowQAOfflineAccountTests): Android's QA soft
+    /// authenticator (android/app/src/debug/assets/qa-softauthn.js, bundled by
+    /// `QA=1 ios/bundle-web.sh`) at document start on account pages, so a
+    /// Simulator flow claims the qa job's invite without the platform passkey
+    /// ceremony. Debug builds for the qa.test placeholder base only,
+    /// as Android's DebugHooks; the Release archive has neither this nor the file.
+    private static func qaSoftAuthn(_ config: WKWebViewConfiguration) {
+        let base = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String ?? "").lowercased()
+        guard base == "qa.test", UserDefaults.standard.bool(forKey: "wgQASoftAuthn"),
+              let js = try? String(contentsOf: Bundle.main.bundleURL.appendingPathComponent("LocalApp/cloud/qa/softauthn.js"), encoding: .utf8)
+        else { return }
+        config.userContentController.addUserScript(WKUserScript(
+            source: "if (location.protocol === 'https:' && location.hostname.endsWith('.qa.test')) {\n\(js)\n}",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+    }
     #else
     private static let localHome = LocalOrigin.home
     #endif

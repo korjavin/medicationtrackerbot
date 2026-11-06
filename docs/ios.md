@@ -102,8 +102,9 @@ builds. Then create the App Store profile above and add
 ## Flow QA (Simulator) (bd med-w6gx.23)
 
 The iOS twin of Android's [Agent QA harness](android.md#agent-qa-harness-emulator-bd-med-nt9p23),
-**local mode only**: no account, no passkey (WKWebView has no soft
-authenticator). Flows are XCUITest methods in
+mostly local mode; the one account flow (`FlowQAOfflineAccountTests`) claims
+its invite with Android's soft authenticator, which the Debug shell injects on
+`-wgQASoftAuthn` (below). Flows are XCUITest methods in
 [`ios/UITests/FlowQATests.swift`](../ios/UITests/FlowQATests.swift) (the
 `MedTrackerUITests` bundle the visual tier uses; shared helpers in
 [`QAHelpers.swift`](../ios/UITests/QAHelpers.swift)). Unlike the visual tier
@@ -167,6 +168,41 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   `eu-register-<step>.json`, and the `qa` job writes the Simulator's
   WebContent RSS each second to `webcontent-rss.log` (both in `ios-qa`;
   match the RSS to the JSON's epoch-ms windows).
+- **Core local flows** ([`FlowQACoreLocalTests.swift`](../ios/UITests/FlowQACoreLocalTests.swift),
+  bd med-sz4k.6.1, twin of Android's `core-local`): `testCoreLocal` on the
+  golden seed, one launch per `flowOnly` + `flow` scene `core-local-*`
+  (`tests/visual/scenes.json`), the page clock pinned per launch with the
+  Debug-only `-wgQAClock HH:MM` (07:00 for the existing 08:00/20:00 schedule,
+  then a later mid-day minute each launch). The scene steps do what Android
+  does over CDP (the `coreLocal` fixture, open an editor, fill time rows);
+  the user's part is native: keyboard entry, Save, Take, a row menu. Add a
+  medication due at 09:59 → Today's Next up lists it → Take → gone from Next
+  up without a reload → Meds → Timeline "Taken 10:0x", off the focus card; a
+  321 kcal manual meal → Food's day total and Today's Fuel tile include it; the
+  twice-daily schedule edited to 09:00/21:00 with 08:00 taken (kept, no 09:00
+  today) and untaken (09:00 replaces it), 21:00 replacing 20:00; a BP logged
+  then edited, a weight logged then deleted (a finger drag scrolls the row up,
+  then its More menu → Delete, asserted above the tab bar); a reopen keeps
+  the take, the edit and the delete. Assertions read the report's `flow`
+  (driver.js `flowState`: the rows as shown, plus `targets`, each named
+  element's on-screen rect for a coordinate tap); the fake server must have
+  received nothing over the run (also asserted by `testLocalFirstRun`).
+- **Offline account flow** ([`FlowQAOfflineAccountTests.swift`](../ios/UITests/FlowQAOfflineAccountTests.swift),
+  bd med-sz4k.6.1, twin of Android's `offline-account`): `testOfflineColdOpen`
+  — the golden seed in local mode → "Turn on sync" with the run's second invite
+  (`WG_QA_OFFLINE_CLAIM_URL`) → the claim, signed with the soft authenticator
+  → every section shows the moved records online → Food back one day →
+  tlsfront stops (`POST /stop`) → terminate → relaunch: no load error, Food
+  opens on today, every section shows its records within 5 s, a note is
+  written → tlsfront starts → the next open pushes that note's own op
+  (`note:<id>`, from the push body's `record_type_tag` list, which tlsfront
+  records): exactly one note op, never pushed before the stop, answered 200.
+  The move publishes the seed in a snapshot and the flow writes no note
+  online, so no other note op can stand in for it.
+  The Simulator has no airplane mode: "offline" is a closed port, so the app's
+  attempts are refused before any request reaches the server and are not
+  observed; zero received requests over the offline interval is the server's
+  own count.
 
 **Isolation (bd med-w6gx.23.8):** every flow class's `setUp` calls
 `QA.reset()`: the app stopped, then `Library/WebKit` (the store), both
@@ -183,7 +219,9 @@ caches them): pin them per launch, e.g. `-wgLocalLock NO` beside
 what the UI shows (native labels, web elements through `QA.webElement` /
 `QA.tabBarShows`) or files the app already writes, read from the runner:
 `QA.appContainer()` is the app's data container, `QA.appDefaults()` its
-persisted defaults. No new app hook or report file. Attach shots as
+persisted defaults. No new app hook or report file beyond the Debug-only QA
+arguments (`-wgQAScene`, `-wgQAClock`, `-wgQASoftAuthn`) and the driver's
+report (a `flow` scene's `flow` state). Attach shots as
 `<flow>-<step>.png` with `.keepAlways`. Run one flow locally with
 `-only-testing:MedTrackerUITests/FlowQATests/test<Flow>`.
 
@@ -210,7 +248,12 @@ in [`FlowQACeremonyExitTests.swift`](../ios/UITests/FlowQACeremonyExitTests.swif
 `app.open(medtracker://i/<sub>#<token>)` (warm capture → home`?invite=1`) →
 the web's offer (*Turn on sync* / *Sign in with …*) → `local.leave {url}` →
 the claim page's "Not your account?" → `account.leave` → local mode on "Have
-an invite?" (shot `ceremony-exit-landing`), and a relaunch stays local. The `qa` job runs every
+an invite?" (shot `ceremony-exit-landing`), and a relaunch stays local.
+fake-server.sh also mints a second invite (`QA_OFFLINE_CLAIM_URL`) and starts
+tlsfront with `-control 127.0.0.1:8768`: from the Simulator,
+`https://qa.test:8768` (same CA) answers `GET /receipts` (every request it
+received, host/method/path/status), `POST /stop` (close the listener and its
+connections) and `POST /start` (`QA.fakeServer` / `QA.receipts`). The `qa` job runs every
 `MedTrackerUITests` class but `VisualQATests`, so a flow class in its own file
 needs no workflow edit.
 
@@ -232,9 +275,12 @@ Not covered by flow QA; check on a TestFlight build before release:
    `health-pull-native` (bd med-y7b4.7) is a real finger pull on Health with
    `bounces = false`: the web pull-to-refresh pill must reach its busy state.
 
-A passkey stand-in for these (a Debug-only WKUserScript injecting
-`android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)
-is a possible later bead, deliberately unfiled.
+That passkey stand-in now exists (`-wgQASoftAuthn`, bd med-sz4k.6.1: a
+Debug-only WKUserScript injecting
+`android/app/src/debug/assets/qa-softauthn.js` on `*.qa.test` account
+origins); only `FlowQAOfflineAccountTests` uses it so far, so the checks above
+stay manual. It replaces the real passkey ceremony, which the Simulator flows
+therefore never prove.
 
 ## Shipping a build
 
