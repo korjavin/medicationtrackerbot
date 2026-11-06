@@ -114,13 +114,30 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job:** `ios.yml` → `qa`, one 390pt iPhone
-  ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh), shared with `visual`), its
-  own concurrency group `iOS-qa-<ref>`. About 5 min (the first run took 5), most of it the build.
-- **Output:** the step summary has one row per test (result plus failure
-  message); artifact `ios-qa` (14 days) has `<flow>-<step>.png` (and a failed
-  test's UI hierarchy, `<Class>-<test>-hierarchy.txt`):
-  `gh run download <run> -n ios-qa -D /tmp/ios-qa`.
+- **Job (bd med-5yr8):** `ios.yml` → four `qa-part (<part>)` matrix jobs,
+  each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
+  shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 30 min
+  timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
+  CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; the
+  only part that waits for healthd, `QA_HEALTH_READY=1`), **data** (Backup,
+  Stash), **rest** (every other class in the bundle; today Lock and
+  EURegister). The class lists live once, in the workflow env `QA_PARTS`;
+  rest is the bundle minus every listed class, so **a new class runs in rest
+  by default; move it into a named part when rest passes ~8 min of flows.**
+  Then the **`qa` gate** (ubuntu): green only when every part passed — "qa
+  green on the exact head" means all parts. A red part is re-run with
+  GitHub's "Re-run failed jobs" (re-runs that part and the gate). Each part
+  pays the full setup (build + Simulator boot, 7-17 min), so a run takes
+  setup + the longest part (~13-23 min).
+- **By parts:** `gh workflow run ios.yml --ref <branch> -f qa=true -f qa_parts=core`
+  (comma list; unknown names fail). `qa_parts` runs parts by hand and never
+  produces the gate (`qa` shows skipped); the exact-head gate is a run with
+  every part.
+- **Output:** each part's step summary has one row per test (result plus
+  failure message) and uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
+  a failed test's UI hierarchy (`<Class>-<test>-hierarchy.txt`) and
+  `webcontent-rss-<part>.log`. The gate merges them into the one artifact
+  `ios-qa` (full runs only): `gh run download <run> -n ios-qa -D /tmp/ios-qa`.
 - **Flows:** `testLocalFirstRun` — cold launch with no account and an empty
   store → straight into local mode's web W1 picker with its "Have an invite?"
   footer, no native screen (bd med-ta2n.17; shot `local-first-run-cold-launch`)
@@ -165,8 +182,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   first check loads the bundled register, Candecor's chip opens its sheet →
   relaunch: cache-first when WebKit stored it. The driver's `euRegister`
   step puts the numbers in the report; the test attaches them as
-  `eu-register-<step>.json`, and the `qa` job writes the Simulator's
-  WebContent RSS each second to `webcontent-rss.log` (both in `ios-qa`;
+  `eu-register-<step>.json`, and the `qa-part` job writes the Simulator's
+  WebContent RSS each second to `webcontent-rss-rest.log` (rest's part; both in `ios-qa`;
   match the RSS to the JSON's epoch-ms windows).
 - **Core local flows** ([`FlowQACoreLocalTests.swift`](../ios/UITests/FlowQACoreLocalTests.swift),
   bd med-sz4k.6.1, twin of Android's `core-local`): `testCoreLocal` on the

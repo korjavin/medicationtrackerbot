@@ -58,14 +58,20 @@ echo "$dev settled in $((SECONDS - start))s"
 # first .18 diagnostic; the one run whose request came after it passed the
 # sheet). Logs since this boot only; capped at 5 min, then the flows run
 # anyway and the Health tests fail on their own.
-start=$SECONDS
-until xcrun simctl spawn "$udid" log show --start "$booted_at" --style compact \
-    --predicate 'process == "healthd" AND eventMessage CONTAINS "reported daemon ready"' 2>/dev/null \
-    | grep -q 'reported daemon ready'; do
-  [ $((SECONDS - start)) -lt 300 ] || { echo "::warning::$dev: healthd not ready after 300s"; break; }
-  sleep 5
-done
-echo "$dev healthd ready check took $((SECONDS - start))s"
+# QA_HEALTH_READY=0 skips the wait (the qa parts without the Health test,
+# bd med-5yr8); unset = wait, as the visual job always has.
+if [ "${QA_HEALTH_READY:-1}" = 1 ]; then
+  start=$SECONDS
+  until xcrun simctl spawn "$udid" log show --start "$booted_at" --style compact \
+      --predicate 'process == "healthd" AND eventMessage CONTAINS "reported daemon ready"' 2>/dev/null \
+      | grep -q 'reported daemon ready'; do
+    [ $((SECONDS - start)) -lt 300 ] || { echo "::warning::$dev: healthd not ready after 300s"; break; }
+    sleep 5
+  done
+  echo "$dev healthd ready check took $((SECONDS - start))s"
+else
+  echo "$dev healthd ready check skipped (QA_HEALTH_READY=0)"
+fi
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
 xcrun simctl ui "$udid" appearance dark
 echo "$dev=$udid" >> "$devices"
