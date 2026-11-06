@@ -386,6 +386,7 @@ export default async function euRegister(ctx) {
       const row = page.locator(`[data-med-id="${r.candecorId}"]`).first();
       await row.waitFor({ timeout: 20_000 });
       r.offlineRow = await row.textContent();
+      if (!r.offlineRow.includes('EU Candesartan Cilexetil')) throw new Error(`offline row lost saved EU match: ${r.offlineRow}`);
       await row.click();
       await chipIs('EU · Candesartan Cilexetil');
       await page.locator('#med-eu-saved').waitFor({ timeout: 30_000 });
@@ -503,7 +504,11 @@ export default async function euRegister(ctx) {
     await sleep(2000);
     r.beforePull = await page.evaluate(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register);
     if (r.beforePull !== 'us') throw new Error('peer setting applied before the native pull');
-    await page.evaluate(() => { window.switchTab('today'); window.scrollTo(0, 0); window.__qaPullSeen = false; new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
+    await page.evaluate(() => window.switchTab('today'));
+    await page.locator('#today-view').waitFor({ state: 'visible', timeout: 15_000 });
+    await sleep(1500); // switching sections may restore its prior scroll after switchTab returns
+    await page.evaluate(() => { window.scrollTo(0, 0); window.__qaPullSeen = false; window.__qaTouch = {}; for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) document.addEventListener(t, () => { window.__qaTouch[t] = (window.__qaTouch[t] || 0) + 1; }, { passive: true, capture: true }); new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
+    await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 10_000 });
     const { bounds } = await ctx.device.info({ clazz: 'android.webkit.WebView' });
     const x = Math.round(bounds.x + bounds.width / 2);
     const y = Math.round(bounds.y + bounds.height * 0.3);
@@ -511,7 +516,7 @@ export default async function euRegister(ctx) {
     for (let i = 1; i <= 10; i++) await shell(`input motionevent MOVE ${x} ${y + i * 50}`);
     await page.evaluate(() => { window.__qaBlockPeerPull = false; });
     await shell(`input motionevent UP ${x} ${y + 500}`);
-    await page.waitForFunction(() => window.__qaPullSeen, null, { timeout: 20_000 });
+    await page.waitForFunction(() => window.__qaPullSeen, null, { timeout: 20_000 }).catch(async () => { throw new Error(`native pull not seen: ${JSON.stringify(await page.evaluate(() => ({ scrollY, touch: window.__qaTouch, pill: document.querySelector('.wg-ptr')?.textContent, blocked: window.__qaNativePullsBlocked, allowed: window.__qaNativePullsAllowed })))}`); });
     await page.waitForFunction(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register === 'eu', null, { timeout: 30_000 });
     await page.evaluate(() => window.switchTab('settings'));
     await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
