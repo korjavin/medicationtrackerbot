@@ -733,7 +733,7 @@ stays the acceptance device.
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 # Also: core-local (in all); offline-account, degraded-boot, update-banner (standalone, one invite, no retry).
-# B3: file-backup (invite-free, in all); local-lock and health-connect (standalone).
+# B3: file-backup and local-lock (invite-free, in all); health-connect stays standalone.
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -768,7 +768,12 @@ Unlock retry, a wrong PIN, and a correct PIN with medication records intact. Its
 the PIN even if an earlier UI step fails, switches the app lock off through the real control,
 and verifies the native credential is unavailable, no enabled lock preference remains, the app
 is foreground and the unchanged radio state matches the start. Cleanup failure fails the scenario.
-It stays dispatch-only until cleanup has been demonstrated on the runner image.
+Run42169457478 demonstrated the complete flow with authenticated disable, an empty cleanup-error
+ledger and native `available:false` / `on:false`; `local-lock` therefore joins `all` after
+`file-backup`, before `smoke` (the invite owner) and `reminders-offline` (still last).
+System credential and wrong-PIN captures are black under Android's secure-window capture policy.
+The scenario asserts the systemui/settings package and field resource before typing, plus the
+native state and detached WebView; the cancelled N3 and final app-lock-off screenshots are visible.
 
 `health-connect` extends its existing SDK fixture with WeightRecord and a completed SleepSessionRecord
 ending more than three hours before import. READ/WRITE grants come from the provider diagnostic,
