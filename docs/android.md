@@ -730,7 +730,7 @@ stays the acceptance device.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
-# Also: core-local (in all) and offline-account (standalone, one invite, no retry).
+# Also: core-local (in all); offline-account, degraded-boot, update-banner (standalone, one invite, no retry).
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -752,6 +752,48 @@ reconnect. This is emulator coverage, not a physical-phone latency or vendor-com
 The zero-network check counts account-host requests **received by tlsfront** from before cold launch
 through the offline checks, including initial navigation and service-worker requests; failed fetch
 attempts seen after CDP attach are recorded separately and do not fail the scenario.
+
+`update-banner` and `degraded-boot` are account-only, dispatch-only and never retry. Their existing
+workflow setup builds two real cloud executables from the same source, using Go overlays to stamp
+HTML asset fingerprints and worker bytes as deployment does. Settings uses the fixture build stamp
+so A/B differ despite sharing one source commit (deployment uses the short git SHA). `bundles.json`
+retains both stamps and SHA-256 hashes of the stamped files and binaries. The TLS front owns the
+serial A→B backend restart at the same address; it keeps the disposable DB/session environment,
+account origin, CA and receipt stream intact. Its B2 control listener binds **127.0.0.1:8766 only**
+and exists only when `-cloud-a`/`-cloud-b` are supplied. It is runner tooling, not an app endpoint.
+
+`update-banner` asserts matching A is quiet, a real native force-stop/relaunch after the server
+switch to B produces one notice (before any synthetic check), and repeated checks deduplicate it.
+Later hides the settled notice, and a new A document with B already waiting still shows one notice
+(state C). The real Reload must activate B with exactly one new document, including after the
+two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
+must identify B, with the saved note intact. Native Home/return is observed separately with a
+three-second dwell; DOM visibility events exercise the real dedupe/check listener, not native
+resume delivery. Run42159109277 observed no version/SW request
+after Home/return alone; that does not establish the cause. Native/explicit event timing, trust,
+visibility and focus are recorded separately. This proves the real handler and update path,
+not automatic delivery of the native resume signal. Local mode is bundled and outside this account update flow; Play-installed
+updates remain a manual real-device check. This does not implement or deploy local-mode OTA.
+The three native Home dwells in run42161115363 kept the document visible throughout, despite
+logcat recording the launcher and return actions. This separate foreground-delivery gap is
+med-jyxy (Android, needs-go, non-gating under the child's contract); the account cold-open and
+Reload invariants above are asserted independently.
+The dismiss-during-install race stays covered by the owning update-check logic suite; the native
+run dismisses after B reaches waiting and does not claim that race as device evidence.
+
+`degraded-boot` waits for the complete real A/B cache graphs, saves the good `/js/apishim.js`
+Responses for each exact cache/key, evicts all copies, clears/disables the HTTP cache (the real SW
+remains enabled), then opens a new document. The TLS front holds that exact request briefly so the
+real waiting-worker update notice can mount, then returns **one 503**. The scenario requires its
+receipt, one-shot consumption and actual tagged post-unlock import rejection in that same document;
+the degraded banner must replace the update notice without an automatic reload. It restores the
+original good bytes to their original generation/cache keys, disables actual radios, inspects a real
+failed Food DB read, then taps Reload. Exactly one new offline B document must recover the saved
+note through the real SW, with no account-host receipts. Radio state is verified and restored in
+`finally`. Metadata/hashes, cache paths, document counts, diagnostics and screenshots are retained.
+The real failed-read empty state must say “Some saved data did not load” / “Reload to fix.” and
+contain no no-data copy. This uses the separately authorized shared fix med-31gk (#1597); B2
+changes tests/fixtures only and does not alter product copy or weaken the invariant.
 
 Playwright attaches to the shell's WebView on the runner (the CDP fallback is
 not needed). The emulator is flaky right after boot (Play services restarts can

@@ -142,7 +142,10 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   (bool), `supplement` (bool), `start_date` (RFC3339|null), `end_date`
   (RFC3339|null), `rxcui` (str), `normalized_name` (str), `inventory_count`
   (num|null), `tz_shift_policy` (`flexible`|`medium`|`strict`), `created_at` (RFC3339),
-  optional `pack_size` (positive integer|null, bd med-wi09.13). Since the stock ledger
+  optional `pack_size` (positive integer|null, bd med-wi09.13), optional `ema` (the saved
+  EU register reference, bd med-3u28.10: `{for_name, substances, revision, data_date,
+  sha256}`, all strings, sha256 64 lowercase hex; absent when none; carried through as
+  is, readers ignore a malformed one). Since the stock ledger
   `inventory_count` is a mirror kept for older clients (null = stock not tracked);
   the current stock is derived from `stock` (below).
 - **intake** — `medication_id` (number → medication.id), `scheduled_at` (RFC3339),

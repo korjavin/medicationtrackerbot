@@ -69,7 +69,11 @@ function fillMedEditor(med) {
     document.getElementById('med-archived').checked = !!m.archived;
     document.getElementById('med-supplement').checked = !!m.supplement;
     setMedRxMatch('', '');
-    paintMedEu(null); // no EU chip carried over from the last editor
+    // The saved EU register reference paints from the record before any
+    // check (offline-safe); no pick or chip carries over from the last editor.
+    _medEuSaved = med && m.ema && m.ema.for_name === m.name ? m.ema : null;
+    _medEuPick = null;
+    paintMedEu(null);
 
     setMedDate('med-start-date', m.start_date ? m.start_date.split('T')[0] : '');
     setMedDate('med-end-date', m.end_date ? m.end_date.split('T')[0] : '');
@@ -328,35 +332,80 @@ async function checkMedEu(call, name, stale) {
     }
 }
 
-// One entry per substance text as the register writes it; its routes with
-// every country (alphabetical); "|" separates distinct products (ER9).
-function groupMedEuEntries(candidates) {
-    const bySubstance = new Map();
-    for (const c of candidates) {
-        if (!bySubstance.has(c.substances)) bySubstance.set(c.substances, { rows: 0, routes: new Map() });
-        const entry = bySubstance.get(c.substances);
-        entry.rows++;
-        if (!entry.routes.has(c.route)) entry.routes.set(c.route, new Set());
-        entry.routes.get(c.route).add(c.jurisdiction);
+// Slice 2 (bd med-3u28.10, kit ER10–ER13): the pick is saved on the
+// medication. The domain writes it from the register on Save; the editor only
+// sends the picked card's key (ema_substances) after "Use this".
+let _medEuSaved = null; // module-state: the open med's saved EU register reference (from the record; for its saved name)
+let _medEuPick = null; // module-state: { name, substances } picked with "Use this" in this editor, sent on Save
+let _medEuLast = null; // module-state: { res, name } the last answer painted, repainted after a pick
+
+function medEuSavedFor(name) {
+    return _medEuSaved && _medEuSaved.for_name === name ? _medEuSaved : null;
+}
+
+// The card key Save sends: a "Use this" pick for the name now in the editor.
+function medEuPickFor(name) {
+    return _medEuPick && _medEuPick.name === name ? _medEuPick.substances : '';
+}
+
+// The card the editor treats as chosen: this editor's pick, else the saved one.
+function medEuChosen(name) {
+    const saved = medEuSavedFor(name);
+    return medEuPickFor(name) || (saved ? saved.substances : '');
+}
+
+const medEuProducts = (substances) => String(substances).split('|').map((s) => s.trim()).filter(Boolean).join(' + ');
+
+// "Use this" (ER10): the pick becomes this editor's choice; the sheet closes
+// and the chip names the substance (ER11). Nothing is written until Save.
+function pickMedEu(name, substances) {
+    _medEuPick = { name, substances };
+    if (_medEuSheetClose) _medEuSheetClose();
+    if (_medEuLast && _medEuLast.name === name) paintMedEu(_medEuLast.res, name);
+}
+
+// The saved reference's own dated line (Iris 17542, the sheet footer's
+// wording): "Saved EU entry · Rev.90, data of 09.10.2026". Dated, never
+// "verified"; the date is the register's, the record keeps no save time.
+function medEuSavedNodes(saved, withSubstance) {
+    const nodes = [];
+    if (withSubstance) {
+        const chip = _medsEl('span', 'wg-chip wg-chip--ok');
+        chip.append(_medsIcon('check'), `EU · ${medEuProducts(saved.substances)}`);
+        const row = _medsEl('span', 'wg-hstack');
+        row.appendChild(chip);
+        nodes.push(row);
     }
-    return [...bySubstance].map(([substances, entry]) => ({
-        products: substances.split('|').map((s) => s.trim()).filter(Boolean),
-        rows: entry.rows,
-        routes: [...entry.routes].map(([route, countries]) => ({ route, countries: [...countries].sort((a, b) => a.localeCompare(b)) }))
-            .sort((a, b) => b.countries.length - a.countries.length || a.route.localeCompare(b.route)),
-    })).sort((a, b) => b.rows - a.rows || a.products.join(' + ').localeCompare(b.products.join(' + ')));
+    const rev = String(saved.revision).split(',').pop().trim();
+    const date = String(saved.data_date).replace(/\//g, '.');
+    const line = _medsEl('span', 'wg-hint', `Saved EU entry · ${rev}, data of ${date}`);
+    line.id = 'med-eu-saved';
+    nodes.push(line);
+    return nodes;
 }
 
 function paintMedEu(res, name) {
     const slot = document.getElementById('med-eu-slot');
     if (!slot) return;
+    const current = name === undefined ? document.getElementById('med-name').value.trim() : name;
+    _medEuLast = res ? { res, name: current } : null;
     slot.replaceChildren();
-    const show = (...nodes) => { slot.append(...nodes); slot.classList.remove('hidden'); };
     slot.classList.add('hidden');
-    if (!res) return;
+    // The saved reference shows whatever the check says, unless a pick of
+    // another card replaces it on Save; its substance chip only when the
+    // live answer doesn't already name it.
+    const saved = medEuSavedFor(current);
+    const pick = medEuPickFor(current);
+    let named = false;
+    const show = (...nodes) => {
+        slot.append(...nodes);
+        if (saved && (!pick || pick === saved.substances)) slot.append(...medEuSavedNodes(saved, !named));
+        if (slot.childElementCount) slot.classList.remove('hidden');
+    };
+    if (!res) { show(); return; }
     if (res.status === 'loading') {
         // Only the network download (ER4) shows; a cached copy loads quietly.
-        if (typeof res.progress !== 'number') return;
+        if (typeof res.progress !== 'number') { show(); return; }
         const pct = `${Math.round(res.progress * 100)}%`;
         const meter = _medsEl('span', 'wg-meter');
         const fill = _medsEl('span', 'wg-meter__fill');
@@ -382,20 +431,24 @@ function paintMedEu(res, name) {
         show(line, row);
         return;
     }
-    if (res.status !== 'ready') return;
-    const entries = groupMedEuEntries(res.candidates || []);
+    if (res.status !== 'ready') { show(); return; }
+    const entries = res.groups || [];
     if (!entries.length) {
         show(_medsEl('span', 'wg-hint', 'No exact match in the EU register. The name must match exactly.'));
         return;
     }
-    const one = entries.length === 1;
-    const chip = _medsEl('button', one ? 'wg-chip wg-chip--ok' : 'wg-chip');
+    // The ok chip names the chosen card (a pick, or the saved one) or the
+    // only one; otherwise the neutral count (ER3, ER5, ER11).
+    const chosen = medEuChosen(current);
+    const ok = entries.find((e) => e.substances === chosen) || (!chosen && entries.length === 1 ? entries[0] : null);
+    named = !!(ok && saved && ok.substances === saved.substances);
+    const chip = _medsEl('button', ok ? 'wg-chip wg-chip--ok' : 'wg-chip');
     chip.type = 'button';
     chip.id = 'med-eu-chip';
-    chip.append(_medsIcon(one ? 'check' : 'globe'),
-        one ? `EU · ${entries[0].products.join(' + ')}` : `EU · ${entries.length} entries`,
+    chip.append(_medsIcon(ok ? 'check' : 'globe'),
+        ok ? `EU · ${ok.products.join(' + ')}` : `EU · ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`,
         _medsIcon('chev-r', 'wg-ico--sm'));
-    chip.addEventListener('click', () => openMedEuSheet(name, entries, res.source));
+    chip.addEventListener('click', () => openMedEuSheet(current, entries, res.source));
     const row = _medsEl('span', 'wg-hstack');
     row.appendChild(chip);
     show(row);
@@ -423,6 +476,10 @@ function openMedEuSheet(name, entries, source) {
         note.append(_medsIcon('info'), _medsEl('span', 'wg-note__body', 'Several entries match. Check the substance on your pack.'));
         body.appendChild(note);
     }
+    // Several cards: "Use this" on each, "Picked" on the chosen one (ER10,
+    // ER12). One card: nothing to pick, Save stores it, unless another card
+    // is saved (a new revision): then "Use this" offers the switch.
+    const chosen = medEuChosen(name);
     for (const entry of entries) {
         const card = _medsEl('div', 'wg-card wg-vstack');
         const title = _medsEl('span', 'wg-card__title', entry.products.join(' + '));
@@ -430,6 +487,20 @@ function openMedEuSheet(name, entries, source) {
             const meta = _medsEl('span', 'wg-row__meta');
             meta.appendChild(_medsEl('span', '', `${entry.products.length} separate products in one entry`));
             title.appendChild(meta);
+        }
+        let action = null;
+        if (several && entry.substances === chosen) {
+            action = _medsEl('span', 'wg-chip wg-chip--ok wg-chip--sm');
+            action.append(_medsIcon('check'), 'Picked');
+        } else if (several || (chosen && entry.substances !== chosen)) {
+            action = _medsEl('button', 'wg-btn wg-btn--sm', 'Use this');
+            action.type = 'button';
+            action.addEventListener('click', () => pickMedEu(name, entry.substances));
+        }
+        let head = title;
+        if (action) {
+            head = _medsEl('div', 'wg-card__head');
+            head.append(title, action);
         }
         const list = _medsEl('div', 'wg-list');
         for (const r of entry.routes) {
@@ -441,7 +512,7 @@ function openMedEuSheet(name, entries, source) {
             row.appendChild(rowBody);
             list.appendChild(row);
         }
-        card.append(title, list);
+        card.append(head, list);
         body.appendChild(card);
     }
     body.appendChild(_medsEl('p', 'wg-hint', "An entry doesn't confirm which product you take."));
