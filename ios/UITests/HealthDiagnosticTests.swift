@@ -26,14 +26,18 @@ final class HealthDiagnosticTests: XCTestCase {
         // names its step, so a stall shows where).
         let deadline = Date().addingTimeInterval(120)
         while result.label.hasPrefix("pending"), Date() < deadline {
-            for host in [app, springboard] {
+            var acted = false
+            pass: for host in [app, springboard] {
+                acted = true
                 // One action per pass, then let the sheet settle: toggles read
-                // right after "Turn On All" still say "0", and tapping them
-                // would switch rows back off (bd med-8f4s.3: write rows).
-                let all = host.staticTexts["Turn On All"].firstMatch
+                // right after "Turn On All" (iOS 27: "Select All N Topics")
+                // still say "0", and tapping them would switch rows back off
+                // (bd med-8f4s.3: write rows).
+                let all = host.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
                 if all.exists && all.isHittable {
                     all.tap()
-                    break
+                    break pass
                 }
                 let off = host.switches.allElementsBoundByIndex.filter { $0.isHittable && $0.value as? String == "0" }
                 if !off.isEmpty {
@@ -56,7 +60,11 @@ final class HealthDiagnosticTests: XCTestCase {
                     history.tap()
                     break
                 }
+                acted = false
             }
+            // Nothing to tap: the iOS 27 write+read sheet keeps its toggles
+            // and "Continue" below the fold, so scroll it (it covers the app).
+            if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
