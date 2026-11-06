@@ -76,15 +76,49 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(false);
         expect(document.getElementById('med-modal-title').textContent).toBe('New medication');
         expect(document.getElementById('med-name').value).toBe('');
-        expect(document.getElementById('schedule-type').value).toBe('daily');
-        expect(document.querySelector('[data-schedule-type="daily"]').getAttribute('aria-pressed')).toBe('true');
-        expect(document.querySelectorAll('#time-inputs .time-row')).toHaveLength(1);
+        expect(document.getElementById('schedule-type').value).toBe('as_needed');
+        expect(document.querySelector('[data-schedule-type="as_needed"]').getAttribute('aria-pressed')).toBe('true');
+        expect(document.querySelector('[data-schedule-type="daily"]').getAttribute('aria-pressed')).toBe('false');
+        expect(document.getElementById('times-container').classList.contains('hidden')).toBe(true);
         expect(document.getElementById('med-start-date-value').textContent).toBe('Not set');
         expect(document.getElementById('med-end-date-value').textContent).toBe('Ongoing');
         expect(document.getElementById('med-tz-policy-value').textContent).toBe('Flexible');
         expect(document.getElementById('med-rx-display').classList.contains('hidden')).toBe(true);
         expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(true);
         expect(document.getElementById('med-delete-block').classList.contains('hidden')).toBe(true);
+    });
+
+    it('a new medication starts As needed; picking Daily reveals one time row and saves a daily schedule', async () => {
+        const { document, window } = env;
+        window.showAddModal();
+        document.querySelector('[data-schedule-type="daily"]').click();
+        expect(document.getElementById('times-container').classList.contains('hidden')).toBe(false);
+        expect(document.querySelectorAll('#time-inputs .time-row')).toHaveLength(1);
+
+        document.getElementById('med-name').value = 'Aspirin';
+        document.querySelector('.med-time-input').value = '08:00';
+        window.apiCallDirect = vi.fn().mockResolvedValue({});
+        window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+        window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
+        window.loadMeds = vi.fn();
+        await window.saveMedication();
+        expect(window.apiCallDirect).toHaveBeenCalledWith('/api/medications', 'POST',
+            expect.objectContaining({ schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }) }));
+    });
+
+    it('editing an existing daily medication keeps Daily and its times', async () => {
+        const { document, window } = env;
+        await seedMedications(window, [{
+            id: 1, name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['09:30'] }),
+            archived: false, tz_shift_policy: 'flexible',
+        }]);
+        window.apiCallDirect = vi.fn().mockResolvedValue({ rxcui: '', normalized_name: '', warning: '' });
+        window.showEditModal(1);
+        await flush();
+        expect(document.getElementById('schedule-type').value).toBe('daily');
+        expect(document.querySelector('[data-schedule-type="daily"]').getAttribute('aria-pressed')).toBe('true');
+        expect(document.getElementById('times-container').classList.contains('hidden')).toBe(false);
+        expect(document.querySelector('.med-time-input').value).toBe('09:30');
     });
 
     it('schedule segment swaps the Days / Times blocks', () => {
