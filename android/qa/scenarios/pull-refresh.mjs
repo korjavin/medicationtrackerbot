@@ -153,5 +153,95 @@ export default async function pullRefresh(ctx) {
   });
   await ctx.stableShot('account-today-after');
   await networkBanner(false);
+
+  // med-sz4k.4.4.4: use the real account, SDK writer and encrypted sync
+  // protocol. The native Home return is observed separately from the explicit
+  // visibility stimulus (med-jyxy); it is not evidence of native delivery.
+  await ctx.step('account: enable Health and open a workout on the BP tab', async () => {
+    await shell(`pm grant ${pkg} android.permission.health.WRITE_BLOOD_PRESSURE`);
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await page.locator('#health-import-toggle').waitFor({ state: 'attached', timeout: 15_000 });
+    await page.evaluate(() => document.getElementById('health-import-toggle').click());
+    await page.waitForFunction(() => localStorage.getItem('wg.health.enabled') === 'true', null, { timeout: 20_000 });
+    await sleep(10_000);
+    await go('bp');
+    r.session = await page.evaluate(async () => {
+      const ex = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'QA refresh bench', body_part: 'chest' });
+      const { session } = await window.apiCall('/api/workout/sessions/adhoc', 'POST');
+      await window.apiCall('/api/workout/sessions/logs/create', 'POST', { session_id: session.id, exercise_id: ex.id, sets: [{ reps: 5, weight: 20 }] });
+      await window.WorkoutSessions.open(session.id);
+      const sync = await import('/js/sync.js');
+      if (!await sync.flushConfirmed(window.MedTrackerCloud.ctx)) throw new Error('workout did not sync');
+      return session.id;
+    });
+    await page.locator('#workout-session-modal .wg-workouts-session-exercise__field--notes input').waitFor({ state: 'visible', timeout: 20_000 });
+  });
+
+  await ctx.step('open session: Home, Health write, peer BP, radio cycle and held refresh', async () => {
+    const note = page.locator('#workout-session-modal .wg-workouts-session-exercise__field--notes input');
+    await note.fill('Typing stays here');
+    await page.evaluate(() => {
+      const input = document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input');
+      window.__qaHeld = { input, modal: document.getElementById('workout-session-modal'), toasts: [], changes: [] };
+      const original = window.safeToast;
+      window.safeToast = (...args) => { window.__qaHeld.toasts.push(args); return original(...args); };
+      new MutationObserver((changes) => {
+        for (const m of changes) for (const n of m.removedNodes) {
+          if (n === input || (n.contains && n.contains(input))) window.__qaHeld.changes.push('input removed');
+        }
+      }).observe(document.getElementById('workout-session-modal'), { childList: true, subtree: true });
+    });
+    await shell('input keyevent KEYCODE_HOME');
+    await sleep(3000);
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --ei sys 171 --ei dia 99`);
+    await page.waitForFunction(() => document.visibilityState === 'visible', null, { timeout: 20_000 });
+    await sleep(3000);
+    const writer = await shell('logcat -d -s qa-health-write:*');
+    if (!writer.includes('171.0/99.0') || /qa-health-write.*failed/i.test(writer)) throw new Error('Health writer did not confirm the BP');
+    r.peer = await page.evaluate(async () => {
+      const sync = await import('/js/sync.js');
+      const crypto = await import('/js/crypto.js');
+      const ctx = window.MedTrackerCloud.ctx;
+      if (!await sync.flushConfirmed(ctx)) throw new Error('pending writes before peer fixture');
+      const { seq, pending } = await sync.recordsPort(ctx).horizonBasis();
+      if (pending || !Number.isInteger(seq)) throw new Error('peer fixture needs a synced cursor');
+      const recordId = 'bp_qa_peer_refresh';
+      const record = { recordId, clientTs: Date.now(), deleted: false, measured_at: new Date().toISOString(), systolic: 168, diastolic: 97, pulse: null, site: '', position: '', category: 'High BP Stage 2', ignore_calc: false, notes: '', tag: '' };
+      const enc = await crypto.encryptRecord({ kData: ctx.kData, accountId: ctx.accountId, recordType: 'bp', recordId, seq: seq + 1, plaintext: new TextEncoder().encode(JSON.stringify(record)) });
+      const res = await fetch('/api/sync/ops', { method: 'POST', headers: sync.WRITE_HEADERS, body: JSON.stringify({ ops: [{ record_type_tag: `bp:${recordId}`, nonce: crypto.toBase64(enc.nonce), ct: crypto.toBase64(enc.ct) }] }) });
+      if (!res.ok) throw new Error(`peer BP write HTTP ${res.status}`);
+      const assigned = (await res.json()).assigned?.[0];
+      if (assigned !== seq + 1) throw new Error('peer BP sequence raced');
+      return { recordId, assigned };
+    });
+    try {
+      await shell('svc wifi disable');
+      await shell('svc data disable');
+      await page.waitForFunction(() => !navigator.onLine, null, { timeout: 30_000 });
+    } finally {
+      await shell('svc wifi enable');
+      await shell('svc data enable');
+    }
+    await page.waitForFunction(() => navigator.onLine, null, { timeout: 30_000 });
+    // Exercise the existing foreground listeners explicitly because native
+    // Home/return visibility delivery is the separately tracked med-jyxy gap.
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForFunction(async () => {
+      const rows = await window.apiCall('/api/bp?days=2');
+      return Array.isArray(rows) && rows.some((x) => x.systolic === 168 && x.diastolic === 97) && rows.some((x) => x.systolic === 171 && x.diastolic === 99);
+    }, null, { timeout: 45_000 });
+    await sleep(2000);
+    r.held = await page.evaluate(() => ({ sameInput: window.__qaHeld.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), value: window.__qaHeld.input.value, connected: window.__qaHeld.input.isConnected, modalOpen: !window.__qaHeld.modal.classList.contains('hidden'), changes: window.__qaHeld.changes, toasts: window.__qaHeld.toasts }));
+    if (!r.held.sameInput || !r.held.connected || !r.held.modalOpen || r.held.value !== 'Typing stays here' || r.held.changes.length || r.held.toasts.length) throw new Error(`open session changed: ${JSON.stringify(r.held)}`);
+    await ctx.stableShot('account-session-held');
+    await page.locator('#workout-session-cancel-btn').click();
+    await page.waitForFunction(() => document.getElementById('workout-session-modal').classList.contains('hidden'), null, { timeout: 15_000 });
+    await page.waitForFunction(() => {
+      const text = document.getElementById('bp-list')?.innerText || '';
+      return text.includes('168') && text.includes('97') && text.includes('171') && text.includes('99');
+    }, null, { timeout: 30_000 });
+    await ctx.stableShot('account-session-closed-bp');
+    r.afterClose = await page.locator('#bp-list').innerText();
+  });
   ctx.log('pullRefresh', JSON.stringify(r, null, 2));
 }
