@@ -18,6 +18,6 @@ invariants:
   - On the anonymous trial call (iPhone and Android) the picked photo reaches the agent too, and it describes a detail you never said; the camera and gallery buttons are shown there
 covered_by:
   web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing, not the agent describing the photo)
-  android: manual
+  android: manual  # real gallery picker into account/trial vendor audio, spoken detail, Sending/error states and cancellation need a device call
   ios: manual
 source: [med-ku8r, med-adje]

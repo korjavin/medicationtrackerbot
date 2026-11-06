@@ -17,5 +17,5 @@ invariants:
 source: [med-vhdk]
 covered_by:
   web: web/static/js/tests/app.refresh-dispatch.test.js
-  android: manual
+  android: manual  # web/static/js/tests/app.refresh-dispatch.test.js proves shared hold/apply logic only; no Android workout/field editing across background, Health import, radios and second-device changes through close/recovery
   ios: manual

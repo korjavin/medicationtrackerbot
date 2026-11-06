@@ -14,6 +14,6 @@ invariants:
   - Logging the food again adds one use and keeps the product's values
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
-  android: manual
+  android: web/static/js/tests/cloud.shim-contract.food-products.test.js#food logs never rewrite shared products (med-5jq.2)  # data/logic only
   ios: manual
 source: [med-5jq.2]
