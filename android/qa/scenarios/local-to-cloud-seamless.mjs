@@ -203,6 +203,7 @@ export default async function localToCloudSeamless(ctx) {
     r.movedRegister = (await page.locator('#med-register-value').textContent()).trim();
     if (r.movedRegister !== 'EU register') throw new Error(`moved register: ${r.movedRegister}`);
     await ctx.stableShot('account-eu-register');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
     const before = receipts().length;
     const network = [];
     page.on('request', (q) => {
