@@ -521,6 +521,44 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         });
     });
 
+    // testscenarios meds-timeline-later-on-top inv 2: the focus card's Take /
+    // Skip must be reachable without scrolling, above a bottom tab bar.
+    it('meds-timeline-focus-in-view fails inView when the focus card Take sits below the viewport or under the tab bar', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('meds-timeline-focus-in-view')).toMatchObject({ ok: true, failed: [] });
+
+        const take = window.document.querySelector('#med-timeline-list .wg-tl-focus .wg-timeline__row[data-state="due"] .wg-btn--primary');
+        expect(take).not.toBeNull();
+        // The harness page has no bottom nav component: stand one in.
+        const bar = window.document.createElement('nav');
+        bar.className = 'wg-tabbar';
+        window.document.body.appendChild(bar);
+        const barTop = window.innerHeight - 80;
+        let takeTop = 500;
+        vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+            let top = 0;
+            if (this === take) top = takeTop;
+            else if (this === bar) top = barTop;
+            return { top, bottom: top + 36, left: 0, right: 100, width: 100, height: 36, x: 0, y: top };
+        });
+        const published = () => JSON.parse(window.document.getElementById('wg-qa-ready').getAttribute('aria-label'));
+        const republish = async () => {
+            const before = published().rev;
+            window.document.dispatchEvent(new window.Event('focusin')); // the driver re-publishes on focus changes
+            await vi.waitFor(() => expect(published().rev).toBeGreaterThan(before));
+            return published();
+        };
+        expect((await republish()).failed).not.toContain('inView');
+        takeTop = barTop - 20; // its bottom under the tab bar's top
+        let report = await republish();
+        expect(report.failed).toContain('inView');
+        expect(report.probes.inView[0]).toMatchObject({ ok: false, floor: barTop });
+        takeTop = window.innerHeight + 10; // below the viewport
+        report = await republish();
+        expect(report.failed).toContain('inView');
+    });
+
     it('publishes a failed report for a scene the list does not have', async () => {
         expect(await load('no-such-scene')).toMatchObject({ scene: 'no-such-scene', ok: false });
         expect(env.window.CloudVault.importAll).not.toHaveBeenCalled();

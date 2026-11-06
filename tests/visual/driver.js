@@ -1139,6 +1139,22 @@
             });
             if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
         }
+        // inView: each selector's first visible match sits wholly between the
+        // visible top and the viewport bottom, or the top of a bottom tab bar
+        // (a desktop side rail is not a floor): reachable without scrolling.
+        if (def.inView && def.inView.length) {
+            const { viewportTop, viewportBottom } = probes.focusContext;
+            const bar = firstVisible('.wg-tabbar');
+            const barTop = bar ? bar.getBoundingClientRect().top : Infinity;
+            const floor = barTop > (viewportTop + viewportBottom) / 2 ? Math.min(viewportBottom, barTop) : viewportBottom;
+            probes.inView = def.inView.map((selector) => {
+                const el = firstVisible(selector);
+                const r = el && el.getBoundingClientRect();
+                return { selector, top: r ? r.top : null, bottom: r ? r.bottom : null, floor,
+                    ok: !!r && r.top >= viewportTop - 0.5 && r.bottom <= floor + 0.5 };
+            });
+            if (probes.inView.some((v) => !v.ok)) failed.push('inView');
+        }
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister };
     }
 
