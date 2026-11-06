@@ -1280,6 +1280,10 @@
             if (!/fixed|sticky/.test(getComputedStyle(bar).position)) continue;
             const b = bar.getBoundingClientRect();
             if (b.right <= x0 || b.left >= x1 || b.bottom <= y0 || b.top >= y1) continue;
+            // Only a bar that actually paints on top there: a sheet above the
+            // tab bar leaves its content visible.
+            const hit = document.elementFromPoint((Math.max(x0, b.left) + Math.min(x1, b.right)) / 2, (Math.max(y0, b.top) + Math.min(y1, b.bottom)) / 2);
+            if (!hit || !bar.contains(hit)) continue;
             if (b.top + b.bottom < y0 + y1) y0 = Math.max(y0, b.bottom);
             else y1 = Math.min(y1, b.top);
         }
