@@ -304,6 +304,12 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     if (med.normalized_name) {
         meta.appendChild(_medsEl('span', 'wg-meds-row__rx', `Rx ${med.normalized_name}`));
     }
+    // The saved EU register match (kit ER13, bd med-3u28.10), from the record:
+    // no register load, works offline; only while it was saved for this name.
+    if (med.ema && med.ema.for_name === med.name) {
+        meta.appendChild(_medsEl('span', 'wg-meds-row__eu',
+            `EU ${String(med.ema.substances).split('|').map((s) => s.trim()).filter(Boolean).join(' + ')}`));
+    }
     if (med.inventory_count !== null && med.inventory_count !== undefined) {
         meta.appendChild(_buildMedsInventoryTag(med));
     }
@@ -1897,6 +1903,10 @@ async function saveMedication() {
         pack_size: trackInventory ? (parseInt(document.getElementById('med-pack-size').value, 10) || null) : null,
         tz_shift_policy: tzShiftPolicy
     };
+    // The EU card picked with "Use this" (bd med-3u28.10): only its key; the
+    // domain resolves it against the register and never blocks the Save.
+    const euPick = medEuPickFor(name.trim());
+    if (euPick) payload.ema_substances = euPick;
 
     const btn = document.getElementById('med-modal-save-btn');
     await withSubmit(btn, async () => {

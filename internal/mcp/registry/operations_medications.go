@@ -35,7 +35,7 @@ func MedicationOperations() []*Operation {
   }
 }`),
 			Description:     "List the user's medications. By default returns only active medications; pass archived=true for the full set. Use this to find an existing medication's id before update/delete/restock.",
-			ResponseSummary: "JSON array of Medication rows with id, name, dosage, schedule, archived, supplement, start_date, end_date, inventory_count, rxcui, normalized_name.",
+			ResponseSummary: "JSON array of Medication rows with id, name, dosage, schedule, archived, supplement, start_date, end_date, inventory_count, rxcui, normalized_name, and optional read-only ema (a saved EU register reference {for_name, substances, revision, data_date, sha256}; dated, not a verification; meaningful only while for_name equals name).",
 			ResponseExample: `[
   {"id": 1, "name": "Mounjaro", "dosage": "5 mg", "schedule": "{\"type\":\"weekly\",\"days\":[6],\"times\":[\"10:00\"]}", "archived": false, "supplement": false, "start_date": "2026-05-09T00:00:00Z", "end_date": null, "inventory_count": 4, "rxcui": "2601723", "normalized_name": "tirzepatide"}
 ]`,

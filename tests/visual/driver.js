@@ -128,7 +128,24 @@
     }
 
     function seedVault(fixture) {
-        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(withTwoDoseDay(fixture))))), new Date()));
+        return withTimelineNow(shiftDates(withPausedPlan(withTimeline(withHealthSources(withPileUp(withTwoDoseDay(withEuMatch(fixture)))))), new Date()));
+    }
+
+    // Saved EU register match (bd med-3u28.10, kit ER11–ER13): Lisinopril
+    // carries the Rev.90 reference to one of its two register cards, so the
+    // Meds list shows "Rx lisinopril · EU Lisinopril Dihydrate" (ER13), the
+    // editor paints the saved chip from the record, and with EU picked the
+    // chip names it and the sheet says Picked (meds-editor-eu-* scenes).
+    // Visual seed only; tests/fixtures/vault-v1.json stays the vault-format pin.
+    function withEuMatch(vault) {
+        const med = vault && vault.data && vault.data.medications && (vault.data.medications.items || [])[0];
+        if (med) {
+            med.ema = {
+                for_name: med.name, substances: 'Lisinopril Dihydrate', revision: 'EMA/518502/2018, Rev.90',
+                data_date: '09/10/2026', sha256: 'e4f0c27b05b1d893e055038fff70886a5aadc9434c54fd5a0a93ae98cfe4ad92',
+            };
+        }
+        return vault;
     }
 
     // Meds timeline day order (bd med-5y49): the golden fixture's one 09:00

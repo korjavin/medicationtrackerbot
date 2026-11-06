@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { groupEmaCandidates } from '../../../domain/medications.js';
 
 async function seedMedications(window, meds) {
     window.DataStore.loadSWR = vi.fn(async (options) => {
@@ -708,7 +709,7 @@ describe('Medication editor page (kit M5–M6)', () => {
             row('Duogestan', 'Estradiol Hemihydrate | Progesterone', 'Oral Use', 'Belgium'),
             row('Duogestan', 'Estradiol | Progesterone', 'Oral Use', 'Belgium'),
         ];
-        const ready = (candidates) => ({ status: 'ready', candidates, ambiguous: candidates.length > 1, source: SOURCE });
+        const ready = (candidates) => ({ status: 'ready', candidates, ambiguous: candidates.length > 1, source: SOURCE, groups: groupEmaCandidates(candidates) });
         const commitName = (document, window, value) => {
             const name = document.getElementById('med-name');
             name.value = value;
