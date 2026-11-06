@@ -9,6 +9,7 @@
 // (F1, bd med-ta2n.12) → the local records are all still there. results.localToCloudSeamless has the
 // counts. Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claimAccount, waitForVault } from './smoke.mjs';
@@ -88,7 +89,9 @@ export default async function localToCloudSeamless(ctx) {
 
   await ctx.step('the stash is plain vault v1 JSON (fixture shape, counts = store)', async () => {
     if ((await stashFiles()) !== 'vault.json') throw new Error(`stash files: ${await stashFiles()}`);
-    const vault = JSON.parse(await shell(`run-as ${pkg} cat no_backup/move/vault.json`));
+    const stash = await shell(`run-as ${pkg} cat no_backup/move/vault.json`);
+    r.stashHash = createHash('sha256').update(stash).digest('hex');
+    const vault = JSON.parse(stash);
     const fixture = JSON.parse(readFileSync(join(here, '../../../tests/fixtures/vault-v1.json'), 'utf8'));
     if (vault.format !== fixture.format || vault.version !== fixture.version) throw new Error(`format ${vault.format} v${vault.version}`);
     // protection: the move stash carries none by design (local-policy.js moveToCloud), so the
@@ -118,12 +121,26 @@ export default async function localToCloudSeamless(ctx) {
     await claimAccount(ctx, page);
     await ctx.step('failed bootstrap shows import error and retains the move stash', async () => {
       const dialog = page.locator('.mt-confirm-modal').filter({ has: title.filter({ hasText: 'Records not moved yet' }) });
+      const uncertain = page.locator('.mt-confirm-modal').filter({ has: title.filter({ hasText: 'Records already in your account' }) });
+      // A failed pull makes hasUserContent unknown, so the restore UI fails
+      // closed and may ask for a choice even on this empty account.
+      const first = await Promise.race([
+        dialog.waitFor({ state: 'visible', timeout: WAIT }).then(() => 'error', () => null),
+        uncertain.waitFor({ state: 'visible', timeout: WAIT }).then(() => 'choice', () => null),
+      ]);
+      if (first === 'choice') {
+        await uncertain.locator('.mt-confirm-modal__choice').filter({ hasText: 'Merge' }).click();
+        await uncertain.locator('.mt-confirm-modal__confirm').click();
+      }
       await dialog.waitFor({ state: 'visible', timeout: WAIT });
       r.importError = await dialog.locator('.mt-confirm-modal__message').textContent();
       if (!/Sync not ready/.test(r.importError) || !/stay on this/.test(r.importError)) throw new Error(`unexpected import error: ${r.importError}`);
       r.bootstrapFault = await faultControl('/status');
       if (!r.bootstrapFault.armed || r.bootstrapFault.hits < 1) throw new Error(`bootstrap fault not exercised: ${JSON.stringify(r.bootstrapFault)}`);
       if ((await stashFiles()) !== 'vault.json') throw new Error('failed import lost the move stash');
+      const retained = await shell(`run-as ${pkg} cat no_backup/move/vault.json`);
+      r.retainedStashHash = createHash('sha256').update(retained).digest('hex');
+      if (r.retainedStashHash !== r.stashHash) throw new Error('failed import changed the move stash');
       await ctx.stableShot('move-bootstrap-error');
       await dialog.locator('.mt-confirm-modal__cancel').click();
     });
@@ -216,10 +233,12 @@ export default async function localToCloudSeamless(ctx) {
   // The first move populated this real account; revisit it by address with the
   // original passkey rather than attempting to claim the spent invite again.
   await ctx.step('move to the populated account and cancel without changing its records', async () => {
+    page = await ctx.launch({ softAuthn: true }); // reopen F1 after inspecting the local copy
     await ctx.openLink(`https://${r.accountHost}/`, { move: true });
     page = await ctx.attachPage();
     if (!page) throw new Error('no account WebView after returning to account');
     await page.waitForURL((u) => u.host === r.accountHost, { timeout: 60_000 });
+    await page.waitForFunction(() => document.querySelector('#unlock-button') || window.MedTrackerCloudReady, null, { timeout: 60_000 });
     const unlock = page.locator('#unlock-button');
     if (await unlock.isVisible().catch(() => false)) await unlock.click();
     const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
