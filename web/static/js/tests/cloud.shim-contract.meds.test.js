@@ -722,7 +722,19 @@ describe('saved EU register match (bd med-3u28.10)', () => {
             });
             expect('ema' in await listed(100 + i)).toBe(false);
             expect((await row(100 + i)).ema).toEqual(ema);
+            // An unrelated Save keeps it untouched, ready register or US.
+            await save(100 + i, 'Candecor', { dosage: `${i}mg`, schedule: '{"type":"as_needed"}' });
+            expect((await row(100 + i)).ema).toEqual(ema);
         }
+        await pick('us');
+        await save(100, 'Candecor', { dosage: '0mg' });
+        expect((await row(100)).ema).toEqual(bad[0]);
+        // A pick that resolves replaces it; a rename drops it.
+        await pick('eu');
+        await save(100, 'Candecor', { dosage: '0mg', ema_substances: 'Candesartan Cilexetil' });
+        expect((await row(100)).ema).toEqual(REF90('Candecor', 'Candesartan Cilexetil'));
+        await save(101, 'Atacand', { dosage: '1mg' });
+        expect('ema' in await row(101)).toBe(false);
     });
 
     it('editor: Use this → Picked → Save; the list shows "EU <substance>"; reopened offline the saved chip paints from the record', async () => {

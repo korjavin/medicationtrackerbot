@@ -302,10 +302,16 @@ export function createMedicationsDomain({
   // apply a selection; a selection naming no card keeps what was there. US
   // register ('off'), not ready, several cards or none: what was there for
   // this name, else absent. A rename drops it (for_name is the old name).
+  // A malformed value (an import, another client) is opaque: kept untouched
+  // while the row's name holds; only a rename or a resolved pick replaces it.
   async function emaFor(existing, name, selection) {
-    const prior = existing && existing.ema && existing.ema.for_name === name ? existing.ema : undefined;
+    const raw = existing ? existing.ema : undefined;
+    let prior;
+    if (raw !== undefined && raw !== null && !validEma(raw)) {
+      prior = existing.name === name ? raw : undefined;
+    } else if (raw && raw.for_name === name) prior = raw;
     const pick = typeof selection === 'string' ? selection : '';
-    if (!pick && validEma(prior)) return prior;
+    if (!pick && prior !== undefined) return prior;
     let reg;
     try { reg = await eu.register({ start: false }); } catch { reg = null; }
     if (!name || !reg || reg.status !== 'ready') return prior;
