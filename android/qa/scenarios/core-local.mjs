@@ -189,11 +189,13 @@ export default async function coreLocal(ctx) {
     const med = scheduleMeds[taken];
     if (taken) await ctx.step('schedule: take the 08:00 row through Timeline', async () => {
       const rows = await timeline(med);
-      // A grouped row's direct Take acts on BOTH slot-mates. Open its sheet and explicitly
-      // deselect the Untaken branch, preserving the YAML's distinct morning preconditions.
+      // A grouped row's direct Take can act on both slot-mates. Open its real sheet and
+      // deselect the Untaken branch if present; a per-med row already contains Taken alone.
       await rows.filter({ hasText: '08:00' }).first().locator('.wg-row__body').click();
       await page.locator('#med-confirm-modal').waitFor({ state: 'visible' });
-      await page.locator('.med-confirm-check').filter({ hasText: scheduleMeds[false].name }).click();
+      const other = page.locator('.med-confirm-check').filter({ hasText: scheduleMeds[false].name });
+      r.otherInScheduleSheet = await other.count();
+      if (r.otherInScheduleSheet && await other.getAttribute('aria-pressed') === 'true') await other.click();
       const chosen = page.locator('.med-confirm-check[aria-pressed="true"]');
       if (await chosen.count() !== 1 || !(await chosen.innerText()).includes(med.name)) throw new Error('wrong grouped dose selection');
       await ctx.shot('schedule-take-only-selected-med');
