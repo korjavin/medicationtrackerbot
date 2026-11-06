@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"flag"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -28,6 +30,7 @@ func main() {
 	backend := flag.String("backend", "http://127.0.0.1:8080", "plain-HTTP upstream")
 	domain := flag.String("domain", "qa.test", "base domain; the leaf covers it and *.<domain>")
 	caPath := flag.String("ca", "ca.pem", "where to write the CA certificate (PEM)")
+	receiptsPath := flag.String("receipts", "", "optional runner-only JSONL of received host/method/path (no query or body)")
 	flag.Parse()
 
 	up, err := url.Parse(*backend)
@@ -55,7 +58,28 @@ func main() {
 	// trusts); stale.<domain> is a proxy's bare 404 (Traefik's no-router answer during a redeploy),
 	// which must NOT make the shell forget the account.
 	down, gone, stale := "down."+*domain, "nobody."+*domain, "stale."+*domain
+	var receipts *os.File
+	var receiptsMu sync.Mutex
+	if *receiptsPath != "" {
+		receipts, err = os.OpenFile(*receiptsPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			slog.Error("open receipts", "err", err)
+			os.Exit(1)
+		}
+		defer receipts.Close()
+	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Account routing still uses the original Host, as internal/cloudserver/router.go does.
+		// Count BEFORE routing/proxying: even failed upstream and SW-owned requests are receipts.
+		if receipts != nil {
+			receiptsMu.Lock()
+			err := json.NewEncoder(receipts).Encode(map[string]any{"at": time.Now().UTC(), "host": r.Host, "method": r.Method, "path": r.URL.Path})
+			receiptsMu.Unlock()
+			if err != nil {
+				slog.Error("write receipts", "err", err)
+				os.Exit(1)
+			}
+		}
 		switch r.Host {
 		case down:
 			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
