@@ -40,8 +40,12 @@ final class HealthDiagnosticTests: XCTestCase {
                     off.forEach { $0.tap() }
                     break
                 }
-                let button = host.buttons["Allow"].firstMatch
-                if button.exists && button.isEnabled && button.isHittable { button.tap() }
+                // iOS 26 confirms with "Allow"; the iOS 27 sheet with
+                // "Continue" (then its data-range page, bd med-8f4s.18).
+                for label in ["Allow", "Continue"] {
+                    let button = host.buttons[label].firstMatch
+                    if button.exists && button.isEnabled && button.isHittable { button.tap(); break }
+                }
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
