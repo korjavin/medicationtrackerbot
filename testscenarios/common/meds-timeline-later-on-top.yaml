@@ -12,6 +12,6 @@ invariants:
   - '"Show 3 more days ahead" stays the first thing on the page, and the folded future row still names the day''s first dose ("2 doses · first 08:20")'
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js
-  android: manual
+  android: manual  # core-local expands Later today for slot membership only; no native later-on-top ordering, focus-action visibility or folded first-dose label assertions
   ios: manual
 source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, bd med-5y49]

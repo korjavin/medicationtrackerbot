@@ -167,6 +167,10 @@ export default async function coreLocal(ctx) {
       const today = await page.evaluate(() => {
         const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       });
+      // med-5y49 folds today's non-focus upcoming groups. Expand the real UI before
+      // asserting the per-dose identifiers; never confuse a folded summary with missing data.
+      const later = page.locator('#med-timeline-list .wg-timeline__later .wg-tl-day[aria-expanded="false"]');
+      if (await later.count()) await later.click();
       const dayRows = page.locator(`#med-timeline-list [data-med-ids~="${med.id}"][data-local-date="${today}"]`);
       const dayText = (await dayRows.allTextContents()).join('\n');
       if (!/21:00/.test(dayText) || /20:00/.test(dayText)) throw new Error(`evening pairing: ${dayText} (all: ${text})`);
