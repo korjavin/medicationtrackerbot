@@ -40,6 +40,7 @@ func main() {
 	cloudA := flag.String("cloud-a", "", "B2 only: real stamped cloud A executable")
 	cloudB := flag.String("cloud-b", "", "B2 only: real stamped cloud B executable")
 	cloudLog := flag.String("cloud-log", "", "B2 only: append cloud process output here")
+	moveFault := flag.Bool("move-fault", false, "move QA only: enable loopback bootstrap-fault control")
 	flag.Parse()
 
 	up, err := url.Parse(*backend)
@@ -65,6 +66,7 @@ func main() {
 	// This process retains the disposable DB/session environment through the serial swap;
 	// no credential file and no simultaneous SQLite writers from two cloud generations.
 	var fixture *recoveryFixture
+	var move *moveFixture
 	exitFixture := func() {
 		if fixture != nil {
 			fixture.mu.Lock()
@@ -94,6 +96,20 @@ func main() {
 		go func() {
 			if err := http.Serve(control, http.HandlerFunc(fixture.control)); err != nil {
 				slog.Error("B2 control", "err", err)
+				exitFixture()
+			}
+		}()
+	}
+	if *moveFault {
+		move = &moveFixture{}
+		control, err := net.Listen("tcp", "127.0.0.1:8767")
+		if err != nil {
+			slog.Error("listen move control", "err", err)
+			exitFixture()
+		}
+		go func() {
+			if err := http.Serve(control, http.HandlerFunc(move.control)); err != nil {
+				slog.Error("move control", "err", err)
 				exitFixture()
 			}
 		}()
@@ -130,6 +146,9 @@ func main() {
 		if fixture != nil && fixture.failModule(w, r) {
 			return
 		}
+		if move != nil && move.failBootstrap(w, r) {
+			return
+		}
 		switch r.Host {
 		case down:
 			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
@@ -158,6 +177,56 @@ func main() {
 		slog.Error("serve", "err", err)
 		exitFixture()
 	}
+}
+
+// moveFixture injects only a disposable account's sync reads, before the
+// import has a cursor. It never changes the served app or any write request.
+type moveFixture struct {
+	mu    sync.Mutex
+	host  string
+	armed bool
+	hits  int
+}
+
+func (f *moveFixture) control(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r.Method == http.MethodPost {
+		switch r.URL.Path {
+		case "/arm":
+			var body struct {
+				Host string `json:"host"`
+			}
+			if f.armed || f.hits != 0 || json.NewDecoder(http.MaxBytesReader(w, r.Body, 256)).Decode(&body) != nil || body.Host == "" {
+				http.Error(w, "one host and one arm required", http.StatusBadRequest)
+				return
+			}
+			f.host, f.armed = body.Host, true
+		case "/release":
+			f.armed = false
+		default:
+			http.NotFound(w, r)
+			return
+		}
+	} else if r.Method != http.MethodGet || r.URL.Path != "/status" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"armed": f.armed, "hits": f.hits})
+}
+
+func (f *moveFixture) failBootstrap(w http.ResponseWriter, r *http.Request) bool {
+	f.mu.Lock()
+	if !f.armed || r.Host != f.host || r.Method != http.MethodGet || (r.URL.Path != "/api/sync/snapshot" && r.URL.Path != "/api/sync/ops") {
+		f.mu.Unlock()
+		return false
+	}
+	f.hits++
+	f.mu.Unlock()
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "QA bootstrap unavailable", http.StatusServiceUnavailable)
+	return true
 }
 
 // recoveryFixture is bounded runner-only fixture state, never a cloud product API.

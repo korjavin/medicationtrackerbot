@@ -22,6 +22,16 @@ const WAIT = 240_000; // claim + import + snapshot upload + reload on the softwa
 
 const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
 const diff = (a, b) => Object.fromEntries(Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).map((k) => [k, [a[k], b[k]]]));
+const faultControl = async (path, body) => {
+  if (!process.env.QA_MOVE_FAULT) throw new Error('QA_MOVE_FAULT unset');
+  const res = await fetch(`http://127.0.0.1:8767${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`move fixture ${path}: ${res.status}`);
+  return res.json();
+};
 
 export default async function localToCloudSeamless(ctx) {
   const { shell, pkg, sleep, log, LOCAL_ORIGIN } = ctx;
@@ -103,7 +113,27 @@ export default async function localToCloudSeamless(ctx) {
     seen(title.filter({ hasText: /^Records not moved/ }), 'not-moved'),
   ]);
   const confirm = seen(title.filter({ hasText: 'Replace all your data?' }), 'confirm');
-  await claimAccount(ctx, page);
+  await faultControl('/arm', { host: claim.host });
+  try {
+    await claimAccount(ctx, page);
+    await ctx.step('failed bootstrap shows import error and retains the move stash', async () => {
+      const dialog = page.locator('.mt-confirm-modal').filter({ has: title.filter({ hasText: 'Records not moved yet' }) });
+      await dialog.waitFor({ state: 'visible', timeout: WAIT });
+      r.importError = await dialog.locator('.mt-confirm-modal__message').textContent();
+      if (!/Sync not ready/.test(r.importError) || !/stay on this/.test(r.importError)) throw new Error(`unexpected import error: ${r.importError}`);
+      r.bootstrapFault = await faultControl('/status');
+      if (!r.bootstrapFault.armed || r.bootstrapFault.hits < 1) throw new Error(`bootstrap fault not exercised: ${JSON.stringify(r.bootstrapFault)}`);
+      if ((await stashFiles()) !== 'vault.json') throw new Error('failed import lost the move stash');
+      await ctx.stableShot('move-bootstrap-error');
+      await dialog.locator('.mt-confirm-modal__cancel').click();
+    });
+  } finally {
+    r.faultReleased = await faultControl('/release', {});
+    if (r.faultReleased.armed) throw new Error('bootstrap fault remained armed');
+  }
+  await ctx.step('reopen with the network restored to retry the retained move', async () => {
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+  });
   r.accountHost = new URL(page.url()).host;
 
   await ctx.step('the account picks the records up by itself: the toast, no Backup & import', async () => {

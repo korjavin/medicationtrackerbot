@@ -137,7 +137,12 @@ jobs:
           rest="${landing#https://}"; sub="${rest#*/i/}"; sub="${sub%%#*}"
           host="$sub.${rest%%/*}"; claim="https://$host/#claim=${landing##*#}"
           if [[ "$QA_SCENARIO" != update-banner && "$QA_SCENARIO" != degraded-boot ]]; then
-            sudo -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" -receipts "$RUNNER_TEMP/tlsfront-receipts.jsonl" "$host" > "$RUNNER_TEMP/tlsfront.log" 2>&1
+            if [[ "$QA_SCENARIO" = local-to-cloud-seamless ]]; then
+              sudo -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" -receipts "$RUNNER_TEMP/tlsfront-receipts.jsonl" -move-fault "$host" > "$RUNNER_TEMP/tlsfront.log" 2>&1
+              echo "QA_MOVE_FAULT=1" >> "$GITHUB_ENV"
+            else
+              sudo -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" -receipts "$RUNNER_TEMP/tlsfront-receipts.jsonl" "$host" > "$RUNNER_TEMP/tlsfront.log" 2>&1
+            fi
           fi
           for i in $(seq 1 30); do [ -s "$RUNNER_TEMP/ca.pem" ] && break; sleep 1; done
           curl -sS --fail -o /dev/null --cacert "$RUNNER_TEMP/ca.pem" --resolve "$host:443:127.0.0.1" "https://$host/unlock"
