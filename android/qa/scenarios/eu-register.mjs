@@ -118,7 +118,8 @@ export default async function euRegister(ctx) {
   // only a 200 app load with a validated ready catalogue AND an exact fresh cached copy of the
   // bundled bytes can classify that signal as cancellation. Preserve the raw event; infer no cause.
   const completedCancel = (q) => q.error === 'net::ERR_ABORTED' && new URL(q.url).pathname === ASSET
-    && ((q.phase === 'first' && r.firstBodyComplete) || (q.phase === 'progress' && r.progressBodyComplete));
+    && ((q.phase === 'first' && r.firstBodyComplete) || (q.phase === 'progress' && r.progressBodyComplete)
+      || (q.phase === 'account' && new URL(q.url).origin === new URL(ctx.claimUrl).origin && r.accountBodyComplete));
   const failedAppRequests = () => r.failedAssetRequests.filter((q) => q.phase !== 'instrumentation' && !completedCancel(q));
 
   await shell(`pm clear ${pkg}`);
@@ -445,6 +446,8 @@ export default async function euRegister(ctx) {
     if (r.assetRequests.us) throw new Error('US switch fetched the EU asset');
     await page.evaluate(() => window.closeModal());
   });
+  counting = 'account';
+  r.observationStage = 'account-eu-check';
   page = await ctx.step('account: claim the disposable invite', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
   watch(page);
@@ -463,6 +466,8 @@ export default async function euRegister(ctx) {
       const s = await import('/js/sync.js');
       if (!await s.flushConfirmed(window.MedTrackerCloud.ctx)) throw new Error('initial settings did not sync');
     });
+    // Mirror the encrypted sync op contract in cloud/js/sync.js (flushPendingUnlocked)
+    // and docs/cloud-crypto.md; the server assigns the next sequence to this peer op.
     r.peerWrite = await page.evaluate(async () => {
       const sync = await import('/js/sync.js');
       const crypto = await import('/js/crypto.js');
@@ -527,6 +532,24 @@ export default async function euRegister(ctx) {
     await page.locator('#med-name').fill('Candecor');
     await page.locator('#med-name').dispatchEvent('change');
     await chipIs('EU · Candesartan Cilexetil');
+    await page.waitForFunction(async (asset) => {
+      for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
+      return false;
+    }, ASSET, { timeout: 60_000 });
+    r.accountCache = await page.evaluate(async (asset) => {
+      for (const n of await caches.keys()) {
+        if (!n.startsWith('medtracker-ema-')) continue;
+        const response = await (await caches.open(n)).match(asset);
+        if (!response) continue;
+        const hash = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+        return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+      return null;
+    }, ASSET);
+    r.accountBodyComplete = r.accountCache === r.bundledAssetSha256 && r.assetResponses.some((res) => res.phase === 'account'
+      && new URL(res.url).origin === new URL(ctx.claimUrl).origin && res.status === 200);
+    if (!r.accountBodyComplete) throw new Error('account check did not cache the exact register');
+    await page.locator('#med-dosage').focus();
     await ctx.stableShot('account-eu-chip');
     r.accountObservation = await page.evaluate(() => ({ sameDocument: window.__qaSameDocument, pulls: window.__qaNativePullsAllowed, blocked: window.__qaNativePullsBlocked }));
     if (r.accountObservation.sameDocument !== 'account-peer-before-pull' || !r.accountObservation.pulls) throw new Error('account did not pull in the same document');
