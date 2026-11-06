@@ -388,7 +388,8 @@ export function startHealthWriteBack({
             const v = now[kind]?.[id];
             if (v !== undefined) {
                 delete now[kind][id];
-                if (!(v === from && PERMANENT_RE.test(String(e && e.message)) && onPermanent(kind, id))) now[kind][id] = v;
+                if (v === from && PERMANENT_RE.test(String(e && e.message)) && onPermanent(kind, id)) dropped = true;
+                else now[kind][id] = v;
                 writeJSON(storage, DIRTY_KEY, now);
             }
             throw e;
@@ -403,6 +404,9 @@ export function startHealthWriteBack({
     // (Health Connect "API call quota exceeded"): the copy then pauses even if
     // a few calls of the pass got through.
     let quotaHit = false;
+    // Set when a Copy id was dropped as permanent since the last drain
+    // started: that pass resolved something, so it is no step toward stuck.
+    let dropped = false;
     const deliver = (kind, id) => {
         const next = (chains.get(id) || Promise.resolve())
             .then(() => step(kind, id))
@@ -439,6 +443,7 @@ export function startHealthWriteBack({
         const asked = askNewKinds();
         if (asked) granted = (await asked) || granted;
         quotaHit = false;
+        dropped = false;
         const l = ledger();
         // Interleave the kinds so one refused kind cannot starve the other.
         const lists = WRITE_KINDS.filter((k) => granted.includes(k))
@@ -471,23 +476,31 @@ export function startHealthWriteBack({
         let delivered = 0;
         try {
             await Promise.all(prior);
-            await settled();
             const byType = new Map();
-            const rowsOf = async (t) => {
-                if (!byType.has(t)) byType.set(t, new Map((await records.listRaw(t)).map((r) => [r.recordId, r])));
+            const rowsOf = (t) => {
+                if (!byType.has(t)) byType.set(t, records.listRaw(t).then((rows) => new Map(rows.map((r) => [r.recordId, r]))));
                 return byType.get(t);
             };
             let writes = [];
+            // A failed commit wait or row read goes per id through deliver(),
+            // whose step() keeps and moves back the id that fails again.
+            const ready = await settled().then(() => true, () => false);
             for (const [kind, id] of picked) {
                 const from = ledger()[kind]?.[id];
                 if (from === undefined) continue;
-                const row = (await rowsOf(RECORD_TYPE[kind])).get(id);
                 let body = null;
-                if (row && !row.deleted && kind === 'workout') {
-                    const span = await workoutSpan(records, row);
-                    if (span) body = { type: kind, id, version: row.clientTs, ...span, activity: await workoutActivity(records, row) };
-                } else if (row && !row.deleted && !row.source && !(kind === 'hr' && pulseOf(row) === null)) {
-                    body = healthBody(kind, row);
+                let row;
+                try {
+                    if (!ready) throw new Error('not settled');
+                    row = (await rowsOf(RECORD_TYPE[kind])).get(id);
+                    if (row && !row.deleted && kind === 'workout') {
+                        const span = await workoutSpan(records, row);
+                        if (span) body = { type: kind, id, version: row.clientTs, ...span, activity: await workoutActivity(records, row) };
+                    } else if (row && !row.deleted && !row.source && !(kind === 'hr' && pulseOf(row) === null)) {
+                        body = healthBody(kind, row);
+                    }
+                } catch {
+                    body = null;
                 }
                 if (body) writes.push({ kind, id, from, version: row.clientTs, body });
                 else rest.push([kind, id]);
@@ -543,6 +556,7 @@ export function startHealthWriteBack({
             if (typeof r === 'string' && /denied/.test(r)) denied.add(w.kind);
             else if (typeof r === 'string' && l[w.kind]?.[w.id] === w.from && onPermanent(w.kind, w.id)) {
                 delete l[w.kind][w.id];
+                dropped = true;
                 return;
             }
             back.push(w);
@@ -581,7 +595,7 @@ export function startHealthWriteBack({
     // narrows it to the kinds the shell then supported (an older shell
     // ignores a kind it does not know, so the build that knows it asks again).
     const markAsked = (kinds = kindsSupported) => writeJSON(storage, WRITE_ASKED_KEY, kinds.filter((k) => WRITE_KINDS.includes(k)));
-    return { drain, readAccess, supported, markAsked, mark, ledger, quotaHit: () => quotaHit };
+    return { drain, readAccess, supported, markAsked, mark, ledger, quotaHit: () => quotaHit, dropped: () => dropped };
 }
 
 // What other apps already put into Health for one kind, since `from`: the
@@ -938,7 +952,7 @@ function copyText(health, st, paused) {
     if (st.running && !paused) return { title: 'Copying past entries…', desc: `${st.done} of ${st.total}`, meter: true };
     if (st.running) return { title: 'Copy paused', desc: `${label} is busy. ${st.done} of ${st.total} so far; it continues when the app is open.` };
     // Entries the store always rejected (bd med-8f4s.15).
-    const failed = Number(st.job.failed) > 0 ? ` ${entriesText(Number(st.job.failed))} couldn't be copied.` : '';
+    const failed = st.failed > 0 ? ` ${entriesText(st.failed)} couldn't be copied.` : '';
     if (!st.refused.length) return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}.${failed}` };
     return { title: `Copied to ${label}`, desc: `${entriesText(st.done)}.${failed} ${notAllowed(st.refused)} in ${label} settings, then tap Copy past entries again.` };
 }
@@ -1014,19 +1028,21 @@ export function startHealthImport(ctx, {
         writeHint = writeHintText(health, granted, supported);
         renderWrite();
     };
-    // A Copy id the store always rejects (bd med-8f4s.15): out of the job,
-    // counted in job.failed (a pulse is not an entry: dropped, not counted);
+    // A Copy id the store always rejects (bd med-8f4s.15): moved from job.ids
+    // to job.dropped, which the result counts (a pulse is not an entry:
+    // dropped, not counted; its bp, kept or dropped, keeps it the Copy's);
     // an id outside the job keeps the live rule (kept, retried).
     const onPermanent = (kind, id) => {
         const job = readJob();
+        if (!job) return false;
         const entry = kind === 'hr' ? 'bp' : kind;
-        const ids = job && job.ids[entry];
-        if (!Array.isArray(ids) || !ids.includes(id)) return false;
-        if (kind !== 'hr') {
-            job.ids[entry] = ids.filter((x) => x !== id);
-            job.failed = (Number(job.failed) || 0) + 1;
-            writeJSON(storage, JOB_KEY, job);
-        }
+        const ids = Array.isArray(job.ids[entry]) ? job.ids[entry] : [];
+        const dropped = (job.dropped && job.dropped[entry]) || [];
+        if (kind === 'hr') return ids.includes(id) || dropped.includes(id);
+        if (!ids.includes(id)) return false;
+        job.ids[entry] = ids.filter((x) => x !== id);
+        job.dropped = { ...job.dropped, [entry]: [...dropped, id] };
+        writeJSON(storage, JOB_KEY, job);
         return true;
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess, onPermanent });
@@ -1061,8 +1077,10 @@ export function startHealthImport(ctx, {
         // the store may take is still dirty, the passes go on (the row already
         // shows the result).
         const hrOk = !lastGranted || lastGranted.includes('hr');
-        const pulses = hrOk && (Array.isArray(job.ids.bp) ? job.ids.bp : []).some((id) => l.hr && l.hr[id] !== undefined);
-        return { job, done, total: Number(job.total) || 0, left, refused, running, pending: running || pulses };
+        const bpIds = [...(Array.isArray(job.ids.bp) ? job.ids.bp : []), ...((job.dropped && job.dropped.bp) || [])];
+        const pulses = hrOk && bpIds.some((id) => l.hr && l.hr[id] !== undefined);
+        const failed = Object.values(job.dropped || {}).reduce((n, ids) => n + (Array.isArray(ids) ? ids.length : 0), 0);
+        return { job, done, total: Number(job.total) || 0, left, refused, running, pending: running || pulses, failed };
     };
     let copyRow = null;
     let paused = false;
@@ -1196,7 +1214,7 @@ export function startHealthImport(ctx, {
                     paused = true;
                     if (delivered > 0) setFails(0);
                     later(copyBackoffMs);
-                } else if (delivered > 0 || admitted > 0) {
+                } else if (delivered > 0 || admitted > 0 || writeBack.dropped()) {
                     paused = false;
                     setFails(0);
                     later(copyGapMs);

@@ -2739,9 +2739,62 @@ describe('Health write-back', () => {
                 await finished();
                 expect(health.write).toHaveBeenCalledTimes(1);
                 expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied."]);
-                expect(job()).toMatchObject({ failed: 1, ids: { bp: ['bp-a', 'bp-e'] } });
+                expect(job()).toMatchObject({ dropped: { bp: ['bp-c'] }, ids: { bp: ['bp-a', 'bp-e'] } });
                 expect(ledgerSize()).toBe(0);
                 expect(JSON.parse(storage.getItem('wg.health.copied')).bp).not.toHaveProperty('bp-c');
+            });
+
+            it('(c) a reading and its pulse both rejected, in one batch or across passes: neither stays queued, one entry named (Argus 17229 #1)', async () => {
+                allowConsoleNoise();
+                health.write = shellWrite(async (a) => (a.id === 'bp-a' ? 'bad write: systolic' : a.id === 'bp-a/pulse' ? 'invalid heart rate' : true));
+                await open();
+                await tap();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', "4 entries. 1 entry couldn't be copied."]);
+                expect(ledgerSize()).toBe(0);
+                expect(job().dropped).toEqual({ bp: ['bp-a'] });
+
+                // Across passes: the pulse is held ("denied") while its reading is dropped, then rejected alone.
+                // The next Copy offers bp-a again (never written, nothing queued).
+                await leaveSettings();
+                let held = false;
+                health.write.mockImplementation(answer(async (a) => {
+                    if (a.id === 'bp-a') return 'bad write: systolic';
+                    if (a.id === 'bp-a/pulse') {
+                        if (!held) {
+                            held = true;
+                            return 'denied';
+                        }
+                        return 'invalid heart rate';
+                    }
+                    return true;
+                }));
+                await tap();
+                await finished();
+                await vi.waitFor(() => expect(ledgerSize()).toBe(0));
+                expect(held).toBe(true);
+                expect(job().dropped).toEqual({ bp: ['bp-a'] });
+                expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]);
+            });
+
+            it('(c) a row read failing while a batch is prepared sends that id per id; the rest go in the batch (Argus 17229 #2)', async () => {
+                allowConsoleNoise();
+                let breakReads = 0;
+                const flaky = { ...records, listRaw: async (t) => {
+                    if (t === 'workoutsession' && breakReads > 0) {
+                        breakReads--;
+                        throw new Error('idb busy');
+                    }
+                    return records.listRaw(t);
+                } };
+                confirm.mockImplementation(async () => { breakReads = 1; return true; });
+                await open(health, { records: flaky });
+                await tap();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+                expect(health.write.mock.calls[0][0].entries.map((a) => a.id)).not.toContain('session-s2');
+                expect(health.write).toHaveBeenCalledWith(expect.objectContaining({ type: 'workout', id: 'session-s2' }));
+                expect(ledgerSize()).toBe(0);
             });
 
             it('(c) an entry answered "denied" (Android) is kept, moved back and its kind held until the next access read', async () => {
@@ -2754,7 +2807,7 @@ describe('Health write-back', () => {
                 await vi.waitFor(() => expect(rowText()[0]).toBe('Copy paused'));
                 expect(health.write.mock.calls.map(([a]) => (a.entries ? a.entries.length : a.id))).toEqual([7, 'w-2']);
                 expect(Object.keys(dirty().weight)).toEqual(['w-2']);
-                expect(job().failed).toBeUndefined();
+                expect(job().dropped).toBeUndefined();
                 refuse = false;
                 foreground();
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']));
@@ -2771,7 +2824,7 @@ describe('Health write-back', () => {
                 await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', "0 entries. 1 entry couldn't be copied."]));
                 expect(write.mock.calls.map(([a]) => a.entries)).toEqual([undefined]);
                 expect(dirty().bp).toEqual({});
-                expect(job()).toMatchObject({ failed: 1, ids: { bp: [] } });
+                expect(job()).toMatchObject({ dropped: { bp: ['bp-c'] }, ids: { bp: [] } });
                 // An edit outside the Copy, rejected the same way, stays queued.
                 await api('/api/bp/bp-f', 'PUT', { systolic: 141 });
                 await vi.waitFor(() => expect(write).toHaveBeenCalledWith(expect.objectContaining({ id: 'bp-f', systolic: 141 })));

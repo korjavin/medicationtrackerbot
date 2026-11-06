@@ -502,8 +502,8 @@ never turns it off (below).
   pass. A thrown batch keeps every id; an entry answered `"denied"` is kept and
   its kind held back; any other entry error, or a single write rejected `bad
   write…`/`unknown…`/`invalid…`, is permanent: a Copy id leaves the job and
-  the ledger, counted in `failed` ("N entries couldn't be copied." on HW9/HW9b,
-  never a step toward stuck), while a live-hook id is kept and retried. A
+  the ledger into the job's `dropped` ("N entries couldn't be copied." on HW9/HW9b,
+  never a step toward stuck; a dropped bp's pulse stays the Copy's), while a live-hook id is kept and retried. A
   pulse-less bp in a Copy marks no hr (no no-op remove).
   The shell reports the provider's raw boundary and never pads it; the page
   alone decides eligibility (med-8f4s.19): a row is eligible only when its
@@ -556,7 +556,7 @@ never turns it off (below).
   rather than copy from part of the list. **Apple Health cannot signal a denied read** (it answers empty), so
   there that kind copies without the duplicate check. A read that fails aborts
   the count with the "Couldn't reach …" toast; nothing is marked. The open copy
-  is device-local `wg.health.backfill` `{ startedAt, total, ids, blocked, fails?, failed? }`;
+  is device-local `wg.health.backfill` `{ startedAt, total, ids, blocked, fails?, dropped? }`;
   progress counts entries (an entry is done when its bp/weight/workout ledger
   id clears). While it is open and the page is visible, a pass that delivered
   is followed by the next 1.5 s later; a pass where every call failed (Health
