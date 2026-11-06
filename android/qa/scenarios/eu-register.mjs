@@ -1,14 +1,21 @@
-// EU register check on the real shell in local mode (bd med-3u28.2/.3): the measurement
-// gate, Settings choice, cache persistence across a cold relaunch and editor/sheet screens.
+// EU register on the real shell (bd med-3u28.2/.3, med-sz4k.4.4.3): local Settings,
+// real bundled-response progress/Save, cached offline saved match, US route, then an
+// encrypted peer op and native account pull. Standalone: this consumes the invite.
 // results.euRegister = {
 //   phases: fetch+decode, JSON.parse, index build of the bundled asset (ms), measured apart;
 //   first: the app path's first EU check (ms to ready, peak heap, long tasks, worst timer lag);
 //   second: the cold relaunch (cache-first: no asset request);
-//   heapMB: { before, afterFirst, retained } after a forced GC (CDP), the register held in memory }.
+//   heapMB: { before, afterFirst, retained } after a forced GC (CDP), the register held in memory;
+//   progress*, savedWhileLoading, offline*, usCalls, peerWrite, beforePull,
+//   accountObservation and accountPulledEU record the additional flows }.
 // Numbers only: the gate's verdict is a review call (worker / smaller projection is a follow-up bead).
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { claimAccount } from './smoke.mjs';
+
+// The account half spends the runner's one invite; dispatch this scenario alone.
+export const retry = false;
 
 const ASSET = '/static/data/ema-article57-rev90-v1.json';
 
@@ -113,8 +120,9 @@ export default async function euRegister(ctx) {
   // local-app.mjs also records ERR_ABORTED as cancellation. Here the exception is narrower:
   // only a 200 app load with a validated ready catalogue AND an exact fresh cached copy of the
   // bundled bytes can classify that signal as cancellation. Preserve the raw event; infer no cause.
-  const completedCancel = (q) => q.phase === 'first' && q.error === 'net::ERR_ABORTED'
-    && new URL(q.url).pathname === ASSET && r.firstBodyComplete;
+  const completedCancel = (q) => q.error === 'net::ERR_ABORTED' && new URL(q.url).pathname === ASSET
+    && ((q.phase === 'first' && r.firstBodyComplete) || (q.phase === 'progress' && r.progressBodyComplete)
+      || (q.phase === 'account' && new URL(q.url).origin === new URL(ctx.claimUrl).origin && r.accountBodyComplete));
   const failedAppRequests = () => r.failedAssetRequests.filter((q) => q.phase !== 'instrumentation' && !completedCancel(q));
 
   await shell(`pm clear ${pkg}`);
@@ -142,6 +150,20 @@ export default async function euRegister(ctx) {
     await ctx.waitLocalReady(page);
     await sleep(3000); // boot work settles before measuring
   };
+  // Playwright's waitForFunction does not poll an async predicate: a Promise is truthy.
+  // Poll real cache/IDB reads from Node until they resolve to true, with a bounded timeout.
+  const waitForAsync = async (label, check, timeout = 60_000) => {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      if (await check()) return;
+      await sleep(250);
+    }
+    throw new Error(`${label} timed out`);
+  };
+  const hasCachedAsset = () => page.evaluate(async (asset) => {
+    for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-') && await (await caches.open(n)).match(asset)) return true;
+    return false;
+  }, ASSET);
   const openChoice = async () => {
     // A plain relaunch can restore Settings, where its own navigation button is hidden.
     const features = page.locator('[data-settings-open="features"]:visible');
@@ -192,6 +214,85 @@ export default async function euRegister(ctx) {
     }, ASSET);
     if (r.phases.candecor !== 2) throw new Error(`Candecor: ${r.phases.candecor} rows`);
     counting = 'first';
+  });
+
+  await ctx.step('cold register: progress is visible and Save works while bytes are loading', async () => {
+    await page.evaluate(async () => {
+      for (const n of await caches.keys()) if (n.startsWith('medtracker-ema-')) await caches.delete(n);
+    });
+    await freshPage();
+    counting = 'progress';
+    r.observationStage = 'progress-app-check';
+    // Slow the real bundled response after its first bytes: the real loader, progress and
+    // Save handler still run. Periodic real chunks keep its 15-second stall guard armed.
+    await page.evaluate(() => {
+      const original = window.fetch;
+      let release;
+      window.__qaReleaseEma = () => release?.();
+      const gate = new Promise((resolve) => { release = resolve; });
+      window.fetch = async (...args) => {
+        const response = await original(...args);
+        if (!String(args[0]).includes('/static/data/ema-article57-')) return response;
+        const reader = response.body.getReader();
+        let first = true;
+        let pending = null;
+        let offset = 0;
+        const stream = new ReadableStream({ async pull(controller) {
+          if (!first) await Promise.race([gate, new Promise((resolve) => setTimeout(resolve, 750))]);
+          if (!pending || offset >= pending.length) {
+            const part = await reader.read();
+            if (part.done) { controller.close(); return; }
+            pending = part.value;
+            offset = 0;
+          }
+          const end = Math.min(offset + 262144, pending.length);
+          controller.enqueue(pending.subarray(offset, end));
+          offset = end;
+          first = false;
+        }, cancel() { return reader.cancel(); } });
+        return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
+      };
+      window.__qaRestoreFetch = () => { window.fetch = original; };
+    });
+    try {
+      await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+      await page.locator('#med-name').fill('QA loading medication');
+      await page.locator('#med-dosage').fill('5mg');
+      await page.locator('#med-name').dispatchEvent('change');
+      await page.locator('#med-eu-slot .wg-meter').waitFor({ timeout: 30_000 });
+      r.progressText = await page.locator('#med-eu-slot').textContent();
+      // The emulator launcher may raise an ANR over the WebView. Dismiss it promptly;
+      // waiting ten seconds here would consume the loader's real 15-second stall guard.
+      if (await ctx.device.wait({ text: /.*isn['’]t responding.*/ }, { timeout: 500 }).then(() => true, () => false)) {
+        await ctx.device.tap({ text: 'Wait' });
+      }
+      await ctx.stableShot('register-progress', { cap: 4 });
+      r.progressAfterShot = await page.locator('#med-eu-slot').textContent();
+      if (!r.progressAfterShot.includes('Loading the EU register')) throw new Error('register stopped loading before Save');
+      await page.locator('[data-schedule-type="as_needed"]').click();
+      await page.locator('#med-modal-save-btn').click();
+      await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 15_000 });
+      r.savedWhileLoading = (await page.evaluate(() => window.apiCall('/api/medications'))).some((m) => m.name === 'QA loading medication');
+      r.loadingAfterSave = await page.evaluate(() => window.apiCall('/api/medications/ema-check?name=Candecor&poll=1'));
+      if (!r.savedWhileLoading || r.loadingAfterSave.status !== 'loading' || r.assetRequests.progress !== 1) throw new Error('Save or single real asset load failed during progress');
+    } finally {
+      await page.evaluate(() => { window.__qaReleaseEma(); window.__qaRestoreFetch(); });
+    }
+    await waitForAsync('progress cache', hasCachedAsset);
+    r.progressCache = await page.evaluate(async (asset) => {
+      for (const n of await caches.keys()) {
+        if (!n.startsWith('medtracker-ema-')) continue;
+        const response = await (await caches.open(n)).match(asset);
+        if (!response) continue;
+        const hash = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+        return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+      return null;
+    }, ASSET);
+    r.progressReady = await page.evaluate(timedCheck, 'Candecor');
+    r.progressBodyComplete = r.progressCache === r.bundledAssetSha256 && r.progressReady.status === 'ready' && r.progressReady.candidates === 2
+      && r.assetResponses.some((res) => res.phase === 'progress' && new URL(res.url).origin === ctx.LOCAL_ORIGIN && res.status === 200);
+    if (!r.progressBodyComplete) throw new Error('progress load did not complete with the exact bundled register');
   });
 
   await ctx.step('first EU check on the emulator (bundled asset, parse, index, cache write)', async () => {
@@ -293,6 +394,43 @@ export default async function euRegister(ctx) {
         throw new Error(`missing dated EMA source: ${source}`);
       }
     });
+    await page.locator('#med-dosage').fill('8mg');
+    await page.locator('[data-schedule-type="as_needed"]').click();
+    await page.locator('#med-modal-save-btn').click();
+    await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 15_000 });
+    const med = (await page.evaluate(() => window.apiCall('/api/medications'))).find((m) => m.name === 'Candecor');
+    if (!med) throw new Error('Candecor was not saved');
+    r.candecorId = med.id;
+  });
+  await ctx.step('cached register offline: cold reopen keeps the chip and saved match', async () => {
+    const wifi = (await shell('settings get global wifi_on')).trim();
+    const data = (await shell('settings get global mobile_data')).trim();
+    try {
+      await shell('svc wifi disable');
+      await shell('svc data disable');
+      page = await ctx.launchLocal(undefined, { extra: false });
+      watch(page);
+      await page.waitForFunction(() => !navigator.onLine, null, { timeout: 30_000 });
+      r.offlineRadios = { wifi: (await shell('settings get global wifi_on')).trim(), data: (await shell('settings get global mobile_data')).trim() };
+      if (r.offlineRadios.wifi !== '0' || r.offlineRadios.data !== '0') throw new Error('radios not disabled');
+      await page.evaluate(() => window.switchTab('meds'));
+      await page.locator('.med-tab[data-tab="schedule"]').click();
+      const row = page.locator(`[data-med-id="${r.candecorId}"]`).first();
+      await row.waitFor({ timeout: 20_000 });
+      r.offlineRow = await row.textContent();
+      if (!r.offlineRow.includes('EU Candesartan Cilexetil')) throw new Error(`offline row lost saved EU match: ${r.offlineRow}`);
+      await row.click();
+      await chipIs('EU · Candesartan Cilexetil');
+      await page.locator('#med-eu-saved').waitFor({ timeout: 30_000 });
+      r.offlineSaved = await page.locator('#med-eu-saved').textContent();
+      if (!/Saved EU entry · Rev\.\d+, data of \d{2}\.\d{2}\.\d{4}/.test(r.offlineSaved)) throw new Error(`saved entry missing date: ${r.offlineSaved}`);
+      await ctx.stableShot('offline-saved-eu');
+      await page.evaluate(() => window.closeModal());
+    } finally {
+      await shell(`svc wifi ${wifi === '0' ? 'disable' : 'enable'}`);
+      await shell(`svc data ${data === '0' ? 'disable' : 'enable'}`);
+    }
+    await page.waitForFunction(() => navigator.onLine, null, { timeout: 30_000 });
   });
   await ctx.step('ER5/ER8 several entries: three substance cards', async () => {
     await editor('Voltaren', 'er5-several');
@@ -318,6 +456,134 @@ export default async function euRegister(ctx) {
     await ctx.stableShot('er2-choice');
     await page.locator('.mt-confirm-modal__cancel').click();
     if (r.settingsValue !== 'EU register') throw new Error(`row value: ${r.settingsValue}`);
+  });
+  await ctx.step('switch back to US: Rx path runs without fetching EU register', async () => {
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'US register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'US register');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    counting = 'us';
+    await page.evaluate(() => {
+      const original = window.offlineAwareApiCall || window.apiCallDirect;
+      window.__qaRegisterCalls = [];
+      window.offlineAwareApiCall = (...args) => { window.__qaRegisterCalls.push(String(args[0])); return original(...args); };
+    });
+    await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+    await page.locator('#med-name').fill('US test');
+    await page.locator('#med-name').dispatchEvent('change');
+    await page.waitForFunction(() => window.__qaRegisterCalls.some((u) => u.startsWith('/api/medications/rx-check?')), null, { timeout: 30_000 });
+    await ctx.shot('us-register');
+    r.usCalls = await page.evaluate(() => window.__qaRegisterCalls);
+    if (r.assetRequests.us) throw new Error('US switch fetched the EU asset');
+    await page.evaluate(() => window.closeModal());
+  });
+  counting = 'account';
+  r.observationStage = 'account-eu-check';
+  page = await ctx.step('account: claim the disposable invite', () => ctx.openClaim({ softAuthn: true }));
+  await claimAccount(ctx, page);
+  watch(page);
+  await ctx.step('account: simulated peer writes EU setting to cloud; native pull applies it without reload', async () => {
+    await page.evaluate(() => window.switchTab('settings'));
+    await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
+    // Write an explicit US record even on a new account (selecting the default is a no-op).
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'EU register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register');
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'US register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'US register');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    await page.evaluate(async () => {
+      const s = await import('/js/sync.js');
+      if (!await s.flushConfirmed(window.MedTrackerCloud.ctx)) throw new Error('initial settings did not sync');
+    });
+    // Mirror the encrypted sync op contract in cloud/js/sync.js (flushPendingUnlocked)
+    // and docs/cloud-crypto.md; the server assigns the next sequence to this peer op.
+    r.peerWrite = await page.evaluate(async () => {
+      const sync = await import('/js/sync.js');
+      const crypto = await import('/js/crypto.js');
+      const ctx = window.MedTrackerCloud.ctx;
+      const port = sync.recordsPort(ctx);
+      const current = (await port.list('settings')).find((x) => x.recordId === 'settings');
+      if (!current || current.med_register !== 'us') throw new Error('US setting not established');
+      const { seq, pending } = await port.horizonBasis();
+      if (pending || !Number.isInteger(seq)) throw new Error('peer fixture requires a synced cursor');
+      const rawFetch = window.fetch.bind(window);
+      // Suppress this device's automatic SSE-driven pull until after the peer write;
+      // a failure response leaves no blocked request that could race the gesture.
+      window.__qaBlockPeerPull = true;
+      window.__qaNativePullsBlocked = 0;
+      window.__qaNativePullsAllowed = 0;
+      window.__qaSameDocument = 'account-peer-before-pull';
+      window.fetch = (...args) => {
+        if (String(args[0]).startsWith('/api/sync/ops?')) {
+          if (window.__qaBlockPeerPull) {
+            window.__qaNativePullsBlocked++;
+            return Promise.resolve(new Response('', { status: 503 }));
+          }
+          window.__qaNativePullsAllowed++;
+        }
+        return rawFetch(...args);
+      };
+      const { recordType, ...body } = current;
+      const next = { ...body, med_register: 'eu', clientTs: Math.max(Date.now(), body.clientTs + 1) };
+      const enc = await crypto.encryptRecord({ kData: ctx.kData, accountId: ctx.accountId,
+        recordType: 'settings', recordId: 'settings', seq: seq + 1,
+        plaintext: new TextEncoder().encode(JSON.stringify(next)) });
+      const response = await rawFetch('/api/sync/ops', { method: 'POST', headers: sync.WRITE_HEADERS,
+        body: JSON.stringify({ ops: [{ record_type_tag: 'settings:settings', nonce: crypto.toBase64(enc.nonce), ct: crypto.toBase64(enc.ct) }] }) });
+      if (!response.ok) throw new Error(`peer op HTTP ${response.status}`);
+      const result = await response.json();
+      if (result.assigned?.[0] !== seq + 1) throw new Error('peer sequence raced another writer');
+      return { predictedSeq: seq + 1, assigned: result.assigned[0] };
+    });
+    await sleep(2000);
+    r.beforePull = await page.evaluate(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register);
+    if (r.beforePull !== 'us') throw new Error('peer setting applied before the native pull');
+    await page.evaluate(() => window.switchTab('today'));
+    await page.locator('#today-view').waitFor({ state: 'visible', timeout: 15_000 });
+    await sleep(1500); // switching sections may restore its prior scroll after switchTab returns
+    await page.evaluate(() => { window.scrollTo(0, 0); window.__qaPullSeen = false; window.__qaTouch = {}; for (const t of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) document.addEventListener(t, () => { window.__qaTouch[t] = (window.__qaTouch[t] || 0) + 1; }, { passive: true, capture: true }); new MutationObserver(() => { if (document.querySelector('.wg-ptr--busy')) window.__qaPullSeen = true; }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] }); });
+    await page.waitForFunction(() => window.scrollY === 0, null, { timeout: 10_000 });
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
+    const { bounds } = await ctx.device.info({ clazz: 'android.webkit.WebView' });
+    const x = Math.round(bounds.x + bounds.width / 2);
+    const y = Math.round(bounds.y + bounds.height * 0.3);
+    await shell(`input motionevent DOWN ${x} ${y}`);
+    for (let i = 1; i <= 10; i++) await shell(`input motionevent MOVE ${x} ${y + i * 50}`);
+    await page.evaluate(() => { window.__qaBlockPeerPull = false; });
+    if (await page.evaluate(() => window.__qaNativePullsAllowed) !== 0) throw new Error('peer pull raced the release gesture');
+    await shell(`input motionevent UP ${x} ${y + 500}`);
+    await page.waitForFunction(() => window.__qaPullSeen, null, { timeout: 20_000 }).catch(async () => { throw new Error(`native pull not seen: ${JSON.stringify(await page.evaluate(() => ({ scrollY, touch: window.__qaTouch, pill: document.querySelector('.wg-ptr')?.textContent, blocked: window.__qaNativePullsBlocked, allowed: window.__qaNativePullsAllowed })))}`); });
+    await waitForAsync('pulled EU setting', () => page.evaluate(async () => (await (await import('/js/sync.js')).recordsPort(window.MedTrackerCloud.ctx).list('settings')).find((x) => x.recordId === 'settings')?.med_register === 'eu'), 30_000);
+    await page.evaluate(() => window.switchTab('settings'));
+    await page.waitForFunction(() => window.SettingsView.openSettingsPage('features'), null, { timeout: 15_000 });
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register', null, { timeout: 15_000 });
+    await ctx.stableShot('account-pulled-eu');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+    await page.locator('#med-name').fill('Candecor');
+    await page.locator('#med-name').dispatchEvent('change');
+    await chipIs('EU · Candesartan Cilexetil');
+    await waitForAsync('account cache', hasCachedAsset);
+    r.accountCache = await page.evaluate(async (asset) => {
+      for (const n of await caches.keys()) {
+        if (!n.startsWith('medtracker-ema-')) continue;
+        const response = await (await caches.open(n)).match(asset);
+        if (!response) continue;
+        const hash = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+        return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+      }
+      return null;
+    }, ASSET);
+    r.accountBodyComplete = r.accountCache === r.bundledAssetSha256 && r.assetResponses.some((res) => res.phase === 'account'
+      && new URL(res.url).origin === new URL(ctx.claimUrl).origin && res.status === 200);
+    if (!r.accountBodyComplete) throw new Error('account check did not cache the exact register');
+    await page.locator('#med-dosage').focus();
+    await ctx.stableShot('account-eu-chip');
+    r.accountObservation = await page.evaluate(() => ({ sameDocument: window.__qaSameDocument, pulls: window.__qaNativePullsAllowed, blocked: window.__qaNativePullsBlocked }));
+    if (r.accountObservation.sameDocument !== 'account-peer-before-pull' || r.accountObservation.pulls !== 1) throw new Error('account did not pull exactly once in the same document');
+    r.accountPulledEU = true;
   });
   r.completedAssetCancels = r.failedAssetRequests.filter(completedCancel);
   r.failedAppRequests = failedAppRequests();
