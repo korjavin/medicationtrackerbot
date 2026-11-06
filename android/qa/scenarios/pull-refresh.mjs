@@ -6,7 +6,8 @@
 // on shows "Release to check Health Connect", then "Checking Health Connect…", and the shell logs a
 // health read. Account mode (the run's invite): Today shows "Release to sync" / "Syncing…" and the
 // page requests /api/sync/. A touchcancel or no touchmove means the WebView swallowed the gesture.
-// results.pullRefresh: per pull, the pill states seen, the touch event counts and the toasts.
+// results.pullRefresh: pull states and touch counts, plus the held workout, foreground,
+// encrypted peer, Health and post-close observations.
 import { claimAccount } from './smoke.mjs';
 import { READS } from './health-connect.mjs';
 
@@ -243,10 +244,17 @@ export default async function pullRefresh(ctx) {
     // Exercise the existing foreground listeners explicitly because native
     // Home/return visibility delivery is the separately tracked med-jyxy gap.
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-    await page.waitForFunction(async () => {
-      const rows = await window.apiCall('/api/bp?days=2');
-      return Array.isArray(rows) && rows.some((x) => x.systolic === 168 && x.diastolic === 97) && rows.some((x) => x.systolic === 171 && x.diastolic === 99);
-    }, null, { timeout: 45_000 });
+    const arrivedBy = Date.now() + 45_000;
+    r.arrived = false;
+    while (Date.now() < arrivedBy) {
+      r.arrived = await page.evaluate(async () => {
+        const rows = await window.apiCall('/api/bp?days=2');
+        return Array.isArray(rows) && rows.some((x) => x.systolic === 168 && x.diastolic === 97) && rows.some((x) => x.systolic === 171 && x.diastolic === 99);
+      });
+      if (r.arrived) break;
+      await sleep(500);
+    }
+    if (!r.arrived) throw new Error('peer and Health readings did not both arrive while the session was open');
     await sleep(2000);
     r.held = await page.evaluate(() => ({ sameInput: window.__qaHeld.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), sameExercise: window.__qaHeld.exercise === document.querySelector('#workout-session-modal .wg-workouts-session-exercise'), sameBPList: window.__qaHeld.bpList === document.getElementById('bp-list').innerHTML, value: window.__qaHeld.input.value, connected: window.__qaHeld.input.isConnected, modalOpen: !window.__qaHeld.modal.classList.contains('hidden'), changes: window.__qaHeld.changes, toasts: window.__qaHeld.toasts, banners: window.__qaHeld.banners }));
     const dataNotice = r.held.toasts.find(([message]) => /new (reading|entr|data)|synced/i.test(String(message)));
