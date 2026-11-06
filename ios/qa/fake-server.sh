@@ -37,9 +37,9 @@ mint QA_OFFLINE_CLAIM_URL; hosts="$hosts $host"
 
 # :443 needs root (AccountURL.parse rejects ports). nobody./stale./down. are
 # answered before the proxy; every other host goes to cmd/cloud. -control
-# (https://qa.test:8767, same CA): the flows read what it received and stop /
+# (https://qa.test:8768, same CA): the flows read what it received and stop /
 # restart its listener (bd med-sz4k.6.1; the Simulator has no airplane mode).
-sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8767 > "$RUNNER_TEMP/tlsfront.log" 2>&1
+sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 > "$RUNNER_TEMP/tlsfront.log" 2>&1
 for _ in $(seq 1 30); do [ -s "$ca" ] && break; sleep 1; done
 [ -s "$ca" ] || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront wrote no CA"; exit 1; }
 
@@ -65,5 +65,5 @@ for h in $hosts; do
   curl -sS --fail -o /dev/null --cacert "$ca" "https://$h/unlock" \
     || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::the invite's /unlock did not load"; exit 1; }
 done
-curl -sS --fail --cacert "$ca" https://qa.test:8767/receipts | grep -q '"listening":true' \
+curl -sS --fail --cacert "$ca" https://qa.test:8768/receipts | grep -q '"listening":true' \
   || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront control did not answer"; exit 1; }

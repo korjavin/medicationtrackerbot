@@ -2,7 +2,7 @@ id: voice-trial-call
 title: Trial voice call starts, is audible, ends, and a new call starts at once
 platforms: [web, android, ios]
 preconditions:
-  - Anonymous local-mode user with trial budget left
+  - "A trial user: the phone-only app with trial time left, or an account with trial voice on (browser)"
 steps:
   - Open the voice agent and tap Call; grant the microphone
   - Hang up after the agent has spoken
@@ -10,10 +10,10 @@ steps:
 invariants:
   - Agent audio is audible within 5 s of the "listening" state
   - 'After Hang up the slot is free: a new call starts without "previous call in progress"'
-  - The trial counter decreases by the seconds actually used; a failed start is not charged
+  - The trial counter decreases by the seconds actually used; a failed start is not charged (phone-only app)
   - The call connects through the minted signed URL; opening the conversation WebSocket with the agent id alone (no signature) is refused, so only a metered start can run on the operator's ElevenLabs account
 covered_by:
-  web: manual  # n/a on web: the anonymous trial runs only in the phone shells' local mode; on a phone it needs a live ElevenLabs call (audio, signed transport, restart, metering)
+  web: manual  # the account app makes trial calls too (elevenlabs-call.js trialVoiceAvailable, docs/cloud-mode.md); audible-within-5 s, slot-free-after-hang-up and the signed-URL refusal need a live ElevenLabs call in a browser
   android: manual  # live vendor audio/audibility, signed call transport, immediate restart and actual trial metering need a device call
   ios: manual  # live vendor audio/audibility, signed call transport, immediate restart and actual trial metering need a device call
 source: [med-dngs, med-ytmf]

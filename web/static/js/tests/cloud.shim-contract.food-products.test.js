@@ -207,6 +207,31 @@ describe('cloud shim contract — food products flows (features/food/{products,d
             await window.apiCall('/api/food/log/move', 'POST', { ids, eaten_at: new Date(Date.now() - 86400000).toISOString() });
             expect(await products(window)).toEqual(before);
         });
+
+        // testscenarios food-log-edit-keeps-product, the whole sequence (inv 1–3).
+        it('after a product edit, a log edit, rename and move, logging the food again adds one use and keeps the edited values', async () => {
+            const { window } = env;
+            const log = await createLog(window, { name: 'Oat bar', eaten_at: eaten(), weight: 40, carbs: 20, protein: 4, fat: 5, calories: 143 });
+            const [product] = await products(window);
+            await window.apiCall(`/api/food/products/${product.id}`, 'PUT', { ...product, carbs_100g: 60, energy_kcal_100g: 380 });
+            const [edited] = await products(window);
+            expect(edited).toMatchObject({ usage_count: 1, carbs_100g: 60, energy_kcal_100g: 380 });
+
+            const body = { eaten_at: log.eaten_at, weight: 50, carbs: 40, protein: 9, fat: 9, calories: 280, name: 'Oat bar' };
+            await window.apiCall(`/api/food/log/${log.id}`, 'PUT', body);
+            await window.apiCall(`/api/food/log/${log.id}`, 'PUT', { ...body, name: 'Granola square' });
+            await window.apiCall('/api/food/log/move', 'POST', { ids: [log.id], eaten_at: new Date(Date.now() - 86400000).toISOString() });
+            expect(await products(window)).toEqual([edited]);
+
+            const again = await createLog(window, { name: 'Oat bar', eaten_at: eaten(), weight: 30, carbs: 10, protein: 2, fat: 2, calories: 70 });
+            expect(again.product_id).toBe(product.id);
+            const after = await products(window);
+            expect(after).toHaveLength(1);
+            expect(after[0]).toMatchObject({
+                id: product.id, usage_count: 2, carbs_100g: 60, energy_kcal_100g: 380,
+                protein_100g: edited.protein_100g, fat_100g: edited.fat_100g,
+            });
+        });
     });
 
     it('CloudFoodSearch.search: local-only finds a product created via a food log; remote merges a mocked food-DB response', async () => {        const { window } = env;
@@ -531,6 +556,25 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(fixed).toMatchObject({ name: 'toast', matched: 'new' });
         expect(fixed.product_id).toBeUndefined();
         expect((await productRows()).map((p) => p.name)).not.toContain('toast');
+    });
+
+    // testscenarios food-log-links-existing-product: use counts and earlier logs.
+    it('"2 boiled eggs" and "Yugurt" twice count as uses of Boiled egg and Yogurt; earlier logs keep their names and totals', async () => {
+        const list = async () => (await env.window.apiCall('/api/food/log?days=1')).flatMap((g) => g.logs);
+        const eggs = await viaApi('2 boiled eggs');
+        const before = (await list()).find((l) => l.id === eggs.id);
+        expect(before).toMatchObject({ name: 'Boiled egg', product_id: 'p-egg', calories: 153, weight: 100 });
+
+        await viaApi('Yugurt');
+        await viaApi('Yugurt');
+        const rows = await productRows();
+        expect(rows).toHaveLength(catalog.length);
+        expect(rows.find((p) => p.recordId === 'p-egg').usage_count).toBe(8);
+        expect(rows.find((p) => p.recordId === 'p-yogurt').usage_count).toBe(3);
+
+        const logs = await list();
+        expect(logs.find((l) => l.id === eggs.id)).toEqual(before);
+        expect(logs.filter((l) => l.product_id === 'p-yogurt').map((l) => l.name)).toEqual(['Yogurt', 'Yogurt']);
     });
 
     it('a typo match learns nothing: the next log is a typo match again (Archie 15700)', async () => {

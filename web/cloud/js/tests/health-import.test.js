@@ -376,6 +376,12 @@ describe('Apple Health import', () => {
             storage.setItem('wg.health.enabled', 'false');
         });
 
+        it('in a browser (no Health capability) mounts no Health row in Settings', () => {
+            expect(startHealthImport({}, { health: { isSupported: () => false }, storage, doc: document })).toBeNull();
+            expect(document.getElementById('health-import-row')).toBeNull();
+            expect(document.getElementById('health-import-toggle')).toBeNull();
+        });
+
         const desc = () => document.querySelector('#health-import-row .wg-setting__desc').textContent;
         const toggle = () => document.getElementById('health-import-toggle');
         const flip = async (on) => {

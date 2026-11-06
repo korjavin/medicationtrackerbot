@@ -1232,6 +1232,22 @@
             });
             if (probes.renderedValues.some(({ expected, actual }) => expected !== actual)) failed.push('rendered');
         }
+        // inView: each selector's first visible match sits wholly between the
+        // visible top and the viewport bottom, or the top of a bottom tab bar
+        // (a desktop side rail is not a floor): reachable without scrolling.
+        if (def.inView && def.inView.length) {
+            const { viewportTop, viewportBottom } = probes.focusContext;
+            const bar = firstVisible('.wg-tabbar');
+            const barTop = bar ? bar.getBoundingClientRect().top : Infinity;
+            const floor = barTop > (viewportTop + viewportBottom) / 2 ? Math.min(viewportBottom, barTop) : viewportBottom;
+            probes.inView = def.inView.map((selector) => {
+                const el = firstVisible(selector);
+                const r = el && el.getBoundingClientRect();
+                return { selector, top: r ? r.top : null, bottom: r ? r.bottom : null, floor,
+                    ok: !!r && r.top >= viewportTop - 0.5 && r.bottom <= floor + 0.5 };
+            });
+            if (probes.inView.some((v) => !v.ok)) failed.push('inView');
+        }
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister,
             flow: def.flow ? flowState(def) : undefined };
     }
@@ -1365,9 +1381,22 @@
         const width = vv ? vv.width : window.innerWidth;
         const height = vv ? vv.height : window.innerHeight;
         const x0 = Math.max(r.left, 0);
-        const y0 = Math.max(r.top, top);
+        let y0 = Math.max(r.top, top);
         const x1 = Math.min(r.right, width);
-        const y1 = Math.min(r.bottom, top + height);
+        let y1 = Math.min(r.bottom, top + height);
+        // Fixed/sticky bars (tab bar, app bar, subnav, banners) paint over the
+        // element; sample only what they leave uncovered (bd med-2sh9).
+        for (const bar of document.querySelectorAll('.wg-tabbar, .wg-appbar, .wg-subnav, .wg-banners')) {
+            if (!/fixed|sticky/.test(getComputedStyle(bar).position)) continue;
+            const b = bar.getBoundingClientRect();
+            if (b.right <= x0 || b.left >= x1 || b.bottom <= y0 || b.top >= y1) continue;
+            // Only a bar that actually paints on top there: a sheet above the
+            // tab bar leaves its content visible.
+            const hit = document.elementFromPoint((Math.max(x0, b.left) + Math.min(x1, b.right)) / 2, (Math.max(y0, b.top) + Math.min(y1, b.bottom)) / 2);
+            if (!hit || !bar.contains(hit)) continue;
+            if (b.top + b.bottom < y0 + y1) y0 = Math.max(y0, b.bottom);
+            else y1 = Math.min(y1, b.top);
+        }
         if (x1 - x0 < 4 || y1 - y0 < 4) return null;
         const s = (vv && vv.scale) || 1;
         const round = (n) => Math.round(n * s);

@@ -295,11 +295,11 @@ enum QA {
 
     // MARK: The fake server's control (ios/qa/fake-server.sh, tlsfront -control)
 
-    /// One call to tlsfront's control on the runner (https://qa.test:8767,
+    /// One call to tlsfront's control on the runner (https://qa.test:8768,
     /// the same CA the Simulator trusts): GET /receipts, POST /stop, POST
     /// /start. Returns {listening, receipts: [{at, host, method, path, status}]}.
     static func fakeServer(_ method: String = "GET", _ path: String = "/receipts") throws -> [String: Any] {
-        var req = URLRequest(url: URL(string: "https://qa.test:8767\(path)")!, timeoutInterval: 15)
+        var req = URLRequest(url: URL(string: "https://qa.test:8768\(path)")!, timeoutInterval: 15)
         req.httpMethod = method
         let done = DispatchSemaphore(value: 0)
         var result: Result<Data, Error> = .failure(URLError(.timedOut))

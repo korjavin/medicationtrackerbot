@@ -21,7 +21,7 @@ invariants:
   - Renaming a matched item in review drops the Mine tag and the link; it reconciles by the new name
   - An item with questionable macros shows one quiet hint line in the review; Log stays enabled
 covered_by:
-  web: web/static/js/tests/cloud.shim-contract.food-ai.test.js
-  android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-ai.test.js and web/static/js/tests/food.ai-mode.test.js (stubbed-provider reconciliation/review); no native photo flow, Telegram duplicate delivery or two-device convergence assertions
-  ios: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-ai.test.js and web/static/js/tests/food.ai-mode.test.js (stubbed-provider reconciliation/review); missing, owned by med-sz4k.8: a Telegram /food delivered twice and two-device convergence; the native photo path is epic residue (no camera on the Simulator)
+  web: web/static/js/tests/cloud.shim-contract.food-ai.test.js  # Telegram /food twice and two devices: web/cloud/js/tests/inbox-apply.test.js#inbox-apply.js — a Telegram data command
+  android: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-ai.test.js (stubbed-provider reconciliation/review: web/static/js/tests/food.ai-mode.test.js); the native photo path is residue (no camera on the emulator); the Telegram /food twice and two-device assertions (web/cloud/js/tests/inbox-apply.test.js#inbox-apply.js — a Telegram data command) are tracked by med-sz4k.8
+  ios: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-ai.test.js and web/static/js/tests/food.ai-mode.test.js (stubbed-provider reconciliation/review), web/cloud/js/tests/inbox-apply.test.js#inbox-apply.js — a Telegram data command (a /food delivered twice keeps one log and one product; two devices draining it converge on one product); the native photo path is epic residue (no camera on the Simulator)
 source: [med-5jq.4, med-5jq.9]

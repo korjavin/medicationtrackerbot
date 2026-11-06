@@ -245,8 +245,8 @@ the web's offer (*Turn on sync* / *Sign in with …*) → `local.leave {url}` �
 the claim page's "Not your account?" → `account.leave` → local mode on "Have
 an invite?" (shot `ceremony-exit-landing`), and a relaunch stays local.
 fake-server.sh also mints a second invite (`QA_OFFLINE_CLAIM_URL`) and starts
-tlsfront with `-control 127.0.0.1:8767`: from the Simulator,
-`https://qa.test:8767` (same CA) answers `GET /receipts` (every request it
+tlsfront with `-control 127.0.0.1:8768`: from the Simulator,
+`https://qa.test:8768` (same CA) answers `GET /receipts` (every request it
 received, host/method/path/status), `POST /stop` (close the listener and its
 connections) and `POST /start` (`QA.fakeServer` / `QA.receipts`). The `qa` job runs every
 `MedTrackerUITests` class but `VisualQATests`, so a flow class in its own file

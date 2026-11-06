@@ -7,8 +7,14 @@
 // authenticator → the account picks the stash up by itself (no Backup & import): "Sync is on · N
 // records are on your account", the seeded records, the stash gone → Switch account → local mode
 // (F1, bd med-ta2n.12) → the local records are all still there. results.localToCloudSeamless has the
-// counts. Claims the run's one invite: not in `all` (smoke claims it there), no retry.
+// counts. Before the move, choose EU register locally. A runner-only TLS fault blocks account
+// bootstrap reads: "Records not moved yet" appears and the identical stash remains. Release the
+// fault and reopen: pickup succeeds, EU remains selected, and the first medication save generates
+// no RxNav/name egress. Switch account proves the local copy remains. Revisit the populated account
+// by address: Cancel retains its data and stash, Replace requires typed REPLACE (then Cancel), and
+// Merge completes on a retry. Claims the run's one invite: not in `all`, no retry.
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claimAccount, waitForVault } from './smoke.mjs';
@@ -22,6 +28,23 @@ const WAIT = 240_000; // claim + import + snapshot upload + reload on the softwa
 
 const lost = (from, to) => GATED.filter((k) => !(to[k] >= from[k]));
 const diff = (a, b) => Object.fromEntries(Object.keys({ ...a, ...b }).filter((k) => a[k] !== b[k]).map((k) => [k, [a[k], b[k]]]));
+const dataHash = async (page) => createHash('sha256').update(await page.evaluate(async () => {
+  const data = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: true })).data;
+  // Local export synthesizes backupAt from its current clock; retain the
+  // protection nudge data and omit only that volatile, non-written field.
+  if (data.protection) delete data.protection.last_backup_at;
+  return JSON.stringify(data);
+})).digest('hex');
+const faultControl = async (path, body) => {
+  if (!process.env.QA_MOVE_FAULT) throw new Error('QA_MOVE_FAULT unset');
+  const res = await fetch(`http://127.0.0.1:8767${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`move fixture ${path}: ${res.status}`);
+  return res.json();
+};
 
 export default async function localToCloudSeamless(ctx) {
   const { shell, pkg, sleep, log, LOCAL_ORIGIN } = ctx;
@@ -31,7 +54,17 @@ export default async function localToCloudSeamless(ctx) {
   await shell(`pm clear ${pkg}`); // the golden vault exactly
 
   let page = await ctx.step('local mode, seeded with the golden vault', () => ctx.launchLocal('today', { softAuthn: true }));
+  await ctx.step('choose EU register in local Settings', async () => {
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await page.locator('[data-settings-open="features"]:visible').click();
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'EU register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register');
+    await page.waitForFunction(async () => JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false })).data.settings.med_register === 'eu', null, { timeout: 30_000 });
+    await ctx.stableShot('local-eu-register');
+  });
   r.local = await vaultCounts(page);
+  r.localDataBeforeHash = await dataHash(page);
   await ctx.stableShot('local-today');
 
   // 1. The invite reaches the open local page (warm delivery, contract med-ta2n.7 §6): the shell
@@ -70,7 +103,9 @@ export default async function localToCloudSeamless(ctx) {
 
   await ctx.step('the stash is plain vault v1 JSON (fixture shape, counts = store)', async () => {
     if ((await stashFiles()) !== 'vault.json') throw new Error(`stash files: ${await stashFiles()}`);
-    const vault = JSON.parse(await shell(`run-as ${pkg} cat no_backup/move/vault.json`));
+    const stash = await shell(`run-as ${pkg} cat no_backup/move/vault.json`);
+    r.stashHash = createHash('sha256').update(stash).digest('hex');
+    const vault = JSON.parse(stash);
     const fixture = JSON.parse(readFileSync(join(here, '../../../tests/fixtures/vault-v1.json'), 'utf8'));
     if (vault.format !== fixture.format || vault.version !== fixture.version) throw new Error(`format ${vault.format} v${vault.version}`);
     // protection: the move stash carries none by design (local-policy.js moveToCloud), so the
@@ -95,7 +130,41 @@ export default async function localToCloudSeamless(ctx) {
     seen(title.filter({ hasText: /^Records not moved/ }), 'not-moved'),
   ]);
   const confirm = seen(title.filter({ hasText: 'Replace all your data?' }), 'confirm');
-  await claimAccount(ctx, page);
+  await faultControl('/arm', { host: claim.host });
+  try {
+    await claimAccount(ctx, page);
+    await ctx.step('failed bootstrap shows import error and retains the move stash', async () => {
+      const dialog = page.locator('.mt-confirm-modal').filter({ has: title.filter({ hasText: 'Records not moved yet' }) });
+      const uncertain = page.locator('.mt-confirm-modal').filter({ has: title.filter({ hasText: 'Records already in your account' }) });
+      // A failed pull makes hasUserContent unknown, so the restore UI fails
+      // closed and may ask for a choice even on this empty account.
+      const first = await Promise.race([
+        dialog.waitFor({ state: 'visible', timeout: WAIT }).then(() => 'error', () => null),
+        uncertain.waitFor({ state: 'visible', timeout: WAIT }).then(() => 'choice', () => null),
+      ]);
+      if (first === 'choice') {
+        await uncertain.locator('.mt-confirm-modal__choice').filter({ hasText: 'Merge' }).click();
+        await uncertain.locator('.mt-confirm-modal__confirm').click();
+      }
+      await dialog.waitFor({ state: 'visible', timeout: WAIT });
+      r.importError = await dialog.locator('.mt-confirm-modal__message').textContent();
+      if (!/Sync not ready/.test(r.importError) || !/stay on this/.test(r.importError)) throw new Error(`unexpected import error: ${r.importError}`);
+      r.bootstrapFault = await faultControl('/status');
+      if (!r.bootstrapFault.armed || r.bootstrapFault.hits < 1) throw new Error(`bootstrap fault not exercised: ${JSON.stringify(r.bootstrapFault)}`);
+      if ((await stashFiles()) !== 'vault.json') throw new Error('failed import lost the move stash');
+      const retained = await shell(`run-as ${pkg} cat no_backup/move/vault.json`);
+      r.retainedStashHash = createHash('sha256').update(retained).digest('hex');
+      if (r.retainedStashHash !== r.stashHash) throw new Error('failed import changed the move stash');
+      await ctx.stableShot('move-bootstrap-error');
+      await dialog.locator('.mt-confirm-modal__cancel').click();
+    });
+  } finally {
+    r.faultReleased = await faultControl('/release', {});
+    if (r.faultReleased.armed) throw new Error('bootstrap fault remained armed');
+  }
+  await ctx.step('reopen with the network restored to retry the retained move', async () => {
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+  });
   r.accountHost = new URL(page.url()).host;
 
   await ctx.step('the account picks the records up by itself: the toast, no Backup & import', async () => {
@@ -119,6 +188,10 @@ export default async function localToCloudSeamless(ctx) {
     const off = lost(r.local, r.account);
     if (off.length) throw new Error(`account lost records: ${off.map((k) => `${k} ${r.account[k]}≠${r.local[k]}`).join(', ')}`);
     await page.evaluate(() => window.switchTab('meds'));
+    // The moved schedule can trigger the real notification offer on the
+    // account. Dismiss it through its own UI before touching the schedule.
+    const offer = page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+    if (await offer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false)) await offer.click();
     await page.locator('.med-tab[data-tab="schedule"]').click();
     await page.locator('#med-list > *').first().waitFor({ timeout: 15_000 });
     await ctx.stableShot('account-meds');
@@ -127,20 +200,121 @@ export default async function localToCloudSeamless(ctx) {
     await ctx.stableShot('account-today');
   });
 
+  await ctx.step('the moved EU choice survives and the first medication save sends no name to RxNav', async () => {
+    if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
+    const receipts = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+    const offer = page.locator('#notify-permission-sheet [data-notify-choice="not-now"]');
+    if (await offer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false)) await offer.click();
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await page.locator('[data-settings-open="features"]:visible').click();
+    r.movedRegister = (await page.locator('#med-register-value').textContent()).trim();
+    if (r.movedRegister !== 'EU register') throw new Error(`moved register: ${r.movedRegister}`);
+    await ctx.stableShot('account-eu-register');
+    await page.locator('.wg-page[aria-label="Features"] .wg-pagebar .wg-back').click();
+    const before = receipts().length;
+    const network = [];
+    page.on('request', (q) => {
+      let payload = `${q.url()}\n${q.postData() || ''}`;
+      try { payload = decodeURIComponent(payload); } catch { /* inspect raw */ }
+      if (/rxnav\.nlm\.nih\.gov|\/api\/rxnav\/|candecor/i.test(payload)) network.push({ method: q.method(), url: q.url() });
+    });
+    await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+    await page.locator('#med-modal').waitFor({ state: 'visible' });
+    await page.fill('#med-name', 'Candecor');
+    await page.locator('#med-name').dispatchEvent('change');
+    await page.waitForFunction(() => document.getElementById('med-eu-chip')?.textContent.trim() === 'EU · Candesartan Cilexetil', null, { timeout: 60_000 });
+    await page.fill('#med-dosage', '5mg');
+    await page.locator('[data-schedule-type="daily"]').click();
+    await page.locator('.med-time-input').first().fill('09:00');
+    await page.locator('#med-modal-save-btn').click();
+    await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 30_000 });
+    const meds = await page.evaluate(() => window.apiCall('/api/medications'));
+    if (!meds.some((m) => m.name === 'Candecor')) throw new Error('first medication was not saved');
+    await sleep(3000);
+    r.registerEgress = { network, rxNavReceipts: receipts().slice(before).filter((x) => /rxnav/i.test(x.path)) };
+    if (network.length || r.registerEgress.rxNavReceipts.length) throw new Error(`EU egress: ${JSON.stringify(r.registerEgress)}`);
+    await ctx.stableShot('account-first-eu-medication');
+  });
+
   // 4. Back to local mode: the move erased nothing there.
   await ctx.step('Switch account → local mode (F1) → local records intact', async () => {
-    page = await ctx.launch(); // bd med-ta2n.12: Switch account lands in local mode with F1 open
+    page = await ctx.launch({ softAuthn: true }); // Switch account lands in local mode with F1 open
     await ctx.shot('switch-f1');
     await page.locator('[data-invite-action="not-now"]').click();
     await page.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 });
     await page.evaluate(() => window.MedTrackerCloudReady);
     r.localAfter = await vaultCounts(page);
     r.localAfterDiff = diff(r.local, r.localAfter);
+    r.localDataAfterHash = await dataHash(page);
+    if (r.localDataBeforeHash !== r.localDataAfterHash) throw new Error('local vault data changed during the move');
     const off = lost(r.local, r.localAfter);
     if (off.length) throw new Error(`local lost records: ${off.map((k) => `${k} ${r.localAfter[k]}≠${r.local[k]}`).join(', ')}`);
     await page.evaluate(() => window.switchTab('today'));
     await page.locator('#today-content > *').first().waitFor({ timeout: 20_000 });
     await ctx.stableShot('local-again');
+  });
+
+  // The first move populated this real account; revisit it by address with the
+  // original passkey rather than attempting to claim the spent invite again.
+  await ctx.step('move to the populated account and cancel without changing its records', async () => {
+    page = await ctx.launch({ softAuthn: true }); // reopen F1 after inspecting the local copy
+    await ctx.openLink(`https://${r.accountHost}/`, { move: true });
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no account WebView after returning to account');
+    await page.waitForURL((u) => u.host === r.accountHost, { timeout: 60_000 });
+    await page.waitForFunction(() => document.querySelector('#unlock-button') || window.MedTrackerCloudReady, null, { timeout: 60_000 });
+    const unlock = page.locator('#unlock-button');
+    if (await unlock.isVisible().catch(() => false)) await unlock.click();
+    const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
+    await choice.waitFor({ state: 'visible', timeout: WAIT });
+    for (const label of ['Merge', 'Replace']) {
+      if (!(await choice.locator('.mt-confirm-modal__choice').filter({ hasText: label }).count())) throw new Error(`missing ${label} choice`);
+    }
+    r.receiverBefore = await vaultCounts(page);
+    r.receiverBeforeHash = await dataHash(page);
+    await ctx.stableShot('populated-account-choice');
+    await choice.locator('.mt-confirm-modal__cancel').click();
+    await choice.waitFor({ state: 'hidden' });
+    r.receiverAfterCancel = await vaultCounts(page);
+    if (Object.keys(diff(r.receiverBefore, r.receiverAfterCancel)).length) throw new Error('cancel changed account counts');
+    if (await dataHash(page) !== r.receiverBeforeHash) throw new Error('cancel changed account data');
+    if ((await stashFiles()) !== 'vault.json') throw new Error('cancel lost the move stash');
+  });
+
+  await ctx.step('Replace requires typed confirmation; cancelling keeps the account', async () => {
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+    const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
+    await choice.waitFor({ state: 'visible', timeout: WAIT });
+    await choice.locator('.mt-confirm-modal__choice').filter({ hasText: 'Replace' }).click();
+    await choice.locator('.mt-confirm-modal__confirm').click();
+    const confirm = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Replace the records in your account?' }) });
+    await confirm.waitFor({ state: 'visible', timeout: 10_000 });
+    const button = confirm.locator('.mt-confirm-modal__confirm');
+    const input = confirm.locator('.mt-confirm-modal__input');
+    if (await button.isEnabled()) throw new Error('Replace enabled before typing');
+    await input.fill('REPLAC');
+    if (await button.isEnabled()) throw new Error('Replace accepted incorrect phrase');
+    await input.fill('REPLACE');
+    if (!(await button.isEnabled())) throw new Error('Replace did not accept REPLACE');
+    await ctx.stableShot('replace-typed');
+    await confirm.locator('.mt-confirm-modal__cancel').click();
+    if (Object.keys(diff(r.receiverBefore, await vaultCounts(page))).length) throw new Error('cancelled Replace changed account counts');
+    if (await dataHash(page) !== r.receiverBeforeHash) throw new Error('cancelled Replace changed account data');
+    if ((await stashFiles()) !== 'vault.json') throw new Error('cancelled Replace lost the move stash');
+  });
+
+  await ctx.step('retry the retained move using Merge', async () => {
+    await page.reload({ waitUntil: 'load', timeout: 60_000 });
+    const choice = page.locator('.mt-confirm-modal').filter({ has: page.locator('.mt-confirm-modal__title').filter({ hasText: 'Records already in your account' }) });
+    await choice.waitFor({ state: 'visible', timeout: WAIT });
+    await choice.locator('.mt-confirm-modal__choice').filter({ hasText: 'Merge' }).click();
+    await choice.locator('.mt-confirm-modal__confirm').click();
+    await page.getByText(TOAST).waitFor({ state: 'visible', timeout: WAIT });
+    await waitForVault(page);
+    r.merged = await vaultCounts(page);
+    if (lost(r.receiverBefore, r.merged).length || lost(r.local, r.merged).length) throw new Error('Merge lost account or local records');
+    if ((await stashFiles()) !== '') throw new Error('successful Merge left the move stash');
+    await ctx.stableShot('populated-account-merged');
   });
   log('localToCloudSeamless', JSON.stringify(r, null, 2));
 }

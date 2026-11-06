@@ -6,9 +6,10 @@ these files is out of scope: the YAML is documentation, not a test input.
 
 ## Layout
 
-`testscenarios/<folder>/<id>.yaml`. `<folder>` is `common` when `platforms` lists all three
-(web, android, ios); otherwise the single platform's name. `id` equals the file name, is
-kebab-case, and is unique across all folders.
+`testscenarios/<folder>/<id>.yaml`. `<folder>` is `common` when `platforms` lists more than
+one platform; otherwise the single platform's name. A two-platform file in `common/` simply has
+no line for the third platform and drops out of that platform's release check. `id` equals the
+file name, is kebab-case, and is unique across all folders.
 
 ## Format
 

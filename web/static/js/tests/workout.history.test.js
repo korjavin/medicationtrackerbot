@@ -509,4 +509,34 @@ describe('listSessions pr_count (cloud shim)', () => {
             env.cleanup();
         }
     });
+
+    // testscenarios workout-timeline-pr-chip: the rendered Timeline row.
+    it('the Timeline row shows "1 PR" for that session, and a session with no record shows no chip', async () => {
+        const env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true, withWorkout: true });
+        try {
+            const { window, document } = env;
+            const logSession = async (sets) => {
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                for (const [kg, id, name] of sets) {
+                    await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                        session_id: session.id, exercise_id: id, exercise_name: name,
+                        source: 'library', status: 'completed', sets: [{ weight_kg: kg, reps: 8 }],
+                    });
+                }
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                return session.id;
+            };
+            const prId = await logSession([[40, 998, 'Bench Press'], [45, 999, 'bench press']]);
+            const plainId = await logSession([[40, 998, 'Bench Press']]);
+
+            const container = document.getElementById('workout-history-display');
+            window._renderWorkoutHistory(container, await window.apiCallDirect('/api/workout/sessions'), [], 'UTC');
+            const row = (id) => container.querySelector(`.wg-workouts-history-row[data-session-id="${id}"]`);
+            expect(row(prId).querySelector('.wg-workouts-history-row__pr').textContent).toBe('1 PR');
+            expect(row(plainId)).not.toBeNull();
+            expect(row(plainId).querySelector('.wg-workouts-history-row__pr')).toBeNull();
+        } finally {
+            env.cleanup();
+        }
+    });
 });
