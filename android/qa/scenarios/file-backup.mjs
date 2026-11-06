@@ -160,17 +160,17 @@ export default async function fileBackup(ctx) {
       await ctx.shot('restored-today');
     });
     await ctx.step('real picker corrupt file → refusal → receiver unchanged after reload', async () => {
-      // Public synthetic invalid gzip, put in Downloads for the REAL chooser.
-      await shell(`sh -c 'echo B3-invalid-gzip > /sdcard/Download/${corruptName}'`);
+      // Public synthetic truncated gzip header (1f 8b 08), REAL chooser input.
+      await shell(`sh -c 'echo H4sI | base64 -d > /sdcard/Download/${corruptName}'`);
       const before = await snapshot(page);
       await pick(corruptName);
       await page.click('#importexport-import-btn');
-      await page.locator('.mt-confirm-modal__confirm').waitFor({ state: 'visible', timeout: 20_000 });
-      const message = await page.locator('.mt-confirm-modal').innerText();
-      if (!/failed|invalid|corrupt|could not|couldn.t|not a|error/i.test(message) || await page.locator('.mt-confirm-modal__input').count()) throw new Error('corrupt document did not show refusal');
+      const refusal = page.locator('.wg-toast--danger[role="alert"]').filter({ hasText: 'Could not read backup' });
+      await refusal.waitFor({ state: 'visible', timeout: 20_000 });
+      const message = await refusal.innerText();
+      if (await page.locator('.mt-confirm-modal__input').count()) throw new Error('corrupt gzip reached destructive confirmation');
       r.corruptRefusal = message;
       await ctx.shot('corrupt-refused');
-      await page.click('.mt-confirm-modal__confirm');
       equal(await snapshot(page), before, 'corrupt refusal');
       await page.reload({ waitUntil: 'load' });
       await ctx.waitLocalReady(page);

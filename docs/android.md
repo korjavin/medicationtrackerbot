@@ -731,6 +731,7 @@ stays the acceptance device.
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 # Also: core-local (in all); offline-account, degraded-boot, update-banner (standalone, one invite, no retry).
+# B3: file-backup (invite-free, in all); local-lock and health-connect (standalone).
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -740,6 +741,44 @@ Android keyboard/Back interactions. It adds a daily medication, takes it on Toda
 immediate Next up removal and Timeline's Taken time after reload; saves a known-calorie meal and
 checks Food and Today totals; and edits 08:00/20:00 to 09:00/21:00 at 10:00, checking both taken
 and untaken morning branches. The existing QA clock establishes the medication before 08:00.
+
+`file-backup` seeds the complete golden fixture once, waits for its conversion, then navigates
+to a plain local document before its baseline, export, erase and reloads. Leaving `?qa=` active
+would reseed an empty store and invalidate the erase check. Settings exports with an empty
+passphrase and the committed synthetic integration/token placeholders included; none of their
+contents are logged. The actual DocumentsUI Save must produce a Downloads document whose bytes
+are independently read, SHA-256 checked against the temporary export, decompressed and compared
+to the complete canonical baseline. Temporary cache bytes alone never prove Save succeeded.
+Settings' typed ERASE must leave empty collections and discard customized settings. A receiver-only
+sentinel then makes replacement observable: the **same saved file** is chosen through the native
+picker, the typed REPLACE confirmation offers no Merge, and all supported content/settings/timezone
+must return after reload with the sentinel gone. A corrupt document picked through the same native
+chooser must be refused without changing the receiver, including after reload. There is no injected
+File/DataTransfer fallback. Comparisons exclude only the per-export `exported_at` envelope and
+`protection.last_backup_at` stamp; every supported data field and identity is compared. Legacy
+`vitals.stress` is ignored by the vault codec; its supported passthrough blocks remain compared.
+This tests a backup file, whose documented product contract is Replace-only (catalogue ruling17664/17666).
+
+`local-lock` requires a disposable emulator with no secure device credential. It sets PIN1234,
+checks the native `lock.status.available`, enables App lock through Settings' real credential
+check, then tests Home/return, native N3 concealment, cancellation without a prompt loop, explicit
+Unlock retry, a wrong PIN, and a correct PIN with medication records intact. Its `finally` clears
+the PIN even if an earlier UI step fails, switches the app lock off through the real control,
+and verifies the native credential is unavailable, no enabled lock preference remains, the app
+is foreground and the unchanged radio state matches the start. Cleanup failure fails the scenario.
+It stays dispatch-only until cleanup has been demonstrated on the runner image.
+
+`health-connect` extends its existing SDK fixture with WeightRecord and a completed SleepSessionRecord
+ending more than three hours before import. READ/WRITE grants come from the provider diagnostic,
+not just `pm grant`; SDK insertion IDs and native time bracket each fixture. Import uses the
+existing explicit toggle rescan on a real-clock plain page, then matches provider UUIDs/values and
+the distinct sleep day, checks BP/weight row source labels, sleep's per-day source aggregation,
+unlabeled manual comparisons, and rescan deduplication. The accepted stand-in is **same package,
+SDK-assigned dataOrigin**, with a null clientRecordId. It cannot prove another app's actual origin,
+real-user Health data or the system permission sheet. WRITE_SLEEP is debug-only; production
+writable kinds are unchanged. The integrated .15 Copy/quota/poison/partial-grant cases remain in
+this owning suite. These explicit-rescan assertions make no native foreground-delivery claim
+about the separate non-gating med-jyxy gap.
 
 `offline-account` is dispatch-only and does not retry: it claims the run's single invite. It imports
 the populated golden vault, requires its snapshot upload to be acknowledged, warms every named
