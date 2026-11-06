@@ -36,23 +36,23 @@ final class HealthDiagnosticTests: XCTestCase {
                 // (bd med-8f4s.3: write rows).
                 let all = host.descendants(matching: .any)
                     .matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
-                if tapIfLive(all, on: host, within: screen) { break pass }
-                let off = host.switches.allElementsBoundByIndex.compactMap { live($0, within: screen) }
-                    .filter { $0.value as? String == "0" }
+                if tapIfSettled(all, within: screen) { break pass }
+                let off = host.switches.allElementsBoundByIndex
+                    .filter { live($0, within: screen)?.value as? String == "0" }
                 if !off.isEmpty {
-                    off.forEach { tap($0, on: host) }
+                    off.forEach { _ = tapIfSettled($0, within: screen) }
                     break
                 }
                 // iOS 26 confirms with "Allow"; the iOS 27 sheet with
                 // "Continue", then a data-range page whose "Allow" stays
                 // disabled until a window is picked (bd med-8f4s.18). Pick
                 // all history: full access, so readableFrom is 0.
-                if ["Allow", "Continue"].contains(where: { tapIfLive(host.buttons[$0].firstMatch, on: host, within: screen) }) {
+                if ["Allow", "Continue"].contains(where: { tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
                     break
                 }
                 let history = host.descendants(matching: .any)
                     .matching(NSPredicate(format: "label BEGINSWITH %@", "All Recorded Data")).firstMatch
-                if tapIfLive(history, on: host, within: screen) { break }
+                if tapIfSettled(history, within: screen) { break }
                 acted = false
             }
             // Nothing to tap: the iOS 27 write+read sheet keeps its toggles
@@ -79,25 +79,28 @@ final class HealthDiagnosticTests: XCTestCase {
     }
 
     // The sheet's controls vanish when it advances or dismisses, so an
-    // exists-then-isEnabled/isHittable/tap sequence can race it and XCTest
-    // records "Failed to get matching snapshot" (bd med-8f4s.18, run
-    // 42152753328: "Allow"). Resolve once with the throwing snapshot() and
-    // tap that frame: a vanished control is just skipped this pass; whether
-    // the sheet was answered is still decided by the app's report below.
+    // exists-then-isEnabled/isHittable sequence can race it and XCTest records
+    // "Failed to get matching snapshot" (bd med-8f4s.18, run 42152753328:
+    // "Allow"). Read state from one throwing snapshot() instead; a vanished
+    // control is just skipped this pass, and whether the sheet was answered is
+    // still decided by the app's report above.
     private static func live(_ element: XCUIElement, within screen: CGRect) -> XCUIElementSnapshot? {
         guard let snap = try? element.snapshot(), snap.isEnabled, !snap.frame.isEmpty,
               screen.contains(CGPoint(x: snap.frame.midX, y: snap.frame.midY)) else { return nil }
         return snap
     }
 
-    private static func tap(_ snap: XCUIElementSnapshot, on host: XCUIApplication) {
-        host.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: snap.frame.midX, dy: snap.frame.midY)).tap()
-    }
-
-    private static func tapIfLive(_ element: XCUIElement, on host: XCUIApplication, within screen: CGRect) -> Bool {
-        guard let snap = live(element, within: screen) else { return false }
-        tap(snap, on: host)
+    // Tap through the element, not a coordinate built from the snapshot frame:
+    // that tap landed off the control in the hosted Health sheet (qa run
+    // 42162700133: 120s on an untouched first page, "Select All" never
+    // applied), while element.tap() resolves XCTest's own hit point (qa run
+    // 42152745433 passed). Tap only once two snapshots 0.3s apart agree, so a
+    // control mid-transition is skipped instead of vanishing under the tap.
+    private static func tapIfSettled(_ element: XCUIElement, within screen: CGRect) -> Bool {
+        guard let first = live(element, within: screen) else { return false }
+        Thread.sleep(forTimeInterval: 0.3)
+        guard let settled = live(element, within: screen), settled.frame == first.frame else { return false }
+        element.tap()
         return true
     }
 }
