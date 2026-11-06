@@ -759,8 +759,7 @@ describe('saved EU register match (bd med-3u28.10)', () => {
         const slot = document.getElementById('med-eu-slot');
         expect(slot.classList.contains('hidden')).toBe(false);
         expect(slot.querySelector('.wg-chip--ok').textContent).toBe('EU · Diclofenac Potassium');
-        expect(document.getElementById('med-eu-saved').textContent).toBe('EU register · saved 09.10.2026');
-        expect(slot.querySelector('.wg-hint').textContent).toBe('EMA Article 57 list, revision 90');
+        expect(document.getElementById('med-eu-saved').textContent).toBe('Saved EU entry · Rev.90, data of 09.10.2026');
         await vi.waitFor(() => expect(document.getElementById('med-eu-retry')).not.toBeNull());
         expect(document.getElementById('med-eu-saved')).not.toBeNull();
         // A rename hides it; Save then drops it.

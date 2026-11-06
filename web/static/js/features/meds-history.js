@@ -364,21 +364,24 @@ function pickMedEu(name, substances) {
     if (_medEuLast && _medEuLast.name === name) paintMedEu(_medEuLast.res, name);
 }
 
-// The saved reference's own line (Miles 17110): "EU register · saved <date>",
-// then "EMA Article 57 list, revision <n>". Dated, never "verified".
+// The saved reference's own dated line (Iris 17542, the sheet footer's
+// wording): "Saved EU entry · Rev.90, data of 09.10.2026". Dated, never
+// "verified"; the date is the register's, the record keeps no save time.
 function medEuSavedNodes(saved, withSubstance) {
-    const date = String(saved.data_date).replace(/\//g, '.');
-    const rev = (String(saved.revision).match(/Rev\.?\s*(\d+)/i) || [])[1] || String(saved.revision).split(',').pop().trim();
-    const row = _medsEl('span', 'wg-hstack');
+    const nodes = [];
     if (withSubstance) {
         const chip = _medsEl('span', 'wg-chip wg-chip--ok');
         chip.append(_medsIcon('check'), `EU · ${medEuProducts(saved.substances)}`);
+        const row = _medsEl('span', 'wg-hstack');
         row.appendChild(chip);
+        nodes.push(row);
     }
-    const tag = _medsEl('span', 'wg-chip wg-chip--sm', `EU register · saved ${date}`);
-    tag.id = 'med-eu-saved';
-    row.appendChild(tag);
-    return [row, _medsEl('span', 'wg-hint', `EMA Article 57 list, revision ${rev}`)];
+    const rev = String(saved.revision).split(',').pop().trim();
+    const date = String(saved.data_date).replace(/\//g, '.');
+    const line = _medsEl('span', 'wg-hint', `Saved EU entry · ${rev}, data of ${date}`);
+    line.id = 'med-eu-saved';
+    nodes.push(line);
+    return nodes;
 }
 
 function paintMedEu(res, name) {
