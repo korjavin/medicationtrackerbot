@@ -1778,6 +1778,21 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
       expect(rxnav).not.toHaveBeenCalled();
     });
 
+    // testscenarios local-to-cloud: Replace carries the local EU choice over.
+    it('Replace (typed REPLACE) into an account with content: the account shows EU and its first save sends nothing', async () => {
+      let file = null;
+      const { window, log } = await boot({ content: true, choice: 'replace', stash: { vault: await localStash() }, importAll: (json) => { file = json; return { upload: 'synced' }; } });
+      await vi.waitFor(() => expect(log).toContain('move.clear'));
+      expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'choose', 'confirm', 'importAll', 'move.clear']);
+      expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ typedConfirm: 'REPLACE' });
+      expect(window.CloudVault.importAll).toHaveBeenCalledWith(file, { mode: 'replace' });
+      // Replace = the file's rows only; the account's own US settings are gone.
+      const { router, rxnav } = await accountRouter(realVault.vaultToRecords(JSON.parse(file), { now: Date.now() }));
+      expect((await router('/api/settings')).med_register).toBe('eu');
+      await router('/api/medications', 'POST', MED('Lipitor'));
+      expect(rxnav).not.toHaveBeenCalled();
+    });
+
     it('Merge into an account with its own settings keeps the account\'s choice (disclosed)', async () => {
       let file = null;
       const { log } = await boot({ content: true, choice: 'merge', stash: { vault: await localStash() }, importAll: (json) => { file = json; return { upload: 'synced' }; } });
