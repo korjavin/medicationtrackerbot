@@ -505,7 +505,16 @@ never turns it off (below).
   the ledger, counted in `failed` ("N entries couldn't be copied." on HW9/HW9b,
   never a step toward stuck), while a live-hook id is kept and retried. A
   pulse-less bp in a Copy marks no hr (no no-op remove).
-  Rows older than `readableFrom` (Android without the past-data permission:
+  The shell reports the provider's raw boundary and never pads it; the page
+  alone decides eligibility (med-8f4s.19): a row is eligible only when its
+  whole dedupe lookback is readable, `lookbackStart >= readableFrom` with
+  `lookbackStart` = measured time − 30 min (bp), − 24 h (weight), or session
+  start − 1 day (workout), the same value the dedupe read starts from. The
+  rolling bound is wall clock: a clock corrected backwards after the grant
+  widens it by the correction until the clock passes the grant time again,
+  and the cost is at most one duplicate of another app's sample per entry
+  (the own-id upsert still never makes two records with one id).
+  Rows whose lookback starts before `readableFrom` (Android without the past-data permission:
   the conservative rolling last 30 days) are not eligible and not counted; when any
   are cut, the dialog names them in a warn-icon hint line, never a red error ("N
   entries before dd.mm won't be copied: Health Connect needs access to past

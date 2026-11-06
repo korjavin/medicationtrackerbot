@@ -3031,13 +3031,43 @@ describe('Health write-back', () => {
                 await vi.waitFor(() => expect(confirm).toHaveBeenCalledWith('2 past entries from this app.', OFFER[1]));
             });
 
-            it('(g) the cut line is one warn note, "won\'t be copied": singular "check it" in the offer, plural in the nothing-in-window alert', async () => {
-                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-10-01T07:45:00Z') }));
+            it('(g) an entry is eligible only when its whole dedupe lookback is readable: bp 30 min, weight 1 day, workout span − 1 day (bd med-8f4s.19)', async () => {
+                const T = at('2026-10-10T12:00:00Z');
+                const iso = (ms) => new Date(ms).toISOString();
+                const min = 60e3;
+                await bp('bp-in10', iso(T + 10 * min), 101, 61);
+                await bp('bp-in31', iso(T + 31 * min), 102, 62);
+                await records.put('weight', { recordId: 'w-in23h', clientTs: 1, deleted: false, measured_at: iso(T + 23 * 60 * min), weight: 71 });
+                await records.put('weight', { recordId: 'w-in25h', clientTs: 1, deleted: false, measured_at: iso(T + 25 * 60 * min), weight: 72 });
+                await session('session-in23h', 401, iso(T + 23 * 60 * min), iso(T + 24 * 60 * min));
+                await session('session-in25h', 402, iso(T + 25 * 60 * min), iso(T + 26 * 60 * min));
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: T }));
                 confirm.mockResolvedValueOnce(false);
                 await open();
                 await tap();
                 await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
-                expect(confirm.mock.calls[0][1].caution).toBe("1 entry before 01.10 won't be copied: Health Connect needs access to past data to check it.");
+                // Planned: the three "after" rows; the seed (all before T) and the three "inside" rows are cut.
+                expect(confirm.mock.calls[0][0]).toBe('3 past entries from this app.');
+                expect(confirm.mock.calls[0][1].caution).toMatch(/^12 entries before 10\.10 won't be copied/);
+                // The dedupe reads start at the earliest planned lookback, never before T.
+                expect(query.mock.calls.every(([q]) => q.from >= T)).toBe(true);
+
+                // readableFrom 0: every row planned, no cut line.
+                health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: 0 });
+                await tap();
+                await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+                expect(confirm.mock.calls[1][0]).toBe('11 past entries from this app.');
+                expect(confirm.mock.calls[1][1]).not.toHaveProperty('caution');
+            });
+
+            it('(g) the cut line is one warn note, "won\'t be copied": singular "check it" in the offer, plural in the nothing-in-window alert', async () => {
+                // Only w-1's day-long lookback (from 30.09 08:00) starts before it.
+                health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: at('2026-09-30T08:30:00Z') }));
+                confirm.mockResolvedValueOnce(false);
+                await open();
+                await tap();
+                await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+                expect(confirm.mock.calls[0][1].caution).toBe("1 entry before 30.09 won't be copied: Health Connect needs access to past data to check it.");
                 expect(confirm.mock.calls[0][1]).not.toHaveProperty('facts');
 
                 health.writeAccess.mockResolvedValue({ granted: ALL, supported: ALL, readableFrom: at('2026-10-07T00:00:00Z') });

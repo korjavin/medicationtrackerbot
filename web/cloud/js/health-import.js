@@ -675,13 +675,17 @@ async function planCopy(health, records, kinds, { only = null, storage = null, r
             const keep = new Set(only[kind] || []);
             mine = mine.filter((r) => keep.has(r.recordId));
         }
+        // Where a row's dedupe read starts (bd med-8f4s.19): the row is
+        // eligible only when that whole lookback is readable, so the shell is
+        // never asked for a slice it does not serve (the boundary is raw).
+        const lookbackStart = (r) => (r.span ? r.span.start - DAY_MS : r.at - MATCH_MS[kind]);
         if (readableFrom > 0) {
             const n = mine.length;
-            mine = mine.filter((r) => (r.span ? r.span.start : r.at) >= readableFrom);
+            mine = mine.filter((r) => lookbackStart(r) >= readableFrom);
             cut += n - mine.length;
         }
         if (!mine.length) continue;
-        const starts = mine.map((r) => (r.span ? r.span.start - DAY_MS : r.at - MATCH_MS[kind])).filter(Number.isFinite);
+        const starts = mine.map(lookbackStart).filter(Number.isFinite);
         const theirs = await otherAppSamples(health, kind, starts.length ? Math.min(...starts) : 0);
         if (!theirs) {
             blocked[kind] = mine.map((r) => r.recordId);
