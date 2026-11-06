@@ -31,6 +31,14 @@ export default async function localToCloudSeamless(ctx) {
   await shell(`pm clear ${pkg}`); // the golden vault exactly
 
   let page = await ctx.step('local mode, seeded with the golden vault', () => ctx.launchLocal('today', { softAuthn: true }));
+  await ctx.step('choose EU register in local Settings', async () => {
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await page.locator('[data-settings-open="features"]:visible').click();
+    await page.locator('#med-register-choose').click();
+    await page.locator('.mt-confirm-modal__choice').filter({ hasText: 'EU register' }).click();
+    await page.waitForFunction(() => document.getElementById('med-register-value')?.textContent.trim() === 'EU register');
+    await ctx.stableShot('local-eu-register');
+  });
   r.local = await vaultCounts(page);
   await ctx.stableShot('local-today');
 
@@ -125,6 +133,38 @@ export default async function localToCloudSeamless(ctx) {
     await page.evaluate(() => window.switchTab('today'));
     await page.locator('#today-content > *').first().waitFor({ timeout: 20_000 });
     await ctx.stableShot('account-today');
+  });
+
+  await ctx.step('the moved EU choice survives and the first medication save sends no name to RxNav', async () => {
+    if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
+    const receipts = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+    await page.locator('[data-nav-to="settings"]:visible').first().click();
+    await page.locator('[data-settings-open="features"]:visible').click();
+    r.movedRegister = (await page.locator('#med-register-value').textContent()).trim();
+    if (r.movedRegister !== 'EU register') throw new Error(`moved register: ${r.movedRegister}`);
+    await ctx.stableShot('account-eu-register');
+    const before = receipts().length;
+    const network = [];
+    page.on('request', (q) => {
+      let payload = `${q.url()}\n${q.postData() || ''}`;
+      try { payload = decodeURIComponent(payload); } catch { /* inspect raw */ }
+      if (/rxnav\.nlm\.nih\.gov|\/api\/rxnav\/|candecor/i.test(payload)) network.push({ method: q.method(), url: q.url() });
+    });
+    await page.evaluate(() => { window.switchTab('meds'); window.showAddModal(); });
+    await page.locator('#med-modal').waitFor({ state: 'visible' });
+    await page.fill('#med-name', 'Candecor');
+    await page.locator('#med-name').dispatchEvent('change');
+    await page.fill('#med-dosage', '5mg');
+    await page.locator('[data-schedule-type="daily"]').click();
+    await page.locator('.med-time-input').first().fill('09:00');
+    await page.locator('#med-modal-save-btn').click();
+    await page.locator('#med-modal').waitFor({ state: 'hidden', timeout: 30_000 });
+    const meds = await page.evaluate(() => window.apiCall('/api/medications'));
+    if (!meds.some((m) => m.name === 'Candecor')) throw new Error('first medication was not saved');
+    await sleep(3000);
+    r.registerEgress = { network, rxNavReceipts: receipts().slice(before).filter((x) => /rxnav/i.test(x.path)) };
+    if (network.length || r.registerEgress.rxNavReceipts.length) throw new Error(`EU egress: ${JSON.stringify(r.registerEgress)}`);
+    await ctx.stableShot('account-first-eu-medication');
   });
 
   // 4. Back to local mode: the move erased nothing there.
