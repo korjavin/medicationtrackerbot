@@ -192,6 +192,125 @@ enum QA {
         }
     }
 
+    // MARK: Flow scenes (bd med-sz4k.6.1)
+
+    /// The ready node's report (tests/visual/driver.js publish); nil while
+    /// absent or unreadable. WebKit appends the role ("…}, application status").
+    static func report(_ app: XCUIApplication) -> [String: Any]? {
+        let node = readyNode(app)
+        guard node.exists else { return nil }
+        let raw = node.label
+        guard let end = raw.lastIndex(of: "}") else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(raw[...end].utf8))) as? [String: Any]
+    }
+
+    /// A flow scene's page state (driver.js flowState), from the report.
+    static func flow(_ app: XCUIApplication) -> [String: Any]? {
+        report(app)?["flow"] as? [String: Any]
+    }
+
+    /// Polls the flow state until `ok` holds; the last state otherwise (nil
+    /// when no report showed), so the caller's assertion names what it saw.
+    static func waitFlow(_ app: XCUIApplication, timeout: TimeInterval = 15, _ ok: ([String: Any]) -> Bool) -> (Bool, [String: Any]?) {
+        let end = Date().addingTimeInterval(timeout)
+        var last: [String: Any]?
+        repeat {
+            if let f = flow(app) {
+                last = f
+                if ok(f) { return (true, f) }
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        } while Date() < end
+        return (false, last)
+    }
+
+    /// The on-screen rect (web view points) the page reports for a named
+    /// target of the scene (driver.js flowState targets).
+    static func target(_ flow: [String: Any]?, _ name: String) -> CGRect? {
+        guard let t = (flow?["targets"] as? [String: Any])?[name] as? [String: Any],
+              let x = t["x"] as? Double, let y = t["y"] as? Double, let w = t["w"] as? Double, let h = t["h"] as? Double,
+              w > 0, h > 0 else { return nil }
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
+
+    /// A real touch on the target's centre (or `at` × its size from its
+    /// origin), through the web view's frame: WKWebView exposes no DOM ids.
+    static func coordinate(_ app: XCUIApplication, _ rect: CGRect, at unit: CGPoint = CGPoint(x: 0.5, y: 0.5)) -> XCUICoordinate {
+        let web = app.webViews.firstMatch.frame
+        return app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: web.minX + rect.minX + rect.width * unit.x, dy: web.minY + rect.minY + rect.height * unit.y))
+    }
+
+    /// Taps the named target until `done` holds, at most three taps, each only
+    /// while the target is still on the page (a tap that landed late is not
+    /// repeated on whatever replaced it; QA.tapUntil's reason, bd med-w6gx.29).
+    @discardableResult
+    static func tapTarget(_ app: XCUIApplication, _ name: String, at unit: CGPoint = CGPoint(x: 0.5, y: 0.5),
+                          timeout: TimeInterval = 10, until done: ([String: Any]) -> Bool) -> (Bool, [String: Any]?) {
+        var last: [String: Any]?
+        for _ in 0..<3 {
+            let (shown, f) = waitFlow(app, timeout: 10) { target($0, name) != nil || done($0) }
+            last = f
+            if let f, done(f) { return (true, f) }
+            guard shown, let rect = target(f, name) else { break }
+            coordinate(app, rect, at: unit).tap()
+            let (ok, after) = waitFlow(app, timeout: timeout, done)
+            last = after ?? last
+            if ok { return (true, after) }
+        }
+        return (false, last)
+    }
+
+    /// A web button by its accessible label (a tab, a segment), tapped until
+    /// the flow state says `done`, at most three taps.
+    @discardableResult
+    static func tapLabel(_ app: XCUIApplication, _ label: String, prefix: Bool = false, timeout: TimeInterval = 10,
+                         until done: ([String: Any]) -> Bool) -> (Bool, [String: Any]?) {
+        let button = app.webViews.buttons.matching(NSPredicate(format: prefix ? "label BEGINSWITH %@" : "label == %@", label)).firstMatch
+        var last: [String: Any]?
+        for _ in 0..<3 {
+            if button.waitForExistence(timeout: 5) { button.tap() }
+            let (ok, f) = waitFlow(app, timeout: timeout, done)
+            last = f ?? last
+            if ok { return (true, f) }
+        }
+        return (false, last)
+    }
+
+    /// JSON of a value for a failure message or an attachment.
+    static func json(_ value: Any?) -> String {
+        guard let value, JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return String(describing: value) }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    // MARK: The fake server's control (ios/qa/fake-server.sh, tlsfront -control)
+
+    /// One call to tlsfront's control on the runner (https://qa.test:8767,
+    /// the same CA the Simulator trusts): GET /receipts, POST /stop, POST
+    /// /start. Returns {listening, receipts: [{at, host, method, path, status}]}.
+    static func fakeServer(_ method: String = "GET", _ path: String = "/receipts") throws -> [String: Any] {
+        var req = URLRequest(url: URL(string: "https://qa.test:8767\(path)")!, timeoutInterval: 15)
+        req.httpMethod = method
+        let done = DispatchSemaphore(value: 0)
+        var result: Result<Data, Error> = .failure(URLError(.timedOut))
+        URLSession.shared.dataTask(with: req) { data, res, err in
+            if let err { result = .failure(err) }
+            else if (res as? HTTPURLResponse)?.statusCode != 200 { result = .failure(URLError(.badServerResponse)) }
+            else { result = .success(data ?? Data()) }
+            done.signal()
+        }.resume()
+        _ = done.wait(timeout: .now() + 20)
+        let data = try result.get()
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], "tlsfront control: not JSON")
+    }
+
+    /// What the fake server received (every host, or one).
+    static func receipts(host: String? = nil) throws -> [[String: Any]] {
+        let all = try fakeServer()["receipts"] as? [[String: Any]] ?? []
+        return host.map { h in all.filter { $0["host"] as? String == h } } ?? all
+    }
+
     /// The app's persisted UserDefaults (its prefs plist in the container).
     static func appDefaults(bundleID: String = QA.bundleID) -> [String: Any]? {
         guard let dir = appContainer(bundleID: bundleID),

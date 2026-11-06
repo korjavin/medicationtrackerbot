@@ -40,6 +40,7 @@ func main() {
 	cloudA := flag.String("cloud-a", "", "B2 only: real stamped cloud A executable")
 	cloudB := flag.String("cloud-b", "", "B2 only: real stamped cloud B executable")
 	cloudLog := flag.String("cloud-log", "", "B2 only: append cloud process output here")
+	controlAddr := flag.String("control", "", "iOS flow QA only: HTTPS control address (GET /receipts, POST /stop, POST /start)")
 	flag.Parse()
 
 	up, err := url.Parse(*backend)
@@ -115,7 +116,17 @@ func main() {
 		}
 		defer receipts.Close()
 	}
+	var gate *listenGate
+	if *controlAddr != "" {
+		gate = &listenGate{addr: *listen, conns: map[net.Conn]struct{}{}}
+	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if gate != nil {
+			i := gate.receive(r)
+			sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+			w = sw
+			defer func() { gate.answered(i, sw.code) }()
+		}
 		// Account routing still uses the original Host, as internal/cloudserver/router.go does.
 		// Count BEFORE routing/proxying: even failed upstream and SW-owned requests are receipts.
 		if receipts != nil {
@@ -154,11 +165,141 @@ func main() {
 		go func() { <-stop; exitFixture() }()
 	}
 	slog.Info("tlsfront listening", "addr", *listen, "backend", *backend, "names", names, "ca", *caPath)
+	if gate != nil {
+		gate.srv = srv
+		srv.ConnState = gate.track
+		if err := gate.open(); err != nil {
+			slog.Error("serve", "err", err)
+			os.Exit(1)
+		}
+		ctl := &http.Server{Addr: *controlAddr, Handler: http.HandlerFunc(gate.control), ReadHeaderTimeout: 10 * time.Second,
+			TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}}
+		slog.Info("tlsfront control", "addr", *controlAddr)
+		if err := ctl.ListenAndServeTLS("", ""); err != nil {
+			slog.Error("control", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := srv.ListenAndServeTLS("", ""); err != nil {
 		slog.Error("serve", "err", err)
 		exitFixture()
 	}
 }
+
+// listenGate (-control, the iOS qa job's FlowQA flows, bd med-sz4k.6.1) keeps
+// every received request in memory with its answer's status, and can stop and
+// restart the HTTPS listener: the Simulator has no airplane mode, so "the
+// server stops answering" is a closed port (connections refused before any
+// request is read, so nothing is received while stopped). Runner-only.
+type listenGate struct {
+	mu       sync.Mutex
+	srv      *http.Server
+	addr     string
+	ln       net.Listener
+	conns    map[net.Conn]struct{}
+	receipts []gateReceipt
+}
+
+type gateReceipt struct {
+	At     time.Time `json:"at"`
+	Host   string    `json:"host"`
+	Method string    `json:"method"`
+	Path   string    `json:"path"`
+	Status int       `json:"status"` // 0 while unanswered (an open stream)
+}
+
+func (g *listenGate) receive(r *http.Request) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.receipts = append(g.receipts, gateReceipt{At: time.Now().UTC(), Host: r.Host, Method: r.Method, Path: r.URL.Path})
+	return len(g.receipts) - 1
+}
+
+func (g *listenGate) answered(i, code int) {
+	g.mu.Lock()
+	g.receipts[i].Status = code
+	g.mu.Unlock()
+}
+
+func (g *listenGate) track(c net.Conn, s http.ConnState) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch s {
+	case http.StateNew:
+		g.conns[c] = struct{}{}
+	case http.StateClosed, http.StateHijacked:
+		delete(g.conns, c)
+	}
+}
+
+func (g *listenGate) open() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.ln != nil {
+		return nil
+	}
+	ln, err := net.Listen("tcp", g.addr)
+	if err != nil {
+		return err
+	}
+	g.ln = ln
+	go func() { _ = g.srv.ServeTLS(ln, "", "") }() // returns once stop closes ln
+	return nil
+}
+
+// stop closes the listener and every live connection (a keep-alive one too).
+func (g *listenGate) stop() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.ln != nil {
+		_ = g.ln.Close()
+		g.ln = nil
+	}
+	for c := range g.conns {
+		_ = c.Close()
+	}
+}
+
+func (g *listenGate) control(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/stop":
+		g.stop()
+		slog.Info("tlsfront stopped")
+	case r.Method == http.MethodPost && r.URL.Path == "/start":
+		if err := g.open(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		slog.Info("tlsfront started")
+	case r.Method == http.MethodGet && r.URL.Path == "/receipts":
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	g.mu.Lock()
+	body, err := json.Marshal(map[string]any{"listening": g.ln != nil, "receipts": g.receipts})
+	g.mu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// statusWriter keeps the answer's status; Unwrap lets the proxy still flush (SSE).
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.code = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 // recoveryFixture is bounded runner-only fixture state, never a cloud product API.
 type recoveryFixture struct {

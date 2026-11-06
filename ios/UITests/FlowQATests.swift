@@ -22,10 +22,14 @@ final class FlowQATests: XCTestCase {
     /// app opens straight into local mode's web W1 picker, with the v3 shell's
     /// "Have an invite?" footer. Then the app (seeded by the QA driver) →
     /// relaunch with no arguments: still local, the mode persisted.
-    func testLocalFirstRun() {
+    func testLocalFirstRun() throws {
         continueAfterFailure = false
         let flow = "local-first-run"
         let app = XCUIApplication()
+        // "Nothing is sent to the sync server" (bd med-sz4k.6.1): what the qa
+        // job's fake server (tlsfront) received over the run. The Simulator
+        // stays online: egress to that server is observed, not blocked.
+        let receiptsBefore = try QA.receipts().count
         // A fresh install: no account, no local-mode choice, an empty local store.
         let fresh = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO"]
         app.launchArguments = fresh // setUp's QA.reset emptied the store
@@ -58,6 +62,8 @@ final class FlowQATests: XCTestCase {
         XCTAssertNotNil(QA.appContainer(), "the app's data container is not visible to the test runner")
         XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "wgLocalMode is not persisted in the app's defaults")
         app.terminate()
+        let after = try QA.receipts()
+        XCTAssertEqual(after.count, receiptsBefore, "the local first run sent requests to the fake sync server: \(QA.json(Array(after.dropFirst(receiptsBefore))))")
     }
 
     private func shot(_ flow: String, _ step: String) {

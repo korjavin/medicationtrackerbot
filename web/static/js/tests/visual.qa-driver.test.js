@@ -139,6 +139,29 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.document.querySelectorAll('#wg-qa-ready')).toHaveLength(1);
     });
 
+    it('reports a flow scene\'s page state and native tap targets (med-sz4k.6.1)', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        const meal = await load('core-local-meal');
+        expect(meal).toMatchObject({ scene: 'core-local-meal', ok: true, failed: [] });
+        // remember ran before the add sheet; the manual editor is open with the
+        // driver's fields filled and the name left for the native keyboard.
+        expect(Number(meal.flow.memo.kcalBefore)).toBeGreaterThan(0);
+        expect(meal.flow.food.some((t) => t.includes('Greek yogurt'))).toBe(true);
+        expect(meal.flow.modals).toContain('food-modal');
+        expect(meal.flow.targets.name).toMatchObject({ value: '' });
+        expect(meal.flow.targets.save).toBeDefined();
+        expect(window.document.getElementById('food-calories').value).toBe('321');
+
+        // A later DOM change re-publishes the state (the native side polls it).
+        window.document.getElementById('food-name').value = 'QA B1 Meal';
+        window.document.getElementById('food-name').dispatchEvent(new window.Event('input', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const again = JSON.parse(window.document.getElementById('wg-qa-ready').getAttribute('aria-label'));
+        expect(again.rev).toBeGreaterThan(meal.rev);
+        expect(again.flow.targets.name.value).toBe('QA B1 Meal');
+    });
+
     it('opens the Generic hint through a real projected reminder slot and keeps its once-only guard', async () => {
         const { window } = env;
         expect(await load('today')).toBeNull();

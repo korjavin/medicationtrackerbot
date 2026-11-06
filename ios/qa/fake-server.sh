@@ -18,23 +18,33 @@ go build -o "$RUNNER_TEMP/cloud" ./cmd/cloud
 export CLOUD_BASE_DOMAIN=qa.test SESSION_SECRET="$(openssl rand -base64 48)" CLOUD_DB_PATH="$RUNNER_TEMP/cloud.db" PORT=8080
 nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &
 for _ in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
-inv="$("$RUNNER_TEMP/cloud" admin invite)"
 # admin invite prints the landing form https://<base>/i/<sub>#<token> (bd
 # med-ta2n.16); the UI tests drive the claim form the landing hands off to.
-landing="$(grep -oE 'https://[^[:space:]/]+/i/[a-z0-9-]+#[a-f0-9]+' <<<"$inv" | head -1)"
-[ -n "$landing" ] || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::no claim URL in: $inv"; exit 1; }
-rest="${landing#https://}"; sub="${rest#*/i/}"; sub="${sub%%#*}"
-host="$sub.${rest%%/*}"; claim="https://$host/#claim=${landing##*#}"
-echo "QA_CLAIM_URL=$claim" >> "$GITHUB_ENV"
+# mint <env var>: one invite, its claim URL in that variable; sets $host.
+mint() {
+  local inv landing rest sub
+  inv="$("$RUNNER_TEMP/cloud" admin invite)"
+  landing="$(grep -oE 'https://[^[:space:]/]+/i/[a-z0-9-]+#[a-f0-9]+' <<<"$inv" | head -1)"
+  [ -n "$landing" ] || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::no claim URL in: $inv"; exit 1; }
+  rest="${landing#https://}"; sub="${rest#*/i/}"; sub="${sub%%#*}"
+  host="$sub.${rest%%/*}"
+  echo "$1=https://$host/#claim=${landing##*#}" >> "$GITHUB_ENV"
+}
+# FlowQACeremonyExitTests leaves its claim page; FlowQAOfflineAccountTests
+# claims its own (bd med-sz4k.6.1).
+mint QA_CLAIM_URL; hosts="$host"
+mint QA_OFFLINE_CLAIM_URL; hosts="$hosts $host"
 
 # :443 needs root (AccountURL.parse rejects ports). nobody./stale./down. are
-# answered before the proxy; every other host goes to cmd/cloud.
-sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" > "$RUNNER_TEMP/tlsfront.log" 2>&1
+# answered before the proxy; every other host goes to cmd/cloud. -control
+# (https://qa.test:8767, same CA): the flows read what it received and stop /
+# restart its listener (bd med-sz4k.6.1; the Simulator has no airplane mode).
+sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8767 > "$RUNNER_TEMP/tlsfront.log" 2>&1
 for _ in $(seq 1 30); do [ -s "$ca" ] && break; sleep 1; done
 [ -s "$ca" ] || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront wrote no CA"; exit 1; }
 
 # No wildcards in /etc/hosts: list each host the flows open.
-echo "127.0.0.1 qa.test nobody.qa.test stale.qa.test down.qa.test $host" | sudo tee -a /etc/hosts
+echo "127.0.0.1 qa.test nobody.qa.test stale.qa.test down.qa.test $hosts" | sudo tee -a /etc/hosts
 sudo dscacheutil -flushcache
 sudo killall -HUP mDNSResponder || true
 
@@ -51,5 +61,9 @@ grep -q '^HTTP/[0-9.]* 404' "$RUNNER_TEMP/stale.txt" && ! grep -qi '^X-Account-G
   || { echo "::error::stale.qa.test is not a bare 404"; exit 1; }
 curl -sS --cacert "$ca" -i https://down.qa.test/ | grep -q '^HTTP/[0-9.]* 503' \
   || { echo "::error::down.qa.test did not answer 503"; exit 1; }
-curl -sS --fail -o /dev/null --cacert "$ca" "https://$host/unlock" \
-  || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::the invite's /unlock did not load"; exit 1; }
+for h in $hosts; do
+  curl -sS --fail -o /dev/null --cacert "$ca" "https://$h/unlock" \
+    || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::the invite's /unlock did not load"; exit 1; }
+done
+curl -sS --fail --cacert "$ca" https://qa.test:8767/receipts | grep -q '"listening":true' \
+  || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront control did not answer"; exit 1; }
