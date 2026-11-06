@@ -14,7 +14,7 @@ invariants:
   - Every log, edit and delete works and survives the reopen
   - Nothing is sent to the sync server
 covered_by:
-  web: manual  # partial: web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic; no first-run UI or reopen)
-  android: manual  # partial: android/qa/scenarios/firstrun.mjs (a fresh install opens local mode) and android/qa/scenarios/local-smoke.mjs (a med survives a relaunch, zero egress; not offline, no edit or delete)
+  web: manual  # n/a on web: local mode runs only in the phone shells (local-boot.js is bundled by ios/ and android/ only), so a browser has no first run without an account; the shared code is pinned by web/static/js/tests/cloud.local-mode.test.js (local CRUD with zero sync traffic; no first-run UI or reopen)
+  android: manual  # partial: android/qa/scenarios/firstrun.mjs (fresh local F1) and android/qa/scenarios/local-smoke.mjs (durable med, zero egress on listener-observed replay); first native launch not network-observed/offline, no BP/weight/dose edit/delete round trip
   ios: manual  # partial: ios/UITests/FlowQATests.swift#testLocalFirstRun (first run with no account, the mode kept over a relaunch; online, records seeded, no log, edit or delete)
 source: [med-ta2n]

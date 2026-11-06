@@ -16,7 +16,7 @@ invariants:
   - Once the day budget is really used and nothing is waiting to come back, the refusal still says "Free voice calls paused until tomorrow."
   - The consent text says each call reserves its full time limit and the time not used comes back after the call ends
 covered_by:
-  web: manual
-  android: manual
+  web: manual  # n/a on web: the anonymous trial runs only in the phone shells' local mode; on a phone it needs live trial calls (seconds talked, failed-start refund, refusal copy)
+  android: manual  # real vendor call duration, failed-start refund and subsequent budget/rate-limit copy need live trial calls
   ios: manual
 source: [med-dngs, med-v1uz.1, med-v1uz.3]

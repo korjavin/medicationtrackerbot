@@ -1641,6 +1641,8 @@ describe('schedule history — medsched-* on every schedule/policy edit (bd med-
         let t = Date.parse('2026-07-01T09:00:00Z');
         env = loadCloudShimFrontendEnv({ now: () => (t += 60_000) });
         const { id } = await env.window.apiCall('/api/medications', 'POST', edit(DAILY('08:00')));
+        // med-cb7i: the create path keeps the schedule it is given (never defaults to as_needed).
+        expect((await env.records.list('medication')).map((m) => m.schedule)).toEqual([DAILY('08:00')]);
         let hist = await env.records.list('medsched');
         expect(hist).toHaveLength(1);
         expect(hist[0].recordId).toMatch(new RegExp(`^medsched-${id}-\\d+-base$`));

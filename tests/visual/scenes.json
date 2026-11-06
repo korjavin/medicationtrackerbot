@@ -50,7 +50,7 @@
       ] },
     { "name": "meds-schedule", "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }],
       "ready": ["#med-schedule-tab.active", "#med-list > *"] },
-    { "name": "meds-editor-add-time", "steps": [{ "tab": "meds" }, { "click": "#add-btn" }, { "click": "#add-time-btn" }],
+    { "name": "meds-editor-add-time", "steps": [{ "tab": "meds" }, { "click": "#add-btn" }, { "click": "#med-modal [data-schedule-type=\"daily\"]" }, { "click": "#add-time-btn" }],
       "ready": ["#med-modal #time-inputs .time-row.is-unset:nth-child(2) .wg-sun"] },
     { "name": "eu-register-us", "flowOnly": true,
       "steps": [{ "tab": "meds" }, { "click": "#add-btn" }, { "fill": "#med-name", "value": "Candecor", "change": true }, { "euRegister": "us" }],

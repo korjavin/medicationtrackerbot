@@ -12,6 +12,6 @@ invariants:
   - After delete the local data and caches on this device are wiped and push is turned off
   - The device lands outside the account and the account no longer opens
 covered_by:
-  web: manual  # partial: web/cloud/js/tests/account-delete.test.js (re-auth, DELETE and local wipe; not the Settings confirm UI)
-  android: manual  # partial: android/qa/scenarios/delete-account.mjs (typed confirm and delete, host forgotten; no passkey cancel, no wipe or push check)
+  web: web/static/js/tests/settings.toggles.test.js  # Settings: typed DELETE gate, Cancel deletes nothing, a cancelled passkey leaves the account and stays put, a finished delete wipes and leaves; re-auth before DELETE, a cancelled passkey never DELETEs, the IDB/cache/push/service-worker wipe: web/cloud/js/tests/account-delete.test.js; the account and its session gone: internal/cloudserver/account_test.go#TestAccountDelete_HappyPath
+  android: manual  # partial: android/qa/scenarios/delete-account.mjs (typed confirm/delete, host forgotten, local F1/relaunch); no passkey-cancel preservation, comprehensive cache wipe, push unregistration or deleted-host rejection
   ios: manual

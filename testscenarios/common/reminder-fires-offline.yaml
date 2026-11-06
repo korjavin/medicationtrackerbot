@@ -14,7 +14,7 @@ invariants:
   - On the web the reminder arrives by push, so it needs a network at delivery time
   - The tap opens the app on that dose, ready to take, also from a cold start and while locked
 covered_by:
-  web: manual  # partial: web/cloud/js/tests/sw.reminder-actions.test.js (the tap opens the dose only)
+  web: manual  # partial: web/cloud/js/tests/sw.reminder-actions.test.js (the tap opens the dose); missing: a real Web Push delivery with the page closed, and the tap from a cold start or a locked screen, need a browser with a push service
   android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (fires with the process killed and before the first unlock, tap opens the dose; network on, no locked tap)
   ios: manual
 source: [med-nt9p.55]

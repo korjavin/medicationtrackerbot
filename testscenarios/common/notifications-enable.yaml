@@ -20,6 +20,6 @@ invariants:
   - In the app, with notifications allowed but no push token yet, the Wake-ups line says off (not connected yet), never asks to allow notifications
 covered_by:
   web: web/static/js/tests/settings.cloud-notifications.test.js
-  android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (first Enable, both grants, settings fallback when no prompt); android/app/src/test/java/com/example/medtracker/NotificationsTest.kt (denied/no-rationale and resume); no second Enable
+  android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (first Enable/both grants/settings fallback) and android/app/src/test/java/com/example/medtracker/NotificationsTest.kt (denied/no-rationale/resume); no full refusal/second-Enable flow or allowed-without-token Wake-ups assertion
   ios: manual
 source: [med-nt9p.65, med-hh0e]

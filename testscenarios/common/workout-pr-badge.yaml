@@ -13,6 +13,6 @@ invariants:
   - A normal heavier set gets the PR badge
 covered_by:
   web: web/static/js/tests/features.workout-sessions.test.js#an unconfirmed flagged set earns no PR badge; It's right shows it; a normal heavier set badges
-  android: manual
+  android: web/static/js/tests/features.workout-sessions.test.js#an unconfirmed flagged set earns no PR badge; It's right shows it; a normal heavier set badges  # data/logic only
   ios: manual
 source: [med-l5yr.5, med-l5yr.6]

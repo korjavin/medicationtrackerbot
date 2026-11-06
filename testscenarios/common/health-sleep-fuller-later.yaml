@@ -15,6 +15,6 @@ invariants:
   - A sleep day deleted in the app stays deleted
 covered_by:
   web: web/cloud/js/tests/health-import.test.js
-  android: manual
+  android: web/cloud/js/tests/health-import.test.js  # data/logic only: union, fuller replacement, healing and tombstones; real Health access is health-import-permissions
   ios: manual
 source: [med-y1gh, med-poeu]

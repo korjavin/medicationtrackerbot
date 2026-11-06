@@ -73,6 +73,7 @@ export default async function euRegister(ctx) {
   const { shell, pkg, sleep } = ctx;
   const r = (ctx.results.euRegister = {
     assetRequests: { first: 0, second: 0 }, assetResponses: [], finishedAssetRequests: [], failedAssetRequests: [],
+    observedRequests: 0, nameEgress: [], rxNavRequests: [],
   });
   const started = Date.now();
   r.bundledAssetSha256 = createHash('sha256').update(await readFile(new URL(`../../../web${ASSET}`, import.meta.url))).digest('hex');
@@ -83,6 +84,14 @@ export default async function euRegister(ctx) {
     // Keep the phase on the request: a late failure must not be assigned to a later check.
     const phases = new WeakMap();
     p.on('request', (q) => {
+      // Observe every real request, not only the catalogue asset. The shim's /api/... calls
+      // are in-process; a name in a real URL/body (including same-origin) is an egress bug.
+      r.observedRequests++;
+      const url = q.url();
+      let payload = `${url}\n${q.postData() || ''}`;
+      try { payload = decodeURIComponent(payload); } catch { /* raw payload is still checked */ }
+      if (/candecor|voltaren|duogestan|candekor/i.test(payload)) r.nameEgress.push({ method: q.method(), url });
+      if (/rxnav\.nlm\.nih\.gov|\/api\/rxnav\//i.test(url)) r.rxNavRequests.push(url);
       if (isAsset(q.url())) {
         phases.set(q, counting);
         r.assetRequests[counting] = (r.assetRequests[counting] || 0) + 1;
@@ -258,14 +267,42 @@ export default async function euRegister(ctx) {
     await page.locator('#med-eu-slot:not(.hidden)').waitFor({ timeout: 30_000 });
     await ctx.stableShot(shot);
   };
-  const sheet = async (shot) => {
+  const chipIs = async (want) => {
+    await page.waitForFunction((text) => document.getElementById('med-eu-chip')?.textContent.trim() === text,
+      want, { timeout: 30_000 });
+  };
+  const sheet = async (shot, check) => {
     await page.locator('#med-eu-chip').click();
     await page.locator('#med-eu-sheet').waitFor({ timeout: 10_000 });
+    if (check) await check();
     await ctx.stableShot(shot);
     await page.locator('#med-eu-sheet .wg-sheethead .wg-btn').click();
   };
-  await ctx.step('ER3/ER7 one entry', async () => { await editor('Candecor', 'er3-chip'); await sheet('er7-sheet'); });
-  await ctx.step('ER5/ER8 several entries', async () => { await editor('Voltaren', 'er5-several'); await sheet('er8-sheet'); });
+  await ctx.step('ER3/ER7 one entry: chip, route, countries and dated EMA source', async () => {
+    await editor('Candecor', 'er3-chip');
+    await chipIs('EU · Candesartan Cilexetil');
+    await sheet('er7-sheet', async () => {
+      const cards = page.locator('#med-eu-sheet .wg-sheet__body > .wg-card');
+      if (await cards.count() !== 1) throw new Error('Candecor needs one substance card');
+      const text = await cards.textContent();
+      for (const value of ['Candesartan Cilexetil', 'Oral Use', 'Germany, Slovenia']) {
+        if (!text.includes(value)) throw new Error(`Candecor sheet missing ${value}: ${text}`);
+      }
+      const source = await page.locator('#med-eu-sheet .wg-shell__fine').textContent();
+      if (!source.includes('European Medicines Agency (EMA), Article 57 product data, Rev.90, data of 09.10.2026.')) {
+        throw new Error(`missing dated EMA source: ${source}`);
+      }
+    });
+  });
+  await ctx.step('ER5/ER8 several entries: three substance cards', async () => {
+    await editor('Voltaren', 'er5-several');
+    await chipIs('EU · 3 entries');
+    await sheet('er8-sheet', async () => {
+      const titles = await page.locator('#med-eu-sheet .wg-sheet__body > .wg-card .wg-card__title').allTextContents();
+      const want = ['Diclofenac Diethylamine', 'Diclofenac Potassium', 'Diclofenac Sodium'];
+      if (JSON.stringify(titles.sort()) !== JSON.stringify(want)) throw new Error(`Voltaren substances: ${JSON.stringify(titles)}`);
+    });
+  });
   await ctx.step('ER9 separate products', async () => { await editor('Duogestan', 'er9-chip'); await sheet('er9-sheet'); });
   await ctx.step('ER6 no exact match', async () => { await editor('Candekor', 'er6-nomatch'); });
   await ctx.step('ER1/ER2 Settings row and the choice', async () => {
@@ -286,5 +323,7 @@ export default async function euRegister(ctx) {
   r.failedAppRequests = failedAppRequests();
   if (r.failedAppRequests.length) throw new Error(`failed register requests: ${JSON.stringify(r.failedAppRequests)}`);
   if (r.assetRequests.second) throw new Error(`${r.assetRequests.second} asset request(s) after relaunch`);
+  if (!r.observedRequests) throw new Error('no network requests observed by the egress guard');
+  if (r.nameEgress.length || r.rxNavRequests.length) throw new Error(`EU name/RxNav egress: ${JSON.stringify({ names: r.nameEgress, rxNav: r.rxNavRequests })}`);
   ctx.log('euRegister', JSON.stringify(r, null, 2));
 }

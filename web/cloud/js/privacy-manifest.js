@@ -735,7 +735,7 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'transient',
     retention: 'The temp file is deleted when the request finishes; only sealed events are stored. Refused outright when no unlocked device has published an inbox key',
     activation: 'user-initiated',
-    activationNote: 'when you upload a backup, in the app or to the Telegram bot',
+    activationNote: 'when you send a backup to the Telegram bot',
     byo: 'n/a — the parser needs the raw file',
     evidence: [
       'internal/cloudserver/vitals_import_api.go:42',
@@ -752,8 +752,8 @@ export const PRIVACY_MANIFEST = [
     docSignal: 'Mi Band .nxk backup contents (transient, server-side)',
     userCopy: {
       category: 'visible',
-      title: 'A Mi Band backup you upload, while it is being read',
-      detail: 'Importing a Mi Band .nxk backup is the one place the server opens health data itself: the file is written to a temporary file, parsed, and the results sealed to your account for an unlocked device to pick up. For the length of that request the operator can see the whole backup — heart rate, sleep, steps, workouts. The temporary file is deleted when the request finishes, nothing is sent to a third party, and the upload is refused outright if no device of yours has published a key to seal to. It only ever happens when you upload a backup.',
+      title: 'A Mi Band backup you send, while it is being read',
+      detail: 'Sending a Mi Band .nxk backup to the Telegram bot is the one place the server opens health data itself: the file is written to a temporary file, parsed, and the results sealed to your account for an unlocked device to pick up. For the length of that request the operator can see the whole backup — heart rate, sleep, steps, workouts. The temporary file is deleted when the request finishes, nothing is sent to a third party, and the upload is refused outright if no device of yours has published a key to seal to. It only ever happens when you send a backup.',
     },
   },
   {

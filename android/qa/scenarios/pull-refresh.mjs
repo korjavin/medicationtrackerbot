@@ -70,6 +70,39 @@ export default async function pullRefresh(ctx) {
   const expectPill = (got, ...want) => {
     for (const w of want) if (!got.pill.some((s) => s.includes(w))) throw new Error(`no pill "${w}": ${JSON.stringify(got.pill)}`);
   };
+  const networkBanner = async (local) => {
+    const label = local ? 'local' : 'account';
+    const state = () => page.evaluate(() => {
+      const visible = (id) => {
+        const el = document.getElementById(id);
+        return !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+      };
+      return { online: navigator.onLine, banner: visible('offline-banner') };
+    });
+    const expect = async (online) => {
+      await page.waitForFunction((want) => navigator.onLine === want, online, { timeout: 30_000 });
+      await page.waitForFunction((want) => {
+        const banner = document.getElementById('offline-banner');
+        return !!banner?.getClientRects().length === want;
+      }, !local && !online, { timeout: 15_000 });
+      return state();
+    };
+    await ctx.step(`${label}: real radios off/on track the offline banner`, async () => {
+      const states = (r[`${label}Network`] = {});
+      states.before = await expect(true);
+      try {
+        await shell('svc wifi disable');
+        await shell('svc data disable');
+        states.offline = await expect(false);
+        await ctx.stableShot(`${label}-offline-banner`);
+      } finally {
+        await shell('svc wifi enable');
+        await shell('svc data enable');
+      }
+      states.online = await expect(true);
+      await ctx.stableShot(`${label}-online-banner`);
+    });
+  };
 
   await shell(`pm clear ${pkg}`);
   for (const p of READS) await shell(`pm grant ${pkg} android.permission.health.READ_${p}`);
@@ -82,6 +115,7 @@ export default async function pullRefresh(ctx) {
     const got = await pull('local-today');
     if (got.pill.some(Boolean)) throw new Error(`pill in local mode: ${JSON.stringify(got.pill)}`);
   });
+  await networkBanner(true);
 
   await ctx.step('Settings: switch the Health Connect import on', async () => {
     await page.locator('[data-nav-to="settings"]:visible').first().click();
@@ -118,5 +152,6 @@ export default async function pullRefresh(ctx) {
     }
   });
   await ctx.stableShot('account-today-after');
+  await networkBanner(false);
   ctx.log('pullRefresh', JSON.stringify(r, null, 2));
 }

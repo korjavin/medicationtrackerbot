@@ -6,7 +6,7 @@
 //   • Messenger bootstrap — adapter init.
 //   • checkAuth() / loadInitData() — the cloud auth-orchestration entry point.
 //   • switchTab() / switchHealthTab() / switchMedTab() — section lifecycle.
-//   • The deferred-refresh banner cluster (requestTabRefresh / reloadCurrentTab
+//   • The held-refresh cluster (requestTabRefresh / reloadCurrentTab
 //     / isSafeToAutoRefresh) — cross-section refresh coordination.
 //   • Top-level wiring — control bindings (bindMedicationControls etc.),
 //     handlePushAction routing, tab-order persistence, and the shared
@@ -379,7 +379,7 @@ function switchTab(tab) {
 // reloadCurrentTab() call loadToday() at call time; features/today.js
 // (window.TodayDashboard) stays the pure aggregation/render contract this
 // loader feeds. window.requestTabRefresh / window.reloadCurrentTab (section
-// lifecycle + deferred-refresh banner) stay below as top-level wiring.
+// lifecycle + held refresh) stay below as top-level wiring.
 
 function switchHealthTab(tab) {
     const activated = activateTabGroup(tab, {
@@ -566,39 +566,11 @@ bindTabGroup({
 // updateFeatureTabVisibility(), all resolved at call time. The weight-unit
 // (kg/lb) state machine lives in features/weight-unit-state.js.
 
+// A change that arrives while the user is in a sheet, a session or a field is
+// held here and applied silently once they are done (bd med-vhdk): nothing
+// covers or reloads what the user is doing, and there is no banner.
 let pendingRefreshReason = null;
 let refreshDebounceTimer = null;
-
-function getRefreshBanner() {
-    let banner = document.getElementById('data-refresh-banner');
-    if (banner) return banner;
-
-    banner = document.createElement('div');
-    banner.id = 'data-refresh-banner';
-    banner.className = 'data-refresh-banner hidden';
-
-    const message = document.createElement('span');
-    message.textContent = 'New data is available.';
-
-    const refreshButton = document.createElement('button');
-    refreshButton.type = 'button';
-    refreshButton.textContent = 'Refresh';
-    refreshButton.addEventListener('click', applyPendingTabRefresh);
-
-    banner.appendChild(message);
-    banner.appendChild(refreshButton);
-    document.body.appendChild(banner);
-    return banner;
-}
-
-function showRefreshBanner() {
-    getRefreshBanner().classList.remove('hidden');
-}
-
-function hideRefreshBanner() {
-    const banner = document.getElementById('data-refresh-banner');
-    if (banner) banner.classList.add('hidden');
-}
 
 function isEditingNow() {
     const activeElement = document.activeElement;
@@ -609,7 +581,12 @@ function isEditingNow() {
     return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
 }
 
+// The ModalManager stack sees runtime sheets without a -modal id (med-eu-sheet,
+// WGPage), isDialogOpen the in-page safeConfirm/safeChoose dialogs; the id scan
+// covers modals shown behind ModalManager's back.
 function hasOpenModal() {
+    const mm = window.ModalManager;
+    if (mm && (mm._visibleStack().length > 0 || mm.isDialogOpen())) return true;
     const modalCandidates = document.querySelectorAll('[id$="-modal"]');
     return Array.from(modalCandidates).some((el) => {
         if (!el || el.classList.contains('hidden')) {
@@ -624,62 +601,64 @@ function isSafeToAutoRefresh() {
     return !document.hidden && !isEditingNow() && !hasOpenModal();
 }
 
+// The one debounced reload. Safety is re-checked when it fires: a sheet opened
+// or a field focused in the meantime keeps the refresh held.
+function scheduleTabRefresh() {
+    if (refreshDebounceTimer) clearTimeout(refreshDebounceTimer);
+    refreshDebounceTimer = setTimeout(() => {
+        refreshDebounceTimer = null;
+        if (!pendingRefreshReason || !isSafeToAutoRefresh()) return;
+        pendingRefreshReason = null;
+        reloadCurrentTab();
+    }, 500);
+}
+
+// Applies a held refresh once it is safe: on a sheet or in-page dialog closing
+// (modal:closed), a field losing focus, the page becoming visible.
 function applyPendingTabRefresh() {
-    pendingRefreshReason = null;
-    hideRefreshBanner();
-    reloadCurrentTab();
+    if (pendingRefreshReason) scheduleTabRefresh();
 }
 
 function requestTabRefresh(meta = {}) {
     if (document.documentElement.hasAttribute('data-provider-reload-committed')) return;
     const source = meta?.source || 'changes';
     // Optimistic / commit / rollback paths originate from the caller's own
-    // write flow. The user is actively engaged with the app — no deferred
-    // banner. Re-render the current tab immediately from the freshly-written
-    // optimistic cache. fetchFresh suppresses concurrent GETs during the
-    // optimistic window (see DataStore.fetchFresh's pendingOptimistic check)
-    // so the user sees only optimistic → real, no stale flash.
+    // write flow: re-render the current tab immediately from the
+    // freshly-written optimistic cache. fetchFresh suppresses concurrent GETs
+    // during the optimistic window (see DataStore.fetchFresh's
+    // pendingOptimistic check) so the user sees only optimistic → real.
     if (typeof source === 'string' && source.startsWith('optimistic')) {
         reloadCurrentTab(meta);
         return;
     }
-    // `self-echo` is the echo of one of the user's own recent writes.
-    // The optimistic-commit path has already painted authoritative state;
-    // an echo must never
-    // surface a "New data is available" banner because the user is the
-    // source. If the page is safe to refresh, reconcile now; otherwise
-    // silently drop the reload — the next loadX() will fetch fresh.
+    const safe = isSafeToAutoRefresh();
+    // `self-echo` is the echo of one of the user's own recent writes, which
+    // the optimistic commit already painted: reconcile now if safe, else drop
+    // — the next loadX() fetches fresh.
     if (source === 'self-echo') {
-        if (isSafeToAutoRefresh()) {
-            reloadCurrentTab();
-        }
+        if (safe) reloadCurrentTab();
         return;
     }
-    if (!isSafeToAutoRefresh()) {
-        console.log('[refresh] deferred: source=%s modal=%s editing=%s hidden=%s tags=%o',
+    if (!safe) {
+        // 'online' (static sync.js) brings no data, only a chance to refetch;
+        // the pull the reconnect triggers reports a real change as its own
+        // cloud-write, which is held below.
+        if (source === 'online') return;
+        console.log('[refresh] held: source=%s modal=%s editing=%s hidden=%s tags=%o',
             source, hasOpenModal(), isEditingNow(), document.hidden,
             meta?.changedTags || []);
         pendingRefreshReason = source;
-        showRefreshBanner();
         return;
     }
-
-    if (refreshDebounceTimer) {
-        clearTimeout(refreshDebounceTimer);
-    }
-    refreshDebounceTimer = setTimeout(() => {
-        refreshDebounceTimer = null;
-        reloadCurrentTab();
-    }, 500);
+    pendingRefreshReason = source;
+    scheduleTabRefresh();
 }
 
 window.requestTabRefresh = requestTabRefresh;
 
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden || !pendingRefreshReason) return;
-    if (!isSafeToAutoRefresh()) return;
-    applyPendingTabRefresh();
-});
+document.addEventListener('visibilitychange', applyPendingTabRefresh);
+document.addEventListener('focusout', applyPendingTabRefresh);
+document.addEventListener('modal:closed', applyPendingTabRefresh);
 
 // Reload current active tab data.
 function reloadCurrentTab(meta = {}) {

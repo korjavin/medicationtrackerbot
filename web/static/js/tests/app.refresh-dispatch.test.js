@@ -60,33 +60,112 @@ describe('app.js refresh dispatch behavior', () => {
       window.requestTabRefresh({ source: 'changes' });
       window.reloadCurrentTab();
       expect(window.loadSettings).not.toHaveBeenCalled();
-      expect(document.getElementById('data-refresh-banner')?.classList.contains('hidden') ?? true).toBe(true);
     } finally { cleanup(); }
   });
 
-  it('requestTabRefresh defers reload while user is editing and applies on demand', () => {
+  // bd med-vhdk: the "New data is available" bar covered an open workout
+  // session. Every non-UI refresh is now held silently while a sheet is open
+  // and applied once when the last one closes through ModalManager.
+  it('holds every background refresh while the workout session is open and reloads once on close', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const reloadSpy = vi.fn();
+      window.reloadCurrentTab = reloadSpy;
 
+      window.ModalManager.workoutSession.open();
+      window.requestTabRefresh({ source: 'online' });                   // network flap (SyncManager.handleOnline)
+      window.DataStore.requestTabRefresh(['workout'], 'cloud-write');   // pulled ops / Health pass
+      window.DataStore.requestTabRefresh(['intake'], 'cloud-write');    // dose clock
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(document.getElementById('data-refresh-banner')).toBeNull();
+      expect(reloadSpy).not.toHaveBeenCalled();
+
+      // A field inside the session losing focus is not "done".
+      const notes = document.createElement('textarea');
+      document.getElementById('workout-session-modal').appendChild(notes);
+      notes.focus();
+      notes.blur();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reloadSpy).not.toHaveBeenCalled();
+
+      window.ModalManager.workoutSession.close();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    } finally { cleanup(); }
+  });
+
+  it('holds a refresh under an in-page confirm dialog, also once its parent sheet closes, and applies it when the dialog settles', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const reloadSpy = vi.fn();
+      window.reloadCurrentTab = reloadSpy;
+
+      window.ModalManager.workoutSession.open();
+      const answer = window.safeConfirm('Discard this set?');
+      window.requestTabRefresh({ source: 'cloud-write' });
+      window.ModalManager.workoutSession.close();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reloadSpy).not.toHaveBeenCalled();
+
+      document.querySelector('mt-modal.mt-confirm-modal .mt-confirm-modal__cancel').click();
+      await answer;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    } finally { cleanup(); }
+  });
+
+  it('drops an online refresh that arrives under an open sheet: nothing new to show on close', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const reloadSpy = vi.fn();
+      window.reloadCurrentTab = reloadSpy;
+      window.ModalManager.workoutSession.open();
+      window.requestTabRefresh({ source: 'online' });
+      window.ModalManager.workoutSession.close();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(reloadSpy).not.toHaveBeenCalled();
+    } finally { cleanup(); }
+  });
+
+  it('holds a refresh while a field is focused with no sheet and applies it on blur', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
     try {
       const reloadSpy = vi.fn();
       window.reloadCurrentTab = reloadSpy;
 
       const medName = document.getElementById('med-name');
       medName.focus();
-
-      window.requestTabRefresh({ source: 'changes' });
-      const banner = document.getElementById('data-refresh-banner');
-      expect(banner).toBeTruthy();
-      expect(banner.classList.contains('hidden')).toBe(false);
-      expect(reloadSpy).toHaveBeenCalledTimes(0);
+      window.requestTabRefresh({ source: 'cloud-write' });
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(document.getElementById('data-refresh-banner')).toBeNull();
+      expect(reloadSpy).not.toHaveBeenCalled();
 
       medName.blur();
-      window.applyPendingTabRefresh();
+      await vi.advanceTimersByTimeAsync(500);
       expect(reloadSpy).toHaveBeenCalledTimes(1);
-      expect(banner.classList.contains('hidden')).toBe(true);
-    } finally {
-      cleanup();
-    }
+    } finally { cleanup(); }
+  });
+
+  it('a safe page still reloads an external change within 500 ms, unless a sheet opened meanwhile', async () => {
+    const { window, cleanup } = loadFrontendEnv();
+    try {
+      const reloadSpy = vi.fn();
+      window.reloadCurrentTab = reloadSpy;
+
+      window.requestTabRefresh({ source: 'cloud-write' });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+
+      window.requestTabRefresh({ source: 'cloud-write' });
+      window.ModalManager.workoutSession.open();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+      window.ModalManager.workoutSession.close();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(reloadSpy).toHaveBeenCalledTimes(2);
+    } finally { cleanup(); }
   });
 
   it.each(['optimistic', 'optimistic-commit', 'optimistic-rollback'])('forwards %s provenance to the Settings loader only', (source) => {
@@ -102,14 +181,9 @@ describe('app.js refresh dispatch behavior', () => {
     } finally { cleanup(); }
   });
 
-  it('requestTabRefresh source=self-echo never surfaces the banner, even with a modal open', () => {
-    // Regression: when a change payload is tagged as an echo of one of our
-    // own recent writes (source 'self-echo'), the banner must NOT appear —
-    // the user already saw their action take effect via the optimistic
-    // commit. A
-    // modal-open or focused-input state should silently skip the reload,
-    // not surface a "New data is available" prompt.
-    const { window, document, cleanup } = loadFrontendEnv();
+  it('requestTabRefresh source=self-echo is dropped with a modal open, not replayed on close', async () => {
+    // An echo of the user's own write: the optimistic commit already painted it.
+    const { window, cleanup } = loadFrontendEnv();
 
     try {
       const reloadSpy = vi.fn();
@@ -117,18 +191,17 @@ describe('app.js refresh dispatch behavior', () => {
 
       window.showBPRecordModal();
       window.requestTabRefresh({ changedTags: ['bp'], source: 'self-echo' });
-
-      const banner = document.getElementById('data-refresh-banner');
-      expect(banner == null || banner.classList.contains('hidden')).toBe(true);
       expect(reloadSpy).toHaveBeenCalledTimes(0);
 
       window.closeBPRecordModal();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(reloadSpy).toHaveBeenCalledTimes(0);
     } finally {
       cleanup();
     }
   });
 
-  it('requestTabRefresh defers while modal is open until pending refresh is applied', async () => {
+  it('requestTabRefresh defers while the BP modal is open and reloads the BP tab when it closes', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -147,8 +220,7 @@ describe('app.js refresh dispatch behavior', () => {
       expect(loadBPSpy).toHaveBeenCalledTimes(0);
 
       window.closeBPRecordModal();
-      window.applyPendingTabRefresh();
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(500);
       expect(loadBPSpy).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();

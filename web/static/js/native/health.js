@@ -66,8 +66,9 @@
 //   writeAccess(types) → health.writeAccess { types } → Promise<{ granted:
 //     ['bp', 'weight', 'hr', 'workout'], supported?: [kinds], readableFrom?: ms }>:
 //     readableFrom (med-8f4s.13/.14) = how far back query sees other apps'
-//     records (0 = all; Android without the history permission: first grant
-//     − 30 d); absent = an older shell, and the page offers no Copy. The kinds the store
+//     records (0 = all; Android without the history permission: a rolling
+//     now − 30 d; iOS 27+ omits it); absent = an older shell, and the page
+//     offers no Copy nor the entries batch below. The kinds the store
 //     lets this app write now (HealthKit authorizationStatus(for:) on every
 //     share type of the kind; Health Connect getGrantedPermissions on the
 //     WRITE_* permissions). `supported` (optional) = the kinds this shell can
@@ -93,6 +94,12 @@
 //     clientTs of the row (clientRecordVersion / HKMetadataKeySyncVersion);
 //     at = measured ms. The same id again replaces the record. Rejects
 //     "denied" (no write access for the kind) or "unsupported".
+//   write({ entries: [body, ...] }) (med-8f4s.13/.14; the page sends it, bd
+//     med-8f4s.15, only to a shell whose writeAccess carries readableFrom):
+//     each body exactly a single write's args, kinds mixed → Promise<[true |
+//     "<that entry's error>", ...]>, one result per entry in order (Android
+//     answers a revoked kind's entry "denied"; HealthKit throws it for the
+//     whole call). A store failure (quota, unavailable) rejects the whole call.
 //   remove({ type, id }) → health.delete { type, id } → Promise<true>:
 //     deletes the record written under `id` (hr: `<id>/pulse`, sent when the
 //     bp row is deleted or its pulse cleared; workout: sent when the session

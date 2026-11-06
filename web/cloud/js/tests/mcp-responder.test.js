@@ -1892,6 +1892,9 @@ describe('cloud MCP response_example conformance', () => {
     const med = await w('medications.create', {
       name: 'Mounjaro', dosage: '5 mg', schedule: JSON.stringify({ type: 'daily', times: ['20:00'] }), inventory_count: 4,
     });
+    // med-cb7i: the MCP create keeps the schedule it is given (not as_needed).
+    const created = (await w('medications.list', {})).find((m) => m.id === med.id);
+    expect(JSON.parse(created.schedule)).toEqual({ type: 'daily', times: ['20:00'] });
     const medID = med.id;
     await w('medications.restock', { quantity: 30, note: 'Pharmacy refill' }, { id: String(medID) });
     await w('medications.log_past', { medication_id: medID, taken_at: '2026-07-05T20:00:00.000Z' });
