@@ -117,8 +117,8 @@ describe('createEmptyState / createOfflineEmptyState / createErrorState / create
             expect(body(window.createOfflineEmptyState())).toBe('This loads once you are back online.');
             window.MedTrackerCloud = { degraded: { error: new Error('boom'), at: 1 } };
             const el = window.createOfflineEmptyState();
-            expect(el.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
-            expect(body(el)).toBe('Some saved data did not load. Reload to fix.');
+            expect(el.querySelector('.wg-empty__title').textContent).toBe('Some saved data did not load');
+            expect(body(el)).toBe('Reload to fix.');
             expect(el.querySelector('button')).toBeNull();
         } finally {
             cleanup();
