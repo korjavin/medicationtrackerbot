@@ -43,15 +43,8 @@ preconditions. For an Android coverage audit, count the Android obligations sepa
 Keep `manual # reason` when a linked test asserts only part of the scenario. The comment names
 the existing evidence and the missing checks; a partial test does not remove the release check.
 
-Android B1 adds `core-local` to `all` before the account smoke flow (with reminders still last).
-It checks the medication editor/Take/Timeline/reload chain, both schedule-edit branches, and
-the Food and Today calorie totals after Save. `offline-account` is dispatch-only, consumes one
-invite and has no automatic retry. It checks populated sections after a real radios-off cold
-launch, an offline write and subsequent acknowledged sync. Its zero-network observation counts
-account-host requests received by the runner's TLS front from before launch through the offline
-checks, including initial navigation and service-worker traffic; failed fetch attempts are recorded
-separately. These are emulator checks; physical-device vendor and store-install limitations remain
-in the other scenarios' explicit manual reasons.
+The Android harness [runbook](../docs/android.md) describes `core-local` and
+`offline-account`, including their real-device interactions and receipt-counting evidence.
 
 ## Where automation lives
 

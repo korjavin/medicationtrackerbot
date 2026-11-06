@@ -10,7 +10,7 @@ export default async function coreLocal(ctx) {
     // Keep the golden records, but remove competing due medications from this focused flow.
     await p.evaluate(async () => {
       for (const m of await window.apiCall('/api/medications')) {
-        await window.apiCall(`/api/medications/${m.id}`, 'PUT', { ...m, archived: true });
+        await window.apiCall(`/api/medications/${m.id}`, 'POST', { ...m, archived: true });
       }
       await window.DataStore.invalidateTags(['medications', 'history']);
     });
@@ -105,14 +105,15 @@ export default async function coreLocal(ctx) {
   });
   await ctx.step('meal: save known kcal and immediately assert Food and Today totals', async () => {
     await go('food');
+    await page.locator('#food-list').getByText('Greek yogurt', { exact: true }).waitFor();
     await page.locator('#food-macros-card-kcal').waitFor();
     const before = Number(await page.locator('#food-macros-card-kcal').textContent());
     await page.evaluate(() => window.showAddFoodModal());
     await page.click('#food-add-manual-btn');
     await page.locator('#food-modal').waitFor({ state: 'visible' });
     await backSheet('food-modal');
-    // Closing the manual sheet can expose its parent Add sheet; close that with real Back too.
-    if (await page.locator('#food-add-modal').isVisible().catch(() => false)) await backSheet('food-add-modal');
+    // openManual closes its parent Add sheet before opening the manual form.
+    if (await page.locator('#food-add-sheet').isVisible()) throw new Error('manual close left Add sheet open');
     await page.evaluate(() => window.showAddFoodModal());
     await page.click('#food-add-manual-btn');
     await page.fill('#food-name', 'QA B1 Meal');

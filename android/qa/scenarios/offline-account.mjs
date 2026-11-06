@@ -17,7 +17,8 @@ export default async function offlineAccount(ctx) {
   page = await ctx.step('claim run invite with soft authenticator', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
   await ctx.step('import golden records and complete real account sync', async () => {
-    await page.evaluate((json) => window.CloudVault.importAll(json), fixture);
+    r.import = await page.evaluate((json) => window.CloudVault.importAll(json), fixture);
+    if (r.import.upload !== 'synced') throw new Error(`golden import not uploaded: ${r.import.upload}`);
     await page.reload({ waitUntil: 'load' });
     await waitForVault(page);
     r.host = new URL(page.url()).host;
@@ -27,7 +28,7 @@ export default async function offlineAccount(ctx) {
     await page.waitForFunction(async () => {
       const s = await import('/js/sync.js');
       const st = await s.getSyncStatus(window.MedTrackerCloud.ctx);
-      return st.pendingCount === 0 && !st.forceSnapshotPending && !st.writeError;
+      return st.pendingCount === 0 && !st.offline && !st.snapshotError && !st.wedged && !st.writeError;
     }, null, { timeout: 90_000 });
   });
   const go = async (tab) => {
@@ -58,6 +59,9 @@ export default async function offlineAccount(ctx) {
         const text = await page.locator(selector).innerText();
         if (/Failed to load|No sleep data yet|No food logged today|No notes yet/.test(text)) throw new Error(`${name} rendered empty/error: ${text}`);
         r.sections[phase][name] = { ms: Date.now() - t0, text: text.slice(0, 5000) };
+        // Under the sync engine's 10s timedFetch deadline (sync.js SYNC_FETCH_TIMEOUT_MS).
+        // This bounds cached rendering on this emulator; it is not a physical-phone latency claim.
+        if (phase === 'offline' && r.sections[phase][name].ms >= 5000) throw new Error(`${name} waited ${r.sections[phase][name].ms}ms for cached rows`);
         if (name === 'vitals-sleep') {
           const sleepText = await page.locator('.wg-sleep-card').innerText();
           if (!/7[.,]8/.test(sleepText)) throw new Error(`saved 465 minute sleep missing: ${sleepText}`);
