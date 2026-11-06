@@ -772,7 +772,7 @@ Run42169457478 demonstrated the complete flow with authenticated disable, an emp
 ledger and native `available:false` / `on:false`; `local-lock` therefore joins `all` after
 `file-backup`, before `smoke` (the invite owner) and `reminders-offline` (still last).
 System credential and wrong-PIN captures are black under Android's secure-window capture policy.
-The scenario asserts the systemui/settings package and field resource before typing, plus the
+The scenario checks the systemui/settings package and records the field resource before typing, plus the
 native state and detached WebView; the cancelled N3 and final app-lock-off screenshots are visible.
 
 `health-connect` extends its existing SDK fixture with WeightRecord and a completed SleepSessionRecord

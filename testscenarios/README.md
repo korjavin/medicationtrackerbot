@@ -57,6 +57,9 @@ verified cleanup; `health-connect` adds SDK weight/sleep source-label proof with
 same-package origin limit. Real third-party Health origins/data, unasserted permission-sheet and
 denied-guidance branches, live vendor voice/photo, Play-installed updates and the other precisely
 named partial checks remain release obligations in their own YAML comments.
+The invite-free PIN and saved-file scenarios run in `all`; Health stays in its owning standalone
+dispatch. The PIN flow joins `all` only after native authenticated disable and credential cleanup
+were demonstrated, with the smoke invite and reminders-offline's final position preserved.
 
 ## Where automation lives
 
