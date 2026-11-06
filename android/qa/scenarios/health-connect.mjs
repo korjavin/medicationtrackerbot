@@ -279,16 +279,27 @@ export default async function healthConnect(ctx) {
       const importedSleep = data.vitals.sleep.find((s) => s.source_id === day);
       if (importedBp?.source !== 'apple_health' || importedBp.systolic !== sys || importedWeight?.source !== 'apple_health' || importedWeight.weight !== kg ||
         importedSleep?.source !== 'apple_health' || Date.parse(importedSleep.start_time) !== night.start || Date.parse(importedSleep.end_time) !== night.end || importedSleep.total_minutes !== 480) throw new Error('exact SDK fixture not imported');
+      const identities = await ctx.page.evaluate(async ({ bpId, weightId }) => {
+        const rows = (r, kind) => Array.isArray(r) ? r : (r.items || r.data || r[kind] || []);
+        const bp = rows(await window.apiCall('/api/bp?days=60'), 'readings');
+        const weight = rows(await window.apiCall('/api/weight?days=0&limit=1000'), 'logs');
+        return { bp: bp.find((s) => s.source_id === bpId)?.id, weight: weight.find((s) => s.source_id === weightId)?.id,
+          manualBp: bp.find((s) => s.source !== 'apple_health')?.id, manualWeight: weight.find((s) => s.source !== 'apple_health')?.id };
+      }, { bpId: bp.id, weightId: weight.id });
+      if (Object.values(identities).some((id) => id == null) || Object.keys(identities).length !== 4) throw new Error('missing imported/manual UI identities');
       await ctx.page.evaluate(() => window.switchTab('bp'));
-      const bpRow = ctx.page.locator('.wg-bp-reading-row').filter({ has: ctx.page.locator('.wg-bp-reading-row__sys', { hasText: String(sys) }) });
+      const bpRow = ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${identities.bp}"]`);
       await bpRow.locator('.wg-source-label').getByText('Health import', { exact: true }).waitFor();
-      const manualBp = ctx.page.locator('.wg-bp-reading-row').filter({ hasNot: ctx.page.locator('.wg-source-label') });
-      if (!(await manualBp.count())) throw new Error('no manual BP comparison row');
+      const manualBp = ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${identities.manualBp}"]`);
+      await manualBp.waitFor();
+      if (await manualBp.locator('.wg-source-label').count()) throw new Error('manual BP comparison row carries Health import label');
       await ctx.stableShot('b3-bp-source-label');
       await ctx.page.evaluate(() => window.switchTab('weight'));
-      const weightRow = ctx.page.locator('.wg-weight-history-row').filter({ hasText: kg.toFixed(1) });
+      const weightRow = ctx.page.locator(`.wg-weight-history-row[data-weight-id="${identities.weight}"]`);
       await weightRow.locator('.wg-source-label').getByText('Health import', { exact: true }).waitFor();
-      if (!(await ctx.page.locator('.wg-weight-history-row').filter({ hasNot: ctx.page.locator('.wg-source-label') }).count())) throw new Error('no manual weight comparison row');
+      const manualWeight = ctx.page.locator(`.wg-weight-history-row[data-weight-id="${identities.manualWeight}"]`);
+      await manualWeight.waitFor();
+      if (await manualWeight.locator('.wg-source-label').count()) throw new Error('manual weight comparison row carries Health import label');
       await ctx.stableShot('b3-weight-source-label');
       await ctx.page.evaluate(() => window.switchTab('health'));
       await ctx.page.locator('.wg-sleep-card__sources').getByText(/Health import/).waitFor();
@@ -306,7 +317,7 @@ export default async function healthConnect(ctx) {
       const matches = (d) => ({ bp: d.bp.readings.filter((s) => s.source_id === bp.id), weight: d.weight.logs.filter((s) => s.source_id === weight.id), sleep: d.vitals.sleep.filter((s) => s.source_id === day) });
       if (JSON.stringify(matches(again)) !== JSON.stringify(matches(data)) || Object.values(matches(again)).some((rows) => rows.length !== 1)) throw new Error('explicit rescan duplicated/changed imported fixture');
       r.b3 = { access, before, after, inserted, providerIds: Object.fromEntries(Object.entries(provider).map(([k, v]) => [k, v.samples.map((s) => s.uuid)])),
-        day, kg, sys, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date), dedupe: true,
+        day, kg, sys, identities, labels: ['BP row', 'Weight row', 'Sleep per-day source aggregation'], manualSleepDays: manualDays.map((s) => s.date), dedupe: true,
         provenance: 'same package, SDK-assigned dataOrigin' };
     });
 
