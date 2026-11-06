@@ -11,9 +11,10 @@ invariants:
   - The system sheet asks for steps, sleep, SpO2 and heart rate
   - After granting, steps, sleep, SpO2 and heart rate rows show in Vitals
   - If access was denied the app says where to allow it
-  - Where there is no Health store (the web) the toggle flips back with a message
+  - In a browser there is no Health row in Settings at all
+  - On a phone whose system has no Health store (Health Connect not installed) the toggle flips back with "<Store> is not available on this device."
 covered_by:
-  web: manual  # n/a on web as written: a browser shows no Health import toggle at all (cloud-boot.js loads health-import.js only where Health is supported; web/cloud/js/tests/health-import.test.js asserts startHealthImport returns null there), so "the toggle flips back" cannot happen; the flip-back copy is pinned for a store that refuses (same file, Settings row)
+  web: web/cloud/js/tests/health-import.test.js#does nothing while the toggle is off, and when Health is unsupported (web)  # startHealthImport returns null without a shell Health capability, so no row is mounted
   android: manual  # partial: android/qa/scenarios/health-connect.mjs (real SDK-granted steps/sleep/HR/SpO2 import into Vitals; same package, SDK-assigned dataOrigin); real requested-kinds system sheet, full denied guidance and real third-party origin/user Health data remain unasserted
   ios: manual  # partial: tests/visual/scenes.json#health-kit-import (VisualQATests, run by the ios.yml visual job, not qa): HealthKit seeded and every kind granted on the Simulator, then Vitals renders the sleep, steps, HR and SpO2 values; missing, owned by med-sz4k.6.4: the requested kinds in the system sheet and the denied-access guidance; real Health data from real sources stays a device clause
 source: [Zulip 11260]

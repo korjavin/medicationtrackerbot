@@ -16,6 +16,6 @@ invariants:
   - Products saved before this change keep their stored names
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-products.test.js
-  android: manual  # partial: web/static/js/tests/cloud.shim-contract.food-products.test.js (name/barcode reconciliation and no-fetch re-scan); no native scanner or offline re-scan flow
+  android: web/static/js/tests/cloud.shim-contract.food-products.test.js  # data/logic only (name/barcode reconciliation, no-fetch re-scan); the native scanner hand-off and offline re-scan on a device are residue (no camera on the emulator)
   ios: manual  # partial: data/logic only: web/static/js/tests/cloud.shim-contract.food-products.test.js (name/barcode reconciliation and no-fetch re-scan); missing: the native scanner hand-off and a re-scan on a device, epic residue (no camera on the Simulator)
 source: [med-5jq.6]
