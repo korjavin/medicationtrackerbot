@@ -1,19 +1,15 @@
 // B1: real Android editor/IME/Back plus the shipped optimistic writes and durable ledger.
 // Fixture setup uses the existing golden-vault driver; all behavior under test goes through UI.
-import { readFileSync } from 'node:fs';
-
 export default async function coreLocal(ctx) {
   const r = (ctx.results.coreLocal = { schedules: {} });
+  (ctx.results.coreLocalAttempts ||= []).push(r);
   await ctx.shell(`pm clear ${ctx.pkg}`);
   // Notification permission is not this scenario's subject; use local-smoke's established setup
   // so a write-triggered reminder offer cannot cover the editors being exercised.
   await ctx.shell(`pm grant ${ctx.pkg} android.permission.POST_NOTIFICATIONS`);
   await ctx.shell(`appops set ${ctx.pkg} SCHEDULE_EXACT_ALARM allow`);
-  let page;
-  try {
-  page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
+  let page = await ctx.step('golden local vault; prepare existing schedules at 07:00', async () => {
     const p = await ctx.launchLocal('today');
-    page = p; // Retain ownership for finally even if setup fails.
     r.initialCut = await p.evaluate(async () => (await import('/js/sync.js')).localRecordsPort().list('ledgercut'));
     // The initial 23:00 visual boot already established a put-if-absent ledger cut. A clock
     // jump backwards cannot generate new doses before it. Reuse local-smoke's neutral-page
@@ -28,28 +24,33 @@ export default async function coreLocal(ctx) {
       })));
       return dbs.map((d) => d.name);
     });
-    // This scenario exercises local daily schedules, not travel. The golden vault's global
-    // Berlin transition history otherwise projects newly entered UTC times an hour earlier,
-    // even though the driver's settings timezone follows the device. Reuse its fixture hook
-    // before the first seeded boot; retain all unrelated golden records and real UI writes.
-    const fixture = JSON.parse(readFileSync(new URL('../../../tests/fixtures/vault-v1.json', import.meta.url), 'utf8'));
-    fixture.data.tz = { history: [], transition_plans: [], transitions: [] };
-    await p.evaluate(() => sessionStorage.setItem('qa-b1-core-fixture', '1'));
-    // Playwright cannot remove a page init script. Gate it on this scenario's session marker,
-    // which finally removes, so a later local launch gets the complete golden fixture.
-    await p.addInitScript(({ vault, origin }) => {
-      if (location.origin === origin && sessionStorage.getItem('qa-b1-core-fixture') === '1') {
-        window.__wgQAFiles = { '/qa/vault-v1.json': vault };
-      }
-    }, { vault: fixture, origin: ctx.LOCAL_ORIGIN });
     await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
+    await ctx.waitLocalReady(p, 'today');
+    // Prepare after ALL driver transforms (withPileUp also adds a Berlin-stamped intake).
+    // Both explicit travel history and legacy intake tz evidence affect global projection.
+    // Reuse the vault import fixture path, before creating any dose under test; the non-vault
+    // ledgercut remains the first 07:00 boot. No page init hook can leak into a later scenario.
+    r.fixtureImport = await p.evaluate(async () => {
+      const vault = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false }));
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const priorZones = [...new Set(vault.data.medications.intakes.map((i) => i.tz).filter(Boolean))];
+      vault.data.tz = { current: timezone, history: [], transition_plans: [], transitions: [] };
+      vault.data.settings.timezone = timezone;
+      for (const intake of vault.data.medications.intakes) if (intake.tz) intake.tz = timezone;
+      return { timezone, priorZones, result: await window.CloudVault.importAll(JSON.stringify(vault)) };
+    });
+    await p.reload({ waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
     r.setupClock = await p.evaluate(async () => ({ now: new Date().toISOString(), pinned: !!Date.wgQAPinned,
       cut: await (await import('/js/sync.js')).localRecordsPort().list('ledgercut'),
       transitions: await (await import('/js/sync.js')).localRecordsPort().list('tztransition'),
+      intakeZones: [...new Set((await (await import('/js/sync.js')).localRecordsPort().list('intake')).map((i) => i.tz).filter(Boolean))],
+      fixtureHookAbsent: !window.__wgQAFiles,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }));
     if (!r.setupClock.pinned || r.setupClock.cut.length !== 1 || Date.parse(r.setupClock.cut[0].at) > Date.parse(r.setupClock.now)) throw new Error(`invalid morning ledger setup: ${JSON.stringify(r.setupClock)}`);
     if (r.setupClock.transitions.length) throw new Error('core fixture retained unrelated timezone transitions');
+    if (r.setupClock.intakeZones.some((tz) => tz !== r.setupClock.timezone)) throw new Error('core fixture retained unrelated legacy timezone evidence');
+    if (!r.setupClock.fixtureHookAbsent) throw new Error('core fixture unexpectedly installed a persistent seed hook');
     // Keep the golden records, but remove competing due medications from this focused flow.
     await p.evaluate(async () => {
       for (const m of await window.apiCall('/api/medications')) {
@@ -92,6 +93,7 @@ export default async function coreLocal(ctx) {
       if (!input.ime || input.focused !== 'med-name') throw new Error(`medication name tap did not focus input/open IME: ${JSON.stringify(input)}`);
       await ctx.sleep(1000);
       await ctx.shell(`input text '${name.replaceAll(' ', '%s')}'`);
+      await page.waitForFunction((expected) => document.getElementById('med-name')?.value === expected, name, { timeout: 5000 });
       input.value = await page.inputValue('#med-name');
       if (input.value !== name) throw new Error('native medication name entry differs');
       await ctx.shot(`editor-keyboard-${name.replaceAll(' ', '-').toLowerCase()}`);
@@ -219,17 +221,6 @@ export default async function coreLocal(ctx) {
         : !/09:00/.test(dayText) || /08:00/.test(dayText)) throw new Error(`morning pairing taken=${taken}: ${dayText}`);
       r.schedules[taken ? 'taken' : 'untaken'] = dayText;
       await ctx.shot(`schedule-${taken ? 'taken' : 'untaken'}`);
-    });
-  }
-  } finally {
-    await ctx.step('cleanup: fixture override cleared', async () => {
-      if (!page || page.isClosed()) return; // A closed page cannot seed a later scenario.
-      await page.evaluate(() => {
-        sessionStorage.removeItem('qa-b1-core-fixture');
-        delete window.__wgQAFiles;
-      });
-      r.fixtureOverrideCleared = await page.evaluate(() => !sessionStorage.getItem('qa-b1-core-fixture') && !window.__wgQAFiles);
-      if (!r.fixtureOverrideCleared) throw new Error('core fixture override cleanup failed');
     });
   }
 }
