@@ -174,7 +174,7 @@ type ScheduledPushInput struct {
 // carried entries (0) — so the dry-queue predicate can tell 'reminders
 // deliberately off' from 'browser stopped re-uploading'.
 func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []ScheduledPushInput, now time.Time) error {
-	return r.ReplaceScheduleFenced(ctx, accountID, entries, nil, now)
+	return r.ReplaceScheduleFenced(ctx, accountID, entries, nil, true, now)
 }
 
 // ScheduleFence is what a fenced PUT /api/push/schedule says it was built
@@ -198,8 +198,22 @@ var ErrScheduleStale = errors.New("cloudstore: schedule built from a stale seq")
 // epoch the seq compare runs in — never a reason to refuse, so a rollback
 // cannot fence every device out); the same generation needs based_on_seq >=
 // the stored seq (equal = renewal), else ErrScheduleStale.
-func (r *Repo) ReplaceScheduleFenced(ctx context.Context, accountID string, entries []ScheduledPushInput, fence *ScheduleFence, now time.Time) error {
+//
+// Writer gate (bd med-wi09.22): a writer without ledgerV2 on an account with
+// a ledger cut gets ErrUpdateRequired and nothing changes. The cut is read in
+// this transaction, as in AppendOps, so a cut committed concurrently cannot
+// let a pre-v2 horizon replace a v2 one.
+func (r *Repo) ReplaceScheduleFenced(ctx context.Context, accountID string, entries []ScheduledPushInput, fence *ScheduleFence, ledgerV2 bool, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if !ledgerV2 {
+			cut, err := ledgerCutSet(ctx, tx, accountID)
+			if err != nil {
+				return err
+			}
+			if cut {
+				return ErrUpdateRequired
+			}
+		}
 		// Stamp the upload itself (med-ei2): every replace-all PUT records when
 		// the client last pushed a schedule and whether the batch was empty,
 		// so the dry-queue predicate can tell 'reminders deliberately off'

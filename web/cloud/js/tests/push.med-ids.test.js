@@ -7,13 +7,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { recomputeAndPush, cancelMedRefire, rearmMedRefire } from '../reminders.js';
-import { requestFreshDrain } from '../sync.js';
+import { requestFreshDrain, markUpdateRequired } from '../sync.js';
 
 // Only the drain is stubbed (relay fencing, bd med-wi09.14): a test drives what
 // "the pull landed" means for its fake records port.
 vi.mock('../sync.js', async (importOriginal) => ({
   ...(await importOriginal()),
   requestFreshDrain: vi.fn(async () => {}),
+  markUpdateRequired: vi.fn(),
 }));
 
 const NOW_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -314,6 +315,29 @@ describe('relay fencing: the schedule PUT is built from acknowledged state', () 
     globalThis.fetch = okFetch();
     await recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' });
     expect(puts.map(fence)).toEqual([{ based_on_seq: 8, generation: 2 }]);
+  });
+
+  // bd med-wi09.22: the schedule PUT takes the sync writer gate, so its 426
+  // raises the same "Update required — reload" surface as a sync write.
+  it('a 426 on the schedule PUT raises the update-required surface and rejects', async () => {
+    basis = { seq: 7, pending: 0 };
+    markUpdateRequired.mockClear();
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return new Response('{"error":"update_required"}', { status: 426 }); });
+
+    await expect(recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' })).rejects.toThrow(/Update required/);
+    expect(markUpdateRequired).toHaveBeenCalledTimes(1);
+    expect(puts).toHaveLength(1);
+  });
+
+  // Rule-15 review: a 426 that is not the server's gate (a proxy, another
+  // cause) must not pause uploads for the page's lifetime.
+  it('a 426 with another body is a plain scheduling error, not the update surface', async () => {
+    basis = { seq: 7, pending: 0 };
+    markUpdateRequired.mockClear();
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return new Response('upgrade required', { status: 426 }); });
+
+    await expect(recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' })).rejects.toThrow('Could not schedule the reminder.');
+    expect(markUpdateRequired).not.toHaveBeenCalled();
   });
 
   it('a records port without horizonBasis sends the legacy unfenced body', async () => {
