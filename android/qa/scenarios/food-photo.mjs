@@ -41,7 +41,7 @@ export default async function foodPhoto(ctx) {
           const hash = await crypto.subtle.digest('SHA-256', bytes);
           window.__qaGalleryPhoto = { size: bytes.byteLength, type: file.type,
             sha256: [...new Uint8Array(hash)].map(x => x.toString(16).padStart(2, '0')).join('') };
-        });
+        }).catch((error) => { window.__qaGalleryError = `${error.name}: ${error.message}`; });
         return new Promise(() => {});
       };
     });
@@ -49,15 +49,20 @@ export default async function foodPhoto(ctx) {
     await ctx.waitFor({ text: 'Photos' });
     await ctx.sleep(3000);
     await ctx.shot('gallery-seeded');
-    await ctx.shell('uiautomator dump /sdcard/gallery-seeded.xml');
-    ctx.results.foodPhoto.seededUi = await ctx.shell('cat /sdcard/gallery-seeded.xml');
     const screen = await ctx.shell('wm size');
     const match = /Physical size: (\d+)x(\d+)/.exec(screen);
     if (!match) throw new Error(`no screen size: ${screen}`);
     // Temporary probe for the first image tile in the system picker.
     await ctx.device.input.tap({ x: Math.round(Number(match[1]) * 0.17), y: Math.round(Number(match[2]) * 0.34) });
     await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
-    await page.waitForFunction(() => window.__qaGalleryPhoto?.size > 0, null, { timeout: 30_000 });
+    try {
+      await page.waitForFunction(() => window.__qaGalleryPhoto?.size > 0 || window.__qaGalleryError, null, { timeout: 30_000 });
+    } catch (error) {
+      ctx.results.foodPhoto.galleryError = await page.evaluate(() => window.__qaGalleryError || 'timed out without error');
+      throw error;
+    }
+    const readError = await page.evaluate(() => window.__qaGalleryError);
+    if (readError) throw new Error(`Selected JPEG read failed: ${readError}`);
     ctx.results.foodPhoto.galleryReturned = await page.evaluate(() => window.__qaGalleryPhoto);
     ctx.results.foodPhoto.galleryExpected = { size: bytes.length, type: 'image/jpeg', sha256: expected };
     if (ctx.results.foodPhoto.galleryReturned.sha256 !== expected || ctx.results.foodPhoto.galleryReturned.type !== 'image/jpeg') throw new Error('Selected image bytes differ from seeded JPEG');
