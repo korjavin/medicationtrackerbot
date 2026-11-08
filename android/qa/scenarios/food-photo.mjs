@@ -27,7 +27,8 @@ export default async function foodPhoto(ctx) {
   await ctx.step('Gallery opens the chooser', async () => {
     await page.click('#food-add-gallery-btn');
     await ctx.waitFor({ text: 'Camera' }, 30_000);
-    await ctx.waitFor({ text: 'Files' }, 30_000);
+    // Android's installed picker labels vary: the API 34 emulator calls it Media.
+    await ctx.waitFor({ text: /^(Files|Media)$/ }, 30_000);
     await ctx.shot('gallery-chooser');
     await ctx.shell('input keyevent KEYCODE_BACK');
     await ctx.waitFor({ clazz: 'android.webkit.WebView' });
