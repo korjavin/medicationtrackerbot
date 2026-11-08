@@ -86,7 +86,35 @@ class FilesTest {
         files.onActivityResult(Files.REQ_CHOOSER, Activity.RESULT_OK, Intent().setData(first))
         assertArrayEquals(arrayOf(first), received)
         field.set(files, callback)
+        pickerField.setBoolean(files, true)
+        val missing = Uri.parse("content://media/picker/missing")
+        files.onActivityResult(Files.REQ_CHOOSER, Activity.RESULT_OK, Intent().setData(missing))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertArrayEquals(arrayOf(missing), received)
+        field.set(files, callback)
+        pickerField.setBoolean(files, true)
         files.onActivityResult(Files.REQ_CHOOSER, Activity.RESULT_CANCELED, null)
         assertNull(received)
+    }
+
+    @Test
+    fun stalePickerCopyDoesNotAnswerANewerChooser() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        var pendingCopy: (() -> Unit)? = null
+        val files = Files(activity, pickerFileUri = { Uri.fromFile(it) }, copyAsync = { pendingCopy = it }) { null }
+        val chooser = Files::class.java.getDeclaredField("chooser").apply { isAccessible = true }
+        val picker = Files::class.java.getDeclaredField("pickerResult").apply { isAccessible = true }
+        val first = Uri.parse("content://media/picker/one")
+        shadowOf(activity.contentResolver).registerInputStream(first, ByteArrayInputStream(byteArrayOf(1)))
+        var oldCalls = 0
+        var newCalls = 0
+        chooser.set(files, ValueCallback<Array<Uri>> { oldCalls++ })
+        picker.setBoolean(files, true)
+        files.onActivityResult(Files.REQ_CHOOSER, Activity.RESULT_OK, Intent().setData(first))
+        chooser.set(files, ValueCallback<Array<Uri>> { newCalls++ })
+        Thread { pendingCopy!!() }.apply { start(); join() }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, oldCalls)
+        assertEquals(0, newCalls)
     }
 }
