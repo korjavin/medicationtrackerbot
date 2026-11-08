@@ -1,21 +1,60 @@
-// Standalone; clears the app. Grant CAMERA → launch local Food → Photo opens camera →
-// Back → Gallery opens chooser → Back → take and confirm a shot → Food review receives it.
+// Standalone; clears the app. Gallery and barcode Use photo open the picker without CAMERA →
+// Photo asks for CAMERA and opens camera → Back → take and confirm a shot → Food review receives it.
 // The AI parser port is held pending for the final check, avoiding a live provider request.
 export default async function foodPhoto(ctx) {
   await ctx.shell(`pm clear ${ctx.pkg}`);
-  await ctx.shell(`pm grant ${ctx.pkg} android.permission.CAMERA`);
   const page = await ctx.launchLocal('today');
   await page.evaluate(() => window.switchTab('food'));
   await page.locator('#food-view').waitFor({ state: 'visible' });
   await page.evaluate(() => window.showAddFoodModal());
   await page.locator('#food-add-photo-btn').waitFor({ state: 'visible' });
 
-  await ctx.step('Photo opens the camera directly', async () => {
-    await page.click('#food-add-photo-btn');
+  await ctx.step('Gallery opens the picker without camera permission', async () => {
+    await page.click('#food-add-gallery-btn');
     await ctx.sleep(5000);
     const activity = await ctx.shell('dumpsys activity activities');
     const resumed = activity.split('\n').find((line) => line.includes('ResumedActivity')) || '';
-    ctx.results.foodPhoto = { photoResumed: resumed };
+    ctx.results.foodPhoto = { galleryResumed: resumed };
+    if (!/photopicker/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Gallery did not open picker: ${resumed}`);
+    const permissions = await ctx.shell(`dumpsys package ${ctx.pkg}`);
+    if (!/android\.permission\.CAMERA: granted=false/.test(permissions)) throw new Error('Gallery granted CAMERA unexpectedly');
+    // waitFor dismisses the emulator's occasional launcher ANR before Back is sent.
+    await ctx.waitFor({ text: 'Photos' });
+    await ctx.shot('gallery-picker');
+    await ctx.shell('input keyevent KEYCODE_BACK');
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' });
+    await page.locator('#food-add-gallery-btn').waitFor({ state: 'visible' });
+    if (await page.locator('#food-add-review-list').isVisible()) throw new Error('Cancellation opened Food review');
+  });
+  await ctx.step('Barcode Use photo opens the picker without camera permission', async () => {
+    // Isolate the still-image path: disable live barcode scanning so opening the scanner
+    // does not itself request camera access before the Use photo button is tapped.
+    await page.evaluate(() => { window.Barcode.supportsLiveScan = () => false; });
+    await page.click('#food-add-scan-btn');
+    await page.locator('#food-scanner-use-photo-btn').waitFor({ state: 'visible' });
+    await page.click('#food-scanner-use-photo-btn');
+    await ctx.sleep(5000);
+    const activity = await ctx.shell('dumpsys activity activities');
+    const resumed = activity.split('\n').find((line) => line.includes('ResumedActivity')) || '';
+    ctx.results.foodPhoto.barcodeResumed = resumed;
+    if (!/photopicker/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Barcode photo did not open picker: ${resumed}`);
+    const permissions = await ctx.shell(`dumpsys package ${ctx.pkg}`);
+    if (!/android\.permission\.CAMERA: granted=false/.test(permissions)) throw new Error('Barcode photo granted CAMERA unexpectedly');
+    await ctx.waitFor({ text: 'Photos' });
+    await ctx.shot('barcode-picker');
+    await ctx.shell('input keyevent KEYCODE_BACK');
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' });
+    await page.click('#food-scanner-close-btn');
+    await page.locator('#food-add-photo-btn').waitFor({ state: 'visible' });
+  });
+  await ctx.step('Photo asks for camera and opens it directly', async () => {
+    await page.click('#food-add-photo-btn');
+    await ctx.waitFor({ text: /While using the app/i }, 30_000);
+    await ctx.device.tap({ text: /While using the app/i });
+    await ctx.sleep(5000);
+    const activity = await ctx.shell('dumpsys activity activities');
+    const resumed = activity.split('\n').find((line) => line.includes('ResumedActivity')) || '';
+    ctx.results.foodPhoto.photoResumed = resumed;
     if (!/camera/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Photo did not open camera: ${resumed}`);
     // The freshly booted emulator may put a launcher ANR over the camera. Back would dismiss
     // that dialog instead of cancelling capture, so clear it before taking evidence or leaving.
@@ -23,15 +62,6 @@ export default async function foodPhoto(ctx) {
       await ctx.device.tap({ text: 'Wait' });
     }
     await ctx.shot('photo-camera');
-    await ctx.shell('input keyevent KEYCODE_BACK');
-    await ctx.waitFor({ clazz: 'android.webkit.WebView' });
-  });
-  await ctx.step('Gallery opens the chooser', async () => {
-    await page.click('#food-add-gallery-btn');
-    await ctx.waitFor({ text: 'Camera' }, 30_000);
-    // Android's installed picker labels vary: the API 34 emulator calls it Media.
-    await ctx.waitFor({ text: /^(Files|Media)$/ }, 30_000);
-    await ctx.shot('gallery-chooser');
     await ctx.shell('input keyevent KEYCODE_BACK');
     await ctx.waitFor({ clazz: 'android.webkit.WebView' });
   });

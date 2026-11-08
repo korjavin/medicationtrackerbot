@@ -22,7 +22,7 @@
 // still feed a file into uploadFoodPhoto without going through MediaCapture.
 
 // Default opens the camera directly (capture on). { gallery: true } opens the
-// photo picker instead (Android 14+ picker has no camera entry, hence two buttons).
+// photo picker instead. Photo opens the camera; Gallery opens the picker.
 async function triggerFoodPhotoPicker(opts) {
     const capture = window.MediaCapture;
     if (!capture || typeof capture.pickPhoto !== 'function') {

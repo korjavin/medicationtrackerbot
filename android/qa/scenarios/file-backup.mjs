@@ -73,6 +73,7 @@ export default async function fileBackup(ctx) {
   });
   let saved;
   let offeredPath;
+  let encryptedPath;
   const corruptName = 'qa-b3-corrupt.json.gz';
   try {
     saved = await ctx.step('Settings export empty passphrase → Backup ready → actual DocumentsUI Save', async () => {
@@ -200,12 +201,47 @@ export default async function fileBackup(ctx) {
       equal(await snapshot(page), before, 'corrupt refusal after reload');
       r.corruptPreserved = true;
     });
+    if (ctx.scenario === 'file-backup-age') {
+      await ctx.step('encrypted .age backup through native picker restores full content', async () => {
+        const testPassphrase = 'qa-synthetic-backup-passphrase';
+        await backup(page);
+        await page.click('#importexport-export-btn');
+        await page.locator('#importexport-export-passphrase').fill(testPassphrase);
+        await page.click('#importexport-export-confirm');
+        await page.locator('#importexport-ready-save').waitFor({ state: 'visible', timeout: 180_000 });
+        await page.click('#importexport-ready-save');
+        await ctx.waitFor({ text: /^(SAVE|Save)$/ });
+        const cache = await shell(`run-as ${pkg} sh -c 'ls cache/downloads/*/*'`);
+        const name = cache.slice(cache.lastIndexOf('/') + 1);
+        if (!/^medtracker-vault-[\w-]+\.json\.gz\.age$/.test(name)) throw new Error(`unexpected encrypted filename ${name}`);
+        encryptedPath = `/sdcard/Download/${name}`;
+        await device.tap({ text: /^(SAVE|Save)$/ });
+        await sleep(2500);
+        const size = await shell(`wc -c < ${encryptedPath}`);
+        if (!(Number(size.trim()) > 0)) throw new Error('encrypted backup was not saved');
+        await pick(name);
+        await page.click('#importexport-import-btn');
+        await page.locator('#importexport-import-passphrase').waitFor({ state: 'visible' });
+        await page.locator('#importexport-import-passphrase').fill(testPassphrase);
+        await page.click('#importexport-import-decrypt');
+        await page.locator('.mt-confirm-modal__input').waitFor({ state: 'visible', timeout: 180_000 });
+        await page.locator('.mt-confirm-modal__input').fill('REPLACE');
+        const loaded = page.waitForEvent('load', { timeout: 120_000 });
+        await page.click('.mt-confirm-modal__confirm');
+        await loaded;
+        await ctx.waitLocalReady(page);
+        equal(await snapshot(page), base, 'encrypted .age restore');
+        r.encryptedRestore = { name, bytes: Number(size.trim()), fullContentAndSettings: true };
+        await ctx.shot('encrypted-restored');
+      });
+    }
   } finally {
     await ctx.step('remove own saved/corrupt fixture documents', async () => {
       if (offeredPath) await shell(`rm -f ${offeredPath}`);
+      if (encryptedPath) await shell(`rm -f ${encryptedPath}`);
       await shell(`rm -f /sdcard/Download/${corruptName}`);
       const remaining = (await shell('ls /sdcard/Download/')).split('\n');
-      if (remaining.includes(corruptName) || offeredPath && remaining.includes(offeredPath.split('/').pop())) throw new Error('owned fixture documents remain after cleanup');
+      if (remaining.includes(corruptName) || offeredPath && remaining.includes(offeredPath.split('/').pop()) || encryptedPath && remaining.includes(encryptedPath.split('/').pop())) throw new Error('owned fixture documents remain after cleanup');
       r.documentsRemoved = true;
     });
   }

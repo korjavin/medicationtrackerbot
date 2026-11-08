@@ -9,8 +9,8 @@ steps:
 invariants:
   - Photo opens the camera directly without a choice of camera or files
   - The captured photo appears in the Add sheet review
-  - Gallery opens the picker and cancelling it logs nothing
+  - Gallery opens the photo picker directly without a choice of camera or files, and cancelling it logs nothing
 covered_by:
   android: manual # Partial: android/app/src/test/java/com/example/medtracker/FilesTest.kt and android/qa/scenarios/food-photo.mjs cover intent selection and emulator flows; real camera and picker need a device
   ios: manual
-source: [med-nt9p.66, med-w6gx.33]
+source: [med-nt9p.66, med-nt9p.67, med-w6gx.33]
