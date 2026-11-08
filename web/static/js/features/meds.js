@@ -746,7 +746,7 @@ function _tlRow(group, ctx, { chip = true, readOnly = false, open = null } = {})
         const occIds = group.rows.map((r) => r.occId);
         const trail = _medsEl('span', 'wg-row__trail');
         trail.appendChild(_tlRowButton('Skip', true, () => _tlAct('skip', [{ occIds }])));
-        trail.appendChild(_tlRowButton('Take', false, () => _tlAct('take', [{ occIds }])));
+        trail.appendChild(_tlRowButton(occIds.length > 1 ? `Take ${occIds.length}` : 'Take', false, () => _tlAct('take', [{ occIds }])));
         row.appendChild(trail);
     }
     return row;
@@ -1020,10 +1020,10 @@ function _tlFoldedDay(list, date, title, day, ctx) {
     if (open) day.forEach((g) => list.appendChild(_tlRow(g, ctx, { chip: false, readOnly: true })));
 }
 
-// The focus card's pending dose: the latest of every pending dose — the
+// The focus card's pending slot: the slot of the latest pending dose — the
 // pending-only read, overlaid by the window's rows (fresher where they meet:
 // a dose taken from the sheet drops out at once) — ties due before snoozed.
-// { focus: group | null, more: how many other pending doses }.
+// { focus: group | null, more: how many pending doses outside that slot }.
 function _tlFocus(rows, pending, ctx) {
     const byOcc = new Map();
     (Array.isArray(pending) ? pending : []).forEach((r) => byOcc.set(String(r.occId), r));
@@ -1033,12 +1033,14 @@ function _tlFocus(rows, pending, ctx) {
     });
     const all = Array.from(byOcc.values())
         .filter((r) => (r.state === 'due' || r.state === 'snoozed') && Date.parse(r.plannedAt) <= ctx.nowMs);
-    // Exactly one dose, never its slot mates: latest, due before snoozed,
-    // then a stable order by occId.
+    // The latest dose (due before snoozed, then a stable order by occId) picks
+    // the slot; the card holds every pending dose of it (bd med-ry7b.8).
     const [first] = all.slice().sort((a, b) => (Date.parse(b.plannedAt) - Date.parse(a.plannedAt))
         || (_TL_STATE_ORDER[a.state] - _TL_STATE_ORDER[b.state])
         || String(a.occId).localeCompare(String(b.occId), undefined, { numeric: true }));
-    return { focus: first ? _tlGroups([first])[0] : null, more: Math.max(0, all.length - 1) };
+    if (!first) return { focus: null, more: 0 };
+    const focus = _tlGroups(all).find((g) => g.rows.includes(first));
+    return { focus, more: all.length - focus.rows.length };
 }
 
 function _tlFocusLabel(text, meta) {
@@ -1051,8 +1053,8 @@ function _tlFocusLabel(text, meta) {
 // TL1 / TL4 · the focus card, the one accent card, later on top (Iris 17054):
 // the next dose due today with a raised Take (only within
 // MEDS_NEXT_TAKE_WINDOW_MS of its slot; earlier a tap opens the sheet), then
-// exactly one pending dose (a day chip when it isn't today's) whose Take is
-// the sun, "+N more pending" as a count only. TL3 ·
+// the whole latest pending slot (a day chip when it isn't today's) whose
+// Take (Take N) is the sun, "+N more pending" as a count only. TL3 ·
 // nothing pending and nothing left today: no accent, no buttons, the next dose.
 function _tlFocusCard({ focus, more, next, upcoming }, ctx) {
     const card = _medsEl('section', 'wg-card wg-tl-focus');
@@ -1150,8 +1152,8 @@ function _tlTodaySection(groups, ctx, card) {
 }
 
 // One History day, newest dose first. The header counts every dose of the day
-// (so a day whose pending dose is up in the focus card says "1 pending"); the
-// list leaves out the card's doses.
+// (so a day whose only pending slot is up in the focus card says "N pending");
+// the list leaves out the card's doses.
 function _tlPastSection(date, groups, occ, ctx) {
     const pending = occ.filter((r) => r.state === 'due' || r.state === 'snoozed').length;
     const taken = occ.filter((r) => r.state === 'taken').length;
@@ -1161,7 +1163,7 @@ function _tlPastSection(date, groups, occ, ctx) {
     const meta = !occ.length ? 'No doses' : pending ? `${pending} pending` : `${taken} of ${occ.length} taken`;
     section.appendChild(_tlHead(label, { meta }));
     // The bulk pair only for 2+ listed pending doses: one row has its own
-    // Take / Skip, and the card's dose is not listed here (Iris 5020).
+    // Take / Skip, and the card's slot is not listed here (Iris 5020).
     const listed = groups.reduce((n, g) => n + (g.state === 'due' || g.state === 'snoozed' ? g.rows.length : 0), 0);
     if (listed >= 2) section.appendChild(_tlBulkActions(date));
     if (groups.length) section.appendChild(_tlList(groups, ctx));

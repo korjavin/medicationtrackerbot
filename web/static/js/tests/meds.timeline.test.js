@@ -3,8 +3,8 @@
 //
 // One pane in time order over GET /api/doses (the occurrence projection): the
 // future on top ("Show 3 more days ahead", then one folded "Planned" row per
-// day), Today led by the focus card (one pending dose — the latest of every
-// pending dose, from a pending-only read — plus the next dose due today), and
+// day), Today led by the focus card (the whole slot of the latest pending
+// dose, from a pending-only read — plus the next dose due today), and
 // History (Yesterday + the day before, "Show 3 earlier days"). Paging is local
 // and instant; each visit starts short and opens at the top. Rows group by the
 // projection's own (localDate, localTime, tz, state) — never the device clock.
@@ -502,7 +502,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         expect(text(card(document).querySelector('.wg-meta'))).toBe('Next: Fri 30.10 13:00 · 1 med');
     });
 
-    it('the card holds exactly one dose: two due at the same latest instant → one in the card, its slot mate in Pending and the count', async () => {
+    it('the card holds the whole slot: two due at the same latest instant → one row, Take 2 takes both, nothing left in Pending (bd med-ry7b.8)', async () => {
         const { document } = env;
         const fixture = [berlin(1, '2026-10-23', '08:20', 'due'), berlin(2, '2026-10-23', '08:20', 'due'), berlin(1, '2026-10-24', '08:20', 'upcoming')];
         env.window.medications = MEDS;
@@ -510,12 +510,63 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
         await env.window.loadTimeline();
         const focusRows = card(document).querySelectorAll('.wg-timeline__row');
         expect(focusRows).toHaveLength(1);
-        expect(focusRows[0].dataset.occIds).toBe(fixture[0].occId);
-        expect(text(card(document).querySelector('.wg-tl-focus__label .wg-meta'))).toBe('+1 more pending');
-        expect(blockRows(document.querySelector('.wg-timeline__today'), 'Pending').map((r) => r.dataset.occIds)).toEqual([fixture[1].occId]);
-        focusRows[0].querySelector('.wg-btn--primary').click();
+        expect(focusRows[0].dataset.occIds).toBe(`${fixture[0].occId} ${fixture[1].occId}`);
+        expect(text(focusRows[0].querySelector('.wg-row__meta').firstChild)).toBe('Allopurinol 300 mg · Lercanidipin 10 mg');
+        expect(card(document).querySelector('.wg-tl-focus__label .wg-meta')).toBeNull();
+        expect(labels(document.querySelector('.wg-timeline__today'))).not.toContain('Pending');
+        const take = focusRows[0].querySelector('.wg-btn--primary');
+        expect(text(take)).toBe('Take 2');
+        take.click();
         await vi.waitFor(() => expect(server.posts).toHaveLength(1));
-        expect(server.posts[0]).toEqual({ action: 'take', occ_ids: [fixture[0].occId] });
+        expect(server.posts[0]).toEqual({ action: 'take', occ_ids: [fixture[0].occId, fixture[1].occId] });
+    });
+
+    it('History · the card holds yesterday\'s whole 21:30 slot with its day chip; +N and the day list count only the other slot', async () => {
+        const { document } = env;
+        const fixture = [
+            berlin(1, '2026-10-22', '08:20', 'due'),
+            berlin(2, '2026-10-22', '21:30', 'due'),
+            berlin(3, '2026-10-22', '21:30', 'due'),
+            berlin(1, '2026-10-23', '08:20', 'taken', { takenAt: '2026-10-23T06:24:00.000Z' }),
+        ];
+        await load(fixture);
+        const focus = card(document);
+        const [now] = focus.querySelectorAll('.wg-timeline__row');
+        expect(now.dataset.occIds).toBe(`${fixture[1].occId} ${fixture[2].occId}`);
+        expect(text(now.querySelector('.wg-chip--pending'))).toBe('Yesterday');
+        expect(text(now.querySelector('.wg-btn--primary'))).toBe('Take 2');
+        expect(text(focus.querySelector('.wg-tl-focus__label .wg-meta'))).toBe('+1 more pending');
+        const yesterday = document.querySelector('section[data-local-date="2026-10-22"]');
+        expect(text(yesterday.querySelector('.wg-section__head .wg-meta'))).toBe('3 pending');
+        expect(Array.from(yesterday.querySelectorAll('.wg-timeline__row')).map((r) => r.dataset.occIds)).toEqual([fixture[0].occId]);
+        expect(yesterday.querySelector('.wg-timeline__bulk')).toBeNull();
+    });
+
+    it('History · a day whose only pending slot is the card\'s says N pending, lists nothing and has no bulk pair', async () => {
+        const { document } = env;
+        await load([
+            berlin(2, '2026-10-22', '21:30', 'due'),
+            berlin(3, '2026-10-22', '21:30', 'due'),
+            berlin(1, '2026-10-23', '08:20', 'taken', { takenAt: '2026-10-23T06:24:00.000Z' }),
+        ]);
+        const yesterday = document.querySelector('section[data-local-date="2026-10-22"]');
+        expect(text(yesterday.querySelector('.wg-section__head .wg-meta'))).toBe('2 pending');
+        expect(yesterday.querySelector('.wg-timeline__row')).toBeNull();
+        expect(yesterday.querySelector('.wg-timeline__bulk')).toBeNull();
+    });
+
+    it('a multi-dose list row says Take N; a one-dose row says Take', async () => {
+        const { document } = env;
+        await load([
+            berlin(1, '2026-10-21', '08:20', 'due'),
+            berlin(2, '2026-10-22', '08:20', 'due'),
+            berlin(3, '2026-10-22', '08:20', 'due'),
+            berlin(1, '2026-10-22', '21:30', 'due'),
+            berlin(1, '2026-10-23', '08:20', 'taken', { takenAt: '2026-10-23T06:24:00.000Z' }),
+        ]);
+        const takeOf = (d) => Array.from(document.querySelectorAll(`section[data-local-date="${d}"] .wg-timeline__row .wg-row__trail button`)).map(text);
+        expect(takeOf('2026-10-22')).toEqual(['Skip', 'Take 2']);
+        expect(takeOf('2026-10-21')).toEqual(['Skip', 'Take']);
     });
 
     it('TL4 · no missed state: an old dose stays pending — no "missed" anywhere', async () => {
