@@ -15,6 +15,11 @@ export default async function foodPhoto(ctx) {
     const resumed = activity.split('\n').find((line) => line.includes('ResumedActivity')) || '';
     ctx.results.foodPhoto = { photoResumed: resumed };
     if (!/camera/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Photo did not open camera: ${resumed}`);
+    // The freshly booted emulator may put a launcher ANR over the camera. Back would dismiss
+    // that dialog instead of cancelling capture, so clear it before taking evidence or leaving.
+    if (await ctx.device.wait({ text: /.*isn['’]t responding.*/ }, { timeout: 2000 }).then(() => true, () => false)) {
+      await ctx.device.tap({ text: 'Wait' });
+    }
     await ctx.shot('photo-camera');
     await ctx.shell('input keyevent KEYCODE_BACK');
     await ctx.waitFor({ clazz: 'android.webkit.WebView' });
