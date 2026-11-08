@@ -212,7 +212,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             // Extensions (".json") become MIME types; one the phone doesn't know lifts the filter.
             val mimes = types.map { if (it.startsWith(".")) MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.drop(1)) else it }
             val images = mimes.any { it != null && it.startsWith("image/") }
-            val open = { openChooser(mimes.takeIf { m -> m.isNotEmpty() && m.all { it != null } }?.filterNotNull(), images, params.mode) }
+            val capture = params.isCaptureEnabled
+            val open = { openChooser(mimes.takeIf { m -> m.isNotEmpty() && m.all { it != null } }?.filterNotNull(), images, params.mode, capture) }
             if (images && !granted(Manifest.permission.CAMERA)) {
                 // Ask once; the chooser opens either way, with the camera only if allowed.
                 afterCamera = open
@@ -239,26 +240,26 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
         }
     }
 
-    private fun openChooser(mimes: List<String>?, images: Boolean, mode: Int) {
+    private fun openChooser(mimes: List<String>?, images: Boolean, mode: Int, capture: Boolean) {
         val pick = Intent(Intent.ACTION_GET_CONTENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("*/*")
             .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE)
         if (mimes != null) pick.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
-        val extras = mutableListOf<Intent>()
+        var camera: Intent? = null
         shot = null
         if (images && granted(Manifest.permission.CAMERA)) {
             runCatching {
                 val f = File(photos.apply { mkdirs() }, "photo-${System.currentTimeMillis()}.jpg")
                 val uri = FileProvider.getUriForFile(activity, authority, f)
-                extras += Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                camera = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
                     .putExtra(MediaStore.EXTRA_OUTPUT, uri)
                     .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     .apply { clipData = ClipData.newRawUri("", uri) }
                 shot = f
             }
         }
-        val intent = Intent.createChooser(pick, null).putExtra(Intent.EXTRA_INITIAL_INTENTS, extras.toTypedArray())
+        val intent = chooserIntent(pick, camera, capture)
         try {
             activity.startActivityForResult(intent, REQ_CHOOSER)
         } catch (e: ActivityNotFoundException) {
@@ -319,7 +320,13 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
 
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
 
-    private companion object {
+    internal companion object {
+        internal fun chooserIntent(pick: Intent, camera: Intent?, capture: Boolean): Intent {
+            if (capture && camera != null) return camera
+            return Intent.createChooser(pick, null)
+                .putExtra(Intent.EXTRA_INITIAL_INTENTS, listOfNotNull(camera).toTypedArray())
+        }
+
         /** window.wgFiles: downloads and print only; capability ops stay on wgNative. */
         const val BRIDGE = "wgFiles"
         const val REQ_SAVE = 0x5701

@@ -1,0 +1,16 @@
+id: food-photo-one-tap
+title: Food Photo opens the camera directly and Gallery opens the picker
+platforms: [android, ios]
+preconditions:
+  - Camera permission is granted and a camera app is available
+steps:
+  - In Food, tap Add and then Photo; take a photo
+  - Open Add again and tap Gallery; cancel the picker
+invariants:
+  - Photo opens the camera directly without a choice of camera or files
+  - The captured photo appears in the Add sheet review
+  - Gallery opens the picker and cancelling it logs nothing
+covered_by:
+  android: manual # Partial: android/app/src/test/java/com/example/medtracker/FilesTest.kt and android/qa/scenarios/food-photo.mjs cover intent selection and emulator flows; real camera and picker need a device
+  ios: manual
+source: [med-nt9p.66, med-w6gx.33]
