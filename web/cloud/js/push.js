@@ -440,7 +440,9 @@ async function pushScheduleInner(ctx, reminders, pref = {}, fence = null) {
     body: JSON.stringify(fence ? { entries, ...fence } : { entries }),
   });
   if (res.status === 409) return { stale: true };
-  if (res.status === 426) {
+  // Only the server's own gate body: a 426 from a proxy must not pause every
+  // upload for the page's lifetime.
+  if (res.status === 426 && (await res.json().catch(() => null))?.error === 'update_required') {
     markUpdateRequired();
     throw new Error('Update required — reload to keep syncing');
   }

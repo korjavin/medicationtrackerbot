@@ -322,11 +322,22 @@ describe('relay fencing: the schedule PUT is built from acknowledged state', () 
   it('a 426 on the schedule PUT raises the update-required surface and rejects', async () => {
     basis = { seq: 7, pending: 0 };
     markUpdateRequired.mockClear();
-    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return { ok: false, status: 426 }; });
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return new Response('{"error":"update_required"}', { status: 426 }); });
 
     await expect(recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' })).rejects.toThrow(/Update required/);
     expect(markUpdateRequired).toHaveBeenCalledTimes(1);
     expect(puts).toHaveLength(1);
+  });
+
+  // Rule-15 review: a 426 that is not the server's gate (a proxy, another
+  // cause) must not pause uploads for the page's lifetime.
+  it('a 426 with another body is a plain scheduling error, not the update surface', async () => {
+    basis = { seq: 7, pending: 0 };
+    markUpdateRequired.mockClear();
+    globalThis.fetch = vi.fn(async (url, init) => { puts.push(JSON.parse(init.body)); return new Response('upgrade required', { status: 426 }); });
+
+    await expect(recomputeAndPush(ctx, { records: records(), timeZone: 'UTC' })).rejects.toThrow('Could not schedule the reminder.');
+    expect(markUpdateRequired).not.toHaveBeenCalled();
   });
 
   it('a records port without horizonBasis sends the legacy unfenced body', async () => {
