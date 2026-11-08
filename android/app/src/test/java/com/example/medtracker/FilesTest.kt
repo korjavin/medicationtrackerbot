@@ -20,6 +20,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE)
@@ -88,6 +90,9 @@ class FilesTest {
         field.set(files, callback)
         pickerField.setBoolean(files, true)
         val missing = Uri.parse("content://media/picker/missing")
+        shadowOf(activity.contentResolver).registerInputStream(missing, object : InputStream() {
+            override fun read(): Int = throw IOException("fixture read failure")
+        })
         files.onActivityResult(Files.REQ_CHOOSER, Activity.RESULT_OK, Intent().setData(missing))
         shadowOf(Looper.getMainLooper()).idle()
         assertArrayEquals(arrayOf(missing), received)
