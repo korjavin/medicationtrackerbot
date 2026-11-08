@@ -1,4 +1,6 @@
-// Exercise the real Food tiles and Android's camera / chooser surfaces.
+// Standalone; clears the app. Grant CAMERA → launch local Food → Photo opens camera →
+// Back → Gallery opens chooser → Back → take and confirm a shot → Food review receives it.
+// The AI parser port is held pending for the final check, avoiding a live provider request.
 export default async function foodPhoto(ctx) {
   await ctx.shell(`pm clear ${ctx.pkg}`);
   await ctx.shell(`pm grant ${ctx.pkg} android.permission.CAMERA`);
