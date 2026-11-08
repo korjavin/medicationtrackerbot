@@ -55,7 +55,7 @@ export default async function foodPhoto(ctx) {
     const match = /Physical size: (\d+)x(\d+)/.exec(screen);
     if (!match) throw new Error(`no screen size: ${screen}`);
     // Temporary probe for the first image tile in the system picker.
-    await ctx.device.input.tap({ x: Math.round(Number(match[1]) * 0.17), y: Math.round(Number(match[2]) * 0.66) });
+    await ctx.device.input.tap({ x: Math.round(Number(match[1]) * 0.17), y: Math.round(Number(match[2]) * 0.34) });
     await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
     await page.waitForFunction(() => window.__qaGalleryPhoto?.size > 0, null, { timeout: 30_000 });
     ctx.results.foodPhoto.galleryReturned = await page.evaluate(() => window.__qaGalleryPhoto);
