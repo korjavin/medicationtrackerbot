@@ -1,0 +1,18 @@
+id: meds-focus-whole-slot
+title: The Meds Timeline focus card holds the whole latest pending slot, and one Take takes all of it
+platforms: [web, android, ios]
+preconditions:
+  - Five medications all due at 08:20 today, none taken, nothing else pending
+steps:
+  - Open Meds → Timeline
+  - Tap the focus card's Take 5
+invariants:
+  - The focus card's Pending part shows one 08:20 row naming all five medications, with Skip and a primary "Take 5"; there is no "+N more pending"
+  - None of the five is listed again under Today's Pending
+  - Take 5 logs all five doses at once
+  - '"+N more pending" counts only pending doses outside the card''s slot (a sixth dose left pending yesterday → "+1 more pending", the card still holds today''s 08:20)'
+covered_by:
+  web: web/static/js/tests/meds.timeline.test.js
+  android: manual  # data/logic only: web/static/js/tests/meds.timeline.test.js; the card is web-rendered in every shell
+  ios: manual  # data/logic only: web/static/js/tests/meds.timeline.test.js; the card is web-rendered in every shell
+source: [Zulip 20470, Zulip 20475, Zulip 20478, Zulip 20479, bd med-ry7b.8]

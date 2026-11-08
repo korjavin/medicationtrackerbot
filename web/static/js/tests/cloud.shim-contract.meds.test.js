@@ -2306,9 +2306,10 @@ describe('account zone floor — one projection zone per account (bd med-wi09.19
 });
 
 // bd med-2l38 — five doses of one 08:20 Tbilisi slot stored UNTAKEN rev 2 (taken
-// and undone the night before, the raw rows of the report). Focus Take, then
-// Today's take sheet for the rest: every write lands, and the Timeline and
-// Today's pending set agree after each, with no reload.
+// and undone the night before, the raw rows of the report). Today's take sheet
+// for four, then Focus Take for the last: every write lands, and the Timeline
+// and Today's pending set agree after each, with no reload. (The card holds
+// the whole slot since bd med-ry7b.8, so the sheet goes first to leave it one.)
 describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
     const TZ = 'Asia/Tbilisi';
     const SLOT = 1792988400; // 2026-10-26 08:20 Tbilisi
@@ -2339,7 +2340,7 @@ describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
         delete globalThis.fetch;
     });
 
-    it('Focus Take, then Today\'s sheet for the rest: every write lands, Timeline and Today agree after each, no reload', async () => {
+    it('Today\'s sheet for four, then Focus Take for the last: every write lands, Timeline and Today agree after each, no reload', async () => {
         env = loadCloudShimFrontendEnv({ seedRecords: seed(), now: () => NOW, timeZone: TZ });
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); // the take's relay cancel-refire
         const { window, document } = env;
@@ -2375,24 +2376,32 @@ describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
         expect(timelineDue()).toEqual(MED_IDS.map(occ).sort());
         expect(await todayDue()).toEqual(MED_IDS.map(occ).sort());
 
-        // Focus holds one dose: its Take writes that one (UNTAKEN acts like
-        // PENDING — no refusal), and Today's Next up drops the same one.
-        const first = focusRow().dataset.occIds;
-        focusRow().querySelector('.wg-btn--primary').click();
+        // The card holds the whole slot: one row, Take 5.
+        expect(focusRow().dataset.occIds.split(' ').sort()).toEqual(MED_IDS.map(occ).sort());
+        expect(focusRow().querySelector('.wg-btn--primary').textContent.trim()).toBe('Take 5');
+
+        // Today's sheet with one dose unticked: four land (UNTAKEN acts like
+        // PENDING — no refusal), and both surfaces keep the same one.
+        root.querySelector('[data-section="next-up"] [data-action="log-missed"]').click();
+        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(5));
+        document.querySelector('#med-confirm-list .med-confirm-check').click();
+        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]')).toHaveLength(4));
+        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
         await vi.waitFor(() => expect(acts).toHaveLength(1));
-        expect(acts[0]).toMatchObject({ updated: 1, failed: 0 });
-        await vi.waitFor(async () => expect(await stored()).toEqual([first]));
-        const rest = MED_IDS.map(occ).filter((id) => id !== first).sort();
+        expect(acts[0]).toMatchObject({ updated: 4, failed: 0 });
+        await vi.waitFor(async () => expect(await stored()).toHaveLength(4));
+        const taken = await stored();
+        const rest = MED_IDS.map(occ).filter((id) => !taken.includes(id));
+        expect(rest).toHaveLength(1);
         await vi.waitFor(() => expect(timelineDue()).toEqual(rest));
         expect(await todayDue()).toEqual(rest);
 
-        // Today's sheet on the rest of the slot: all four land, both surfaces
-        // empty, the Focus card is done.
-        root.querySelector('[data-section="next-up"] [data-action="log-missed"]').click();
-        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(4));
-        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+        // Focus now holds the last dose: its Take writes that one; both
+        // surfaces empty, the Focus card is done.
+        await vi.waitFor(() => expect(focusRow().dataset.occIds).toBe(rest[0]));
+        focusRow().querySelector('.wg-btn--primary').click();
         await vi.waitFor(() => expect(acts).toHaveLength(2));
-        expect(acts[1]).toMatchObject({ updated: 4, failed: 0 });
+        expect(acts[1]).toMatchObject({ updated: 1, failed: 0 });
         await vi.waitFor(async () => expect(await stored()).toEqual(MED_IDS.map(occ).sort()));
         await vi.waitFor(() => expect(timelineDue()).toEqual([]));
         expect(await todayDue()).toEqual([]);
