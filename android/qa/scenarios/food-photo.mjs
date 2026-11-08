@@ -1,6 +1,8 @@
 // Standalone; clears the app. Gallery and barcode Use photo open the picker without CAMERA →
 // Photo asks for CAMERA and opens camera → Back → take and confirm a shot → Food review receives it.
 // The AI parser port is held pending for the final check, avoiding a live provider request.
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 export default async function foodPhoto(ctx) {
   await ctx.shell(`pm clear ${ctx.pkg}`);
   const page = await ctx.launchLocal('today');
@@ -26,6 +28,44 @@ export default async function foodPhoto(ctx) {
     await page.locator('#food-add-gallery-btn').waitFor({ state: 'visible' });
     if (await page.locator('#food-add-review-list').isVisible()) throw new Error('Cancellation opened Food review');
   });
+  await ctx.step('Gallery selected JPEG reaches Food review', async () => {
+    const bytes = readFileSync('docs/logo.jpg');
+    const expected = createHash('sha256').update(bytes).digest('hex');
+    const file = '/sdcard/Pictures/qa-gallery-real.jpg';
+    await ctx.device.push(bytes, file);
+    await ctx.shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${file}`);
+    await ctx.sleep(5000);
+    await page.evaluate(() => {
+      window.CloudFoodAI.parseMealFromPhoto = (file) => {
+        file.arrayBuffer().then(async (bytes) => {
+          const hash = await crypto.subtle.digest('SHA-256', bytes);
+          window.__qaGalleryPhoto = { size: bytes.byteLength, type: file.type,
+            sha256: [...new Uint8Array(hash)].map(x => x.toString(16).padStart(2, '0')).join('') };
+        });
+        return new Promise(() => {});
+      };
+    });
+    await page.click('#food-add-gallery-btn');
+    await ctx.waitFor({ text: 'Photos' });
+    await ctx.sleep(3000);
+    await ctx.shot('gallery-seeded');
+    await ctx.shell('uiautomator dump /sdcard/gallery-seeded.xml');
+    ctx.results.foodPhoto.seededUi = await ctx.shell('cat /sdcard/gallery-seeded.xml');
+    const screen = await ctx.shell('wm size');
+    const match = /Physical size: (\d+)x(\d+)/.exec(screen);
+    if (!match) throw new Error(`no screen size: ${screen}`);
+    // Temporary probe for the first image tile in the system picker.
+    await ctx.device.input.tap({ x: Math.round(Number(match[1]) * 0.17), y: Math.round(Number(match[2]) * 0.66) });
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
+    await page.waitForFunction(() => window.__qaGalleryPhoto?.size > 0, null, { timeout: 30_000 });
+    ctx.results.foodPhoto.galleryReturned = await page.evaluate(() => window.__qaGalleryPhoto);
+    ctx.results.foodPhoto.galleryExpected = { size: bytes.length, type: 'image/jpeg', sha256: expected };
+    if (ctx.results.foodPhoto.galleryReturned.sha256 !== expected || ctx.results.foodPhoto.galleryReturned.type !== 'image/jpeg') throw new Error('Selected image bytes differ from seeded JPEG');
+    await page.locator('#food-add-review-list').waitFor({ state: 'visible' });
+    await ctx.shot('gallery-review');
+    await ctx.shell(`rm -f ${file}`);
+  });
+  return;
   await ctx.step('Barcode Use photo opens the picker without camera permission', async () => {
     // Isolate the still-image path: disable live barcode scanning so opening the scanner
     // does not itself request camera access before the Use photo button is tapped.
