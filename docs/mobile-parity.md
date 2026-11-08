@@ -36,7 +36,7 @@ Re-audited 2026-10-23 for iOS (bd med-w6gx.26) over `1ff23578..ab598cd5`: two iO
 | Mode-switch restore: Replace / Merge / Cancel choice, silent pickup Cancel, orphan-intake guard | ✓ | ✓ | parity: shared web (med-o7zq.37, .38, .40, .41, .42) |
 | Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
 | `window.print()` → native print (incl. the offscreen print-doc iframe) | ✓ (med-w6gx.11) | ✓ (med-nt9p.10) | parity |
-| File chooser (`<input type=file>`, `.age` restore) | ✓ (med-2au7) | ✓ `ACTION_GET_CONTENT` `*/*` + `EXTRA_MIME_TYPES`; capture opens camera directly (med-nt9p.10, med-nt9p.66) | parity |
+| File chooser (`<input type=file>`, `.age` restore) | ✓ (med-2au7) | ✓ `ACTION_GET_CONTENT` `*/*` + `EXTRA_MIME_TYPES`; capture opens camera directly (med-nt9p.10, med-nt9p.66); image inputs without capture open the system photo picker (med-nt9p.67) | parity |
 | Anonymous trial attestation (AI, food DB, voice) | App Attest (med-o7zq.16, .20, .23) | Play Integrity client shipped (med-nt9p.32.8.4), device-recall flag OFF | divergent: platform API; Android owner checks open: med-nt9p.32.8.5, .32.8.7, .32.8.9 |
 | Trial reinstall rejoins the same device bucket | ✓ keychain pass (med-o7zq.26) | ✓ `wg_trial` prefs in the backup rules (med-nt9p.32.8.4, .32.5) | parity |
 | Health data (BP + weight; sleep + workouts; steps, HR, SpO2) | HealthKit (med-w6gx.6, .7; steps/HR/SpO2 med-0xad.2) | Health Connect (med-nt9p.8, .9; steps/HR/SpO2 med-0xad.3) | divergent: platform API; iOS follow-ups med-w6gx.18 open |

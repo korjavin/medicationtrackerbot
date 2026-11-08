@@ -214,8 +214,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             val images = mimes.any { it != null && it.startsWith("image/") }
             val capture = params.isCaptureEnabled
             val open = { openChooser(mimes.takeIf { m -> m.isNotEmpty() && m.all { it != null } }?.filterNotNull(), images, params.mode, capture) }
-            if (images && !granted(Manifest.permission.CAMERA)) {
-                // Ask once; the chooser opens either way, with the camera only if allowed.
+            if (capture && images && !granted(Manifest.permission.CAMERA)) {
+                // Ask once; a denied request falls back to the photo picker.
                 afterCamera = open
                 activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
             } else {
@@ -248,7 +248,7 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
         if (mimes != null) pick.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
         var camera: Intent? = null
         shot = null
-        if (images && granted(Manifest.permission.CAMERA)) {
+        if (capture && images && granted(Manifest.permission.CAMERA)) {
             runCatching {
                 val f = File(photos.apply { mkdirs() }, "photo-${System.currentTimeMillis()}.jpg")
                 val uri = FileProvider.getUriForFile(activity, authority, f)
@@ -259,7 +259,7 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
                 shot = f
             }
         }
-        val intent = chooserIntent(pick, camera, capture)
+        val intent = chooserIntent(pick, camera, capture, mimes, mode)
         try {
             activity.startActivityForResult(intent, REQ_CHOOSER)
         } catch (e: ActivityNotFoundException) {
@@ -321,10 +321,18 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
     private fun toast(text: String) = Toast.makeText(activity, text, Toast.LENGTH_SHORT).show()
 
     internal companion object {
-        internal fun chooserIntent(pick: Intent, camera: Intent?, capture: Boolean): Intent {
+        internal fun chooserIntent(pick: Intent, camera: Intent?, capture: Boolean, mimes: List<String>?, mode: Int): Intent {
             if (capture && camera != null) return camera
+            if (!mimes.isNullOrEmpty() && mimes.all { it.startsWith("image/") || it.startsWith("video/") }) {
+                return Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+                    if (mimes.all { it.startsWith("image/") }) type = "image/*"
+                    else if (mimes.all { it.startsWith("video/") }) type = "video/*"
+                    if (mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                        putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, MediaStore.getPickImagesMaxLimit())
+                    }
+                }
+            }
             return Intent.createChooser(pick, null)
-                .putExtra(Intent.EXTRA_INITIAL_INTENTS, listOfNotNull(camera).toTypedArray())
         }
 
         /** window.wgFiles: downloads and print only; capability ops stay on wgNative. */
