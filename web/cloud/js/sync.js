@@ -93,7 +93,9 @@ let authExpired = false;
 // the new build, which clears it and re-posts the queue unchanged.
 let updateRequired = false;
 let onUpdateRequired = null;
-function markUpdateRequired() {
+// Exported for push.js: a 426 on the schedule PUT (med-wi09.22) raises the
+// same surface.
+export function markUpdateRequired() {
   offline = false;
   if (updateRequired) return;
   updateRequired = true;

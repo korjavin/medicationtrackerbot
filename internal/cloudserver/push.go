@@ -56,8 +56,7 @@ type pushStore interface {
 	UpsertPushSubscription(ctx context.Context, accountID, endpoint, p256dh, auth string, now time.Time) error
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
-	ReplaceScheduleFenced(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, fence *cloudstore.ScheduleFence, now time.Time) error
-	GetLedgerCut(ctx context.Context, accountID string) (cloudstore.LedgerCut, error)
+	ReplaceScheduleFenced(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, fence *cloudstore.ScheduleFence, ledgerV2 bool, now time.Time) error
 	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
@@ -339,26 +338,14 @@ type putScheduleRequest struct {
 // The schedule encodes the dose engine's view, so it takes the sync writer
 // gate (bd med-wi09.22): a PUT without X-Ledger: 2 on an account with a
 // ledger cut is refused with 426 {error:"update_required"} and the stored
-// schedule is left as it was. A failed cut read is a 500, never a pass.
+// schedule is left as it was. The cut is checked inside the replace
+// transaction (cloudstore.ReplaceScheduleFenced), as the sync gate does.
 func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !ledgerV2(r) {
-		cut, err := a.store.GetLedgerCut(r.Context(), session.AccountID)
-		if err != nil {
-			slog.Error("push: schedule ledger cut", "accountID", session.AccountID, "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if cut.Seq != nil {
-			writeUpdateRequired(w, session.AccountID, "push/schedule")
-			return
-		}
-	}
-
 	var req putScheduleRequest
 	r.Body = http.MaxBytesReader(w, r.Body, maxScheduleBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -427,7 +414,11 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := a.store.ReplaceScheduleFenced(r.Context(), session.AccountID, entries, fence, time.Now().UTC()); err != nil {
+	if err := a.store.ReplaceScheduleFenced(r.Context(), session.AccountID, entries, fence, ledgerV2(r), time.Now().UTC()); err != nil {
+		if errors.Is(err, cloudstore.ErrUpdateRequired) {
+			writeUpdateRequired(w, session.AccountID, "push/schedule")
+			return
+		}
 		if errors.Is(err, cloudstore.ErrScheduleStale) {
 			// The client pulls, rebuilds and PUTs again (web/cloud/js/reminders.js).
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "stale_schedule"})

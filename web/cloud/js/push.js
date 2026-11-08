@@ -6,7 +6,7 @@
 // an installed PWA, so the prompt is gated behind installed state per
 // docs/cloud-mode.md Onboarding ("install first, then enable push").
 import { encryptPushPayload, toBase64 } from './crypto.js';
-import { getOrCreateNK, hasRichNotifications, disableRichNotifications, WRITE_HEADERS } from './sync.js';
+import { getOrCreateNK, hasRichNotifications, disableRichNotifications, WRITE_HEADERS, markUpdateRequired } from './sync.js';
 import { openDb } from './localdb.js';
 import { reminderDeeplink } from './reminder-deeplink.js';
 import { isIOS, isMobile } from './platform.js';
@@ -432,14 +432,18 @@ async function pushScheduleInner(ctx, reminders, pref = {}, fence = null) {
     entries.push(entry);
   }
   // X-Ledger: 2 (WRITE_HEADERS): the schedule encodes the dose engine's view,
-  // so it takes the sync writer gate (med-wi09.22). This build always sends
-  // the header, so only an older bundle can get that 426 here.
+  // so it takes the sync writer gate (med-wi09.22); a 426 raises the same
+  // "Update required — reload" surface as a sync write.
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: WRITE_HEADERS,
     body: JSON.stringify(fence ? { entries, ...fence } : { entries }),
   });
   if (res.status === 409) return { stale: true };
+  if (res.status === 426) {
+    markUpdateRequired();
+    throw new Error('Update required — reload to keep syncing');
+  }
   if (!res.ok) throw new Error('Could not schedule the reminder.');
 }
 
