@@ -4,6 +4,12 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 export default async function foodPhoto(ctx) {
+  const bytes = readFileSync('docs/logo.jpg');
+  const expected = createHash('sha256').update(bytes).digest('hex');
+  const file = '/sdcard/Pictures/qa-gallery-real.jpg';
+  await ctx.device.push(bytes, file);
+  await ctx.shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${file}`);
+  await ctx.sleep(20000);
   await ctx.shell(`pm clear ${ctx.pkg}`);
   const page = await ctx.launchLocal('today');
   await page.evaluate(() => window.switchTab('food'));
@@ -29,12 +35,6 @@ export default async function foodPhoto(ctx) {
     if (await page.locator('#food-add-review-list').isVisible()) throw new Error('Cancellation opened Food review');
   });
   await ctx.step('Gallery selected JPEG reaches Food review', async () => {
-    const bytes = readFileSync('docs/logo.jpg');
-    const expected = createHash('sha256').update(bytes).digest('hex');
-    const file = '/sdcard/Pictures/qa-gallery-real.jpg';
-    await ctx.device.push(bytes, file);
-    await ctx.shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${file}`);
-    await ctx.sleep(5000);
     await page.evaluate(() => {
       window.CloudFoodAI.parseMealFromPhoto = (file) => {
         file.arrayBuffer().then(async (bytes) => {
