@@ -336,7 +336,7 @@ class Files(
         var copy: File? = null
         return try {
             val mime = activity.contentResolver.getType(uri)
-            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
+            val ext = mime?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) } ?: "jpg"
             photos.mkdirs()
             val dest = File.createTempFile("pick-", ".$ext", photos)
             copy = dest
