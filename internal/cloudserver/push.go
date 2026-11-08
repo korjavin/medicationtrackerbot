@@ -336,11 +336,10 @@ type putScheduleRequest struct {
 // refused with 409 when it was built from an older acknowledged seq than the
 // stored horizon under the same generation (cloudstore.ReplaceScheduleFenced).
 //
-// The schedule encodes the dose engine's view, so it will take the sync
-// writer gate. For now (bd med-wi09.20) a header-less PUT on an account with
-// a ledger cut is only logged; the 426 ships in med-wi09.22 once prod logs
-// show no such PUTs for 48h (the bundle before med-wi09.20 sets the cut but
-// sends no X-Ledger here).
+// The schedule encodes the dose engine's view, so it takes the sync writer
+// gate (bd med-wi09.22): a PUT without X-Ledger: 2 on an account with a
+// ledger cut is refused with 426 {error:"update_required"} and the stored
+// schedule is left as it was. A failed cut read is a 500, never a pass.
 func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
@@ -348,12 +347,15 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ledgerV2(r) {
-		// Diagnostic only while log-only: a failed read never refuses the PUT.
 		cut, err := a.store.GetLedgerCut(r.Context(), session.AccountID)
 		if err != nil {
 			slog.Error("push: schedule ledger cut", "accountID", session.AccountID, "error", err)
-		} else if cut.Seq != nil {
-			slog.Warn("push schedule: header-less PUT on cut account", "account", session.AccountID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if cut.Seq != nil {
+			writeUpdateRequired(w, session.AccountID, "push/schedule")
+			return
 		}
 	}
 

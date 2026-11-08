@@ -331,10 +331,10 @@ func TestNativeTokens_Routes(t *testing.T) {
 	}
 }
 
-// TestPutSchedule_WriterGate guards bd med-wi09.20's log-only phase: a PUT
-// /api/push/schedule without X-Ledger: 2 still replaces the schedule (204)
-// before and after the account's ledger cut; the after-cut case is only
-// logged until med-wi09.22 turns it into a 426.
+// TestPutSchedule_WriterGate guards bd med-wi09.22: before the account's
+// ledger cut a PUT /api/push/schedule replaces the schedule with or without
+// X-Ledger: 2; after the cut a header-less PUT is 426 {error:"update_required"}
+// and leaves the schedule as it was, while X-Ledger: 2 still replaces it.
 func TestPutSchedule_WriterGate(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -349,7 +349,7 @@ func TestPutSchedule_WriterGate(t *testing.T) {
 	session := registerAndGetSession(t, h, host, claimToken)
 
 	fireAt := time.Now().Add(time.Hour).Unix()
-	put := func(v2 bool, ct string) int {
+	put := func(v2 bool, ct string) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{{FireAtUnix: fireAt, CT: []byte(ct)}}})
 		r := httptest.NewRequest(http.MethodPut, "/api/push/schedule", bytes.NewReader(raw))
 		r.Host = host
@@ -359,7 +359,7 @@ func TestPutSchedule_WriterGate(t *testing.T) {
 		}
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, r)
-		return rec.Code
+		return rec
 	}
 	scheduled := func() string {
 		due, err := store.DueScheduledPushes(t.Context(), time.Now().Add(2*time.Hour))
@@ -376,10 +376,10 @@ func TestPutSchedule_WriterGate(t *testing.T) {
 	}
 
 	// No cut yet: both writers pass, as with sync.
-	if code := put(false, "old-1"); code != http.StatusNoContent {
+	if code := put(false, "old-1").Code; code != http.StatusNoContent {
 		t.Fatalf("pre-cut PUT without header = %d, want 204", code)
 	}
-	if code := put(true, "new-1"); code != http.StatusNoContent {
+	if code := put(true, "new-1").Code; code != http.StatusNoContent {
 		t.Fatalf("pre-cut PUT with header = %d, want 204", code)
 	}
 
@@ -387,13 +387,13 @@ func TestPutSchedule_WriterGate(t *testing.T) {
 		t.Fatalf("AppendOps ledgercut: %v", err)
 	}
 
-	if code := put(false, "old-2"); code != http.StatusNoContent {
-		t.Fatalf("post-cut PUT without header = %d, want 204 (log-only until med-wi09.22)", code)
+	if rec := put(false, "old-2"); rec.Code != http.StatusUpgradeRequired || strings.TrimSpace(rec.Body.String()) != `{"error":"update_required"}` {
+		t.Fatalf("post-cut PUT without header = %d %q, want 426 update_required", rec.Code, rec.Body.String())
 	}
-	if got := scheduled(); got != "old-2" {
-		t.Fatalf("schedule after header-less PUT = %q, want old-2", got)
+	if got := scheduled(); got != "new-1" {
+		t.Fatalf("schedule after refused header-less PUT = %q, want new-1 untouched", got)
 	}
-	if code := put(true, "new-2"); code != http.StatusNoContent {
+	if code := put(true, "new-2").Code; code != http.StatusNoContent {
 		t.Fatalf("post-cut PUT with header = %d, want 204", code)
 	}
 	if got := scheduled(); got != "new-2" {

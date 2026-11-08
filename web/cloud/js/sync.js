@@ -106,8 +106,8 @@ function isUpdateRequiredStatus(status) {
 // med-wi09.12): once the account's ledger cut is set the server answers 426 to
 // a writer without it (med-wi09.8). A header only — queued legacy payloads go
 // up unchanged and the intake reducer still ranks them legacy. The reminder
-// schedule PUT (push.js) sends the same headers: it gets the same gate in
-// med-wi09.22 (logged only until then, med-wi09.20).
+// schedule PUT (push.js) sends the same headers and takes the same gate
+// (med-wi09.22).
 export const WRITE_HEADERS = { 'Content-Type': 'application/json', 'X-Ledger': '2' };
 // The dose-ledger generation this bundle derives with — the X-Ledger number.
 // The reminder horizon PUT carries it as `generation` (relay fencing, bd
