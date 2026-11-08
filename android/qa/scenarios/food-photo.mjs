@@ -1,7 +1,17 @@
 // Standalone; clears the app. Gallery and barcode Use photo open the picker without CAMERA →
 // Photo asks for CAMERA and opens camera → Back → take and confirm a shot → Food review receives it.
-// The AI parser port is held pending for the final check, avoiding a live provider request.
+// Then a seeded JPEG is selected from Gallery and its bytes are read in Food review.
+// The AI parser port is held pending, avoiding a live provider request.
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+
 export default async function foodPhoto(ctx) {
+  const bytes = readFileSync('docs/logo.jpg');
+  const expected = createHash('sha256').update(bytes).digest('hex');
+  const file = '/sdcard/Pictures/qa-gallery-real.jpg';
+  await ctx.device.push(bytes, file);
+  await ctx.shell(`am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${file}`);
+  await ctx.sleep(20000);
   await ctx.shell(`pm clear ${ctx.pkg}`);
   const page = await ctx.launchLocal('today');
   await page.evaluate(() => window.switchTab('food'));
@@ -93,5 +103,40 @@ export default async function foodPhoto(ctx) {
     ctx.results.foodPhoto.returned = await page.evaluate(() => window.__qaFoodPhoto);
     await page.locator('#food-add-review-list').waitFor({ state: 'visible' });
     await ctx.shot('photo-review');
+  });
+  await ctx.step('Gallery selected JPEG reaches Food review', async () => {
+    await page.click('#food-add-close-btn');
+    await page.evaluate(() => window.showAddFoodModal());
+    await page.locator('#food-add-gallery-btn').waitFor({ state: 'visible' });
+    await page.evaluate(() => {
+      window.CloudFoodAI.parseMealFromPhoto = (file) => {
+        file.arrayBuffer().then(async (bytes) => {
+          const hash = await crypto.subtle.digest('SHA-256', bytes);
+          window.__qaGalleryPhoto = { size: bytes.byteLength, type: file.type,
+            sha256: [...new Uint8Array(hash)].map(x => x.toString(16).padStart(2, '0')).join('') };
+        }).catch((error) => { window.__qaGalleryError = `${error.name}: ${error.message}`; });
+        return new Promise(() => {});
+      };
+    });
+    await page.click('#food-add-gallery-btn');
+    await ctx.waitFor({ text: 'Photos' });
+    await ctx.sleep(3000);
+    await ctx.shot('gallery-seeded');
+    const screen = await ctx.shell('wm size');
+    const match = /Physical size: (\d+)x(\d+)/.exec(screen);
+    if (!match) throw new Error(`no screen size: ${screen}`);
+    // First thumbnail in the system picker on the portrait emulator.
+    await ctx.device.input.tap({ x: Math.round(Number(match[1]) * 0.17), y: Math.round(Number(match[2]) * 0.34) });
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' }, 30_000);
+    await page.waitForFunction(() => window.__qaGalleryPhoto?.size > 0 || window.__qaGalleryError, null, { timeout: 30_000 });
+    const error = await page.evaluate(() => window.__qaGalleryError);
+    if (error) throw new Error(`Selected JPEG read failed: ${error}`);
+    ctx.results.foodPhoto.galleryReturned = await page.evaluate(() => window.__qaGalleryPhoto);
+    ctx.results.foodPhoto.galleryExpected = { size: bytes.length, type: 'image/jpeg', sha256: expected };
+    const actual = ctx.results.foodPhoto.galleryReturned;
+    if (actual.sha256 !== expected || actual.size !== bytes.length || actual.type !== 'image/jpeg') throw new Error('Selected image bytes differ from seeded JPEG');
+    await page.locator('#food-add-review-list').waitFor({ state: 'visible' });
+    await ctx.shot('gallery-review');
+    await ctx.shell(`rm -f ${file}`);
   });
 }

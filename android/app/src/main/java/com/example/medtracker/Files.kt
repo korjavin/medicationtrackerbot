@@ -18,6 +18,7 @@ import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.provider.MediaStore
 import android.util.Base64
+import android.util.Log
 import android.webkit.MimeTypeMap
 import android.webkit.PermissionRequest
 import android.webkit.URLUtil
@@ -32,6 +33,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -41,7 +43,12 @@ import java.util.UUID
  * sends the first two over window.wgFiles, the WebChromeClient does the rest.
  * Only the account's own top-level page (accountHost) is answered or granted.
  */
-class Files(private val activity: Activity, private val accountHost: () -> String?) {
+class Files(
+    private val activity: Activity,
+    private val pickerFileUri: (File) -> Uri = { FileProvider.getUriForFile(activity, "${activity.packageName}.files", it) },
+    private val copyAsync: (() -> Unit) -> Unit = { Thread(it, "picker-copy").start() },
+    private val accountHost: () -> String?,
+) {
     /** Temp files: a download until it is saved (or the next one), camera shots for the page to read. */
     private val downloads = File(activity.cacheDir, "downloads")
     private val photos = File(activity.cacheDir, "photos")
@@ -49,6 +56,7 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
     private var pendingSave: File? = null
     private var chooser: ValueCallback<Array<Uri>>? = null
     private var shot: File? = null
+    private var pickerResult = false
     private var afterCamera: (() -> Unit)? = null
     private var grant: PermissionRequest? = null
     private var printView: WebView? = null // held until its print job no longer needs it (the next print)
@@ -176,6 +184,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
 
     /** MainActivity.onDestroy: a print view still waiting for its job. */
     fun destroy() {
+        chooser?.onReceiveValue(null)
+        chooser = null
         printView?.let { releasePrintView(it) }
     }
 
@@ -260,11 +270,13 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             }
         }
         val intent = chooserIntent(pick, camera, capture, mimes, mode)
+        pickerResult = intent.action == MediaStore.ACTION_PICK_IMAGES
         try {
             activity.startActivityForResult(intent, REQ_CHOOSER)
         } catch (e: ActivityNotFoundException) {
             chooser?.onReceiveValue(null)
             chooser = null
+            pickerResult = false
         }
     }
 
@@ -285,7 +297,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             }
             REQ_CHOOSER -> {
                 val cb = chooser ?: return true
-                chooser = null
+                val copyPicker = pickerResult
+                pickerResult = false
                 val photo = shot?.takeIf { it.length() > 0 }
                 shot = null
                 val clip = data?.clipData
@@ -297,11 +310,48 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
                     photo != null -> arrayOf(FileProvider.getUriForFile(activity, authority, photo))
                     else -> null
                 }
-                cb.onReceiveValue(picked)
+                if (copyPicker && picked != null) {
+                    // Keep this callback pending until its copy completes. A new chooser or
+                    // destroy cancels it; an old worker must never answer a newer request.
+                    copyAsync {
+                        val copied = picked.map { copyPickerUri(it) }.toTypedArray()
+                        activity.runOnUiThread {
+                            if (chooser === cb) {
+                                chooser = null
+                                cb.onReceiveValue(copied)
+                            }
+                        }
+                    }
+                } else {
+                    chooser = null
+                    cb.onReceiveValue(picked)
+                }
             }
             else -> return false
         }
         return true
+    }
+
+    private fun copyPickerUri(uri: Uri): Uri {
+        var copy: File? = null
+        return try {
+            val mime = activity.contentResolver.getType(uri)
+            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
+            photos.mkdirs()
+            val dest = File.createTempFile("pick-", ".$ext", photos)
+            copy = dest
+            val input = activity.contentResolver.openInputStream(uri) ?: throw IOException("No picker stream")
+            input.use { source -> dest.outputStream().use { source.copyTo(it) } }
+            pickerFileUri(dest)
+        } catch (e: IOException) {
+            copy?.delete()
+            Log.w("Files", "Could not copy a picked file; using its original URI", e)
+            uri
+        } catch (e: SecurityException) {
+            copy?.delete()
+            Log.w("Files", "Could not copy a picked file; using its original URI", e)
+            uri
+        }
     }
 
     fun onRequestPermissionsResult(requestCode: Int): Boolean {
