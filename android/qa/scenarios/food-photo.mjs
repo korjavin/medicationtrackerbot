@@ -18,6 +18,8 @@ export default async function foodPhoto(ctx) {
     if (!/photopicker/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Gallery did not open picker: ${resumed}`);
     const permissions = await ctx.shell(`dumpsys package ${ctx.pkg}`);
     if (!/android\.permission\.CAMERA: granted=false/.test(permissions)) throw new Error('Gallery granted CAMERA unexpectedly');
+    // waitFor dismisses the emulator's occasional launcher ANR before Back is sent.
+    await ctx.waitFor({ text: 'Photos' });
     await ctx.shot('gallery-picker');
     await ctx.shell('input keyevent KEYCODE_BACK');
     await ctx.waitFor({ clazz: 'android.webkit.WebView' });
@@ -38,6 +40,7 @@ export default async function foodPhoto(ctx) {
     if (!/photopicker/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Barcode photo did not open picker: ${resumed}`);
     const permissions = await ctx.shell(`dumpsys package ${ctx.pkg}`);
     if (!/android\.permission\.CAMERA: granted=false/.test(permissions)) throw new Error('Barcode photo granted CAMERA unexpectedly');
+    await ctx.waitFor({ text: 'Photos' });
     await ctx.shot('barcode-picker');
     await ctx.shell('input keyevent KEYCODE_BACK');
     await ctx.waitFor({ clazz: 'android.webkit.WebView' });
