@@ -1,5 +1,5 @@
-// Standalone; clears the app. Gallery opens picker without CAMERA → Back → Photo asks for
-// CAMERA and opens camera → Back → take and confirm a shot → Food review receives it.
+// Standalone; clears the app. Gallery and barcode Use photo open the picker without CAMERA →
+// Photo asks for CAMERA and opens camera → Back → take and confirm a shot → Food review receives it.
 // The AI parser port is held pending for the final check, avoiding a live provider request.
 export default async function foodPhoto(ctx) {
   await ctx.shell(`pm clear ${ctx.pkg}`);
@@ -23,6 +23,26 @@ export default async function foodPhoto(ctx) {
     await ctx.waitFor({ clazz: 'android.webkit.WebView' });
     await page.locator('#food-add-gallery-btn').waitFor({ state: 'visible' });
     if (await page.locator('#food-add-review-list').isVisible()) throw new Error('Cancellation opened Food review');
+  });
+  await ctx.step('Barcode Use photo opens the picker without camera permission', async () => {
+    // Isolate the still-image path: disable live barcode scanning so opening the scanner
+    // does not itself request camera access before the Use photo button is tapped.
+    await page.evaluate(() => { window.Barcode.supportsLiveScan = () => false; });
+    await page.click('#food-add-scan-btn');
+    await page.locator('#food-scanner-use-photo-btn').waitFor({ state: 'visible' });
+    await page.click('#food-scanner-use-photo-btn');
+    await ctx.sleep(5000);
+    const activity = await ctx.shell('dumpsys activity activities');
+    const resumed = activity.split('\n').find((line) => line.includes('ResumedActivity')) || '';
+    ctx.results.foodPhoto.barcodeResumed = resumed;
+    if (!/photopicker/i.test(resumed) || /intentresolver|chooser/i.test(resumed)) throw new Error(`Barcode photo did not open picker: ${resumed}`);
+    const permissions = await ctx.shell(`dumpsys package ${ctx.pkg}`);
+    if (!/android\.permission\.CAMERA: granted=false/.test(permissions)) throw new Error('Barcode photo granted CAMERA unexpectedly');
+    await ctx.shot('barcode-picker');
+    await ctx.shell('input keyevent KEYCODE_BACK');
+    await ctx.waitFor({ clazz: 'android.webkit.WebView' });
+    await page.click('#food-scanner-close-btn');
+    await page.locator('#food-add-photo-btn').waitFor({ state: 'visible' });
   });
   await ctx.step('Photo asks for camera and opens it directly', async () => {
     await page.click('#food-add-photo-btn');
