@@ -82,13 +82,14 @@ export async function foreground(ctx, page, r) {
   observation.returnStarted = Date.now();
   await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
   await page.waitForFunction(() => document.visibilityState === 'visible');
-  await ctx.sleep(1000); // observe native delivery before the explicit check stimulus
+  await ctx.sleep(1000);
   observation.returned = await snapshot();
-  // Run42159109277 observed no subsequent version/SW receipt after Home/return;
-  // that alone does not establish why. Record native events separately from
-  // this explicit DOM stimulus to the real, unchanged update listener.
-  observation.explicitSignalAt = Date.now();
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const events = (r?.documentEvents || []).filter((e) => e.trusted && e.type === 'visibilitychange' &&
+    e.timeOrigin === observation.before.timeOrigin && e.at >= observation.homeStarted);
+  const hidden = events.findIndex((e) => e.state === 'hidden' && e.at < observation.returnStarted);
+  if (hidden < 0 || !events.slice(hidden + 1).some((e) => e.state === 'visible' && e.at >= observation.returnStarted)) {
+    throw new Error(`native Home/return did not deliver trusted hidden then visible: ${JSON.stringify(events)}`);
+  }
   if (r) (r.foregrounds ||= []).push(observation);
 }
 
@@ -140,10 +141,15 @@ export default async function updateBanner(ctx) {
     r.switch = await control('/switch-b', {});
     const version = await page.evaluate(async () => (await (await fetch('/api/version', { cache: 'no-store' })).json()).build_id);
     if (version !== r.bundles.B.stamp) throw new Error(`real server not B: ${version}`);
+    // B was deployed while A stayed open: a real Home/return must recheck it.
+    await foreground(ctx, page, r);
+    await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
+    if (await page.locator('#cloud-update-banner').count() !== 1) throw new Error('real resume did not show exactly one notice');
+    await waitForWaitingWorker(page);
     r.beforeColdOpen = await state(page);
     r.coldOpenStarted = Date.now();
     // Archie17593: the primary trigger is a REAL native cold open, not an
-    // injected visibility event. B has not been asked to install in A yet.
+    // injected visibility event. B is already waiting after the resume check.
     await ctx.coldStart(`-n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
     page = await ctx.attachPage();
     if (!page) throw new Error('no account WebView after native cold open');
