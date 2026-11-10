@@ -119,9 +119,10 @@ export const LEDGER_GENERATION = 2;
 // The pull's ledger_cut_at is the account's cut; the local ledgercut singleton
 // carries it as `at` for the projection (medintake.js loadCutMs). A local-only
 // overwrite — the server already holds the cut, so nothing is queued.
-async function adoptLedgerCut(cutAt) {
+async function adoptLedgerCut(cutAt, epoch) {
   if (typeof cutAt !== 'string') return false;
   return withRecordsLock(async () => {
+    if (epochMoved(epoch)) return false;
     const existing = await getRecord(LEDGERCUT_RECORD_ID);
     if (existing && !existing.deleted && existing.at === cutAt) return false;
     await putRecord({
@@ -159,13 +160,17 @@ function withRecordsLock(fn) {
 // bd med-7jgk — bumped by resetLocalSync's wipe and by a dropped DB handle. A
 // bootstrap or tail pull that began before either lands neither its snapshot
 // nor its cursor: they predate the wipe and would overwrite the re-bootstrap,
-// or pair its records with a stale cursor. The check runs under the lock the
-// wipe takes, so it cannot pass and then lose the race to the wipe.
+// or pair its records with a stale cursor. Writes check it inside their
+// transaction callback, so withDb's reopen-and-retry (which drops, so bumps)
+// rechecks it, and a tx created before reset's bump runs before its wipe.
+// Merges (applyIncoming, adoptLedgerCut) check it under the records lock,
+// which reset's bump holds.
 let syncEpoch = 0;
+const epochMoved = (epoch) => epoch !== undefined && epoch !== syncEpoch;
 function writeMetaIfEpoch(epoch, patch) {
-  return withRecordsLock(async () => {
-    if (epoch !== syncEpoch) return false;
-    await writeMeta(patch);
+  return withStore('sync_meta', 'readwrite', (store) => {
+    if (epochMoved(epoch)) return false;
+    for (const [key, value] of Object.entries(patch)) store.put(value, key);
     return true;
   });
 }
@@ -526,13 +531,14 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
       }
       overlay.push(merge ? merge(r, snap) : r);
     }
-    // Checked last, right before the write: no IDB wait between check and tx.
-    if (epoch !== undefined && epoch !== syncEpoch) return false;
-    await withStore('records', 'readwrite', (store) => {
+    const wrote = await withStore('records', 'readwrite', (store) => {
+      if (epochMoved(epoch)) return false;
       store.clear();
       for (const record of records) store.put(record);
       for (const record of overlay) store.put(record);
+      return true;
     });
+    if (!wrote) return false;
     if (losingPending.length > 0) await clearPending(losingPending);
     for (const r of repairs) await markPending(r.recordId, r.recordType);
     return true;
@@ -922,8 +928,11 @@ async function putRepair(recordType, winner, a, b) {
   await markPending(winner.recordId, recordType);
 }
 
-async function applyIncoming(recordType, record) {
+// Returns EPOCH_MOVED, applying nothing, once `epoch` moved (bd med-7jgk).
+const EPOCH_MOVED = Symbol('epochMoved');
+async function applyIncoming(recordType, record, epoch) {
   return withRecordsLock(async () => {
+    if (epochMoved(epoch)) return EPOCH_MOVED;
     const existing = await getRecord(record.recordId);
     const policy = MERGE_POLICY[recordType];
     if (policy) {
@@ -1123,7 +1132,8 @@ async function pullTail(ctx) {
       continue;
     }
     const applied = new Set();
-    if (await adoptLedgerCut(body.ledger_cut_at)) applied.add(LEDGERCUT_RECORD_TYPE);
+    if (epochMoved(epoch)) return; // pre-wipe page (bd med-7jgk)
+    if (await adoptLedgerCut(body.ledger_cut_at, epoch)) applied.add(LEDGERCUT_RECORD_TYPE);
     for (const op of body.ops || []) {
       const { recordType, recordId } = parseTag(op.record_type_tag);
       try {
@@ -1136,7 +1146,8 @@ async function pullTail(ctx) {
           nonce: fromBase64(op.nonce),
           ct: fromBase64(op.ct),
         });
-        const won = await applyIncoming(recordType, JSON.parse(new TextDecoder().decode(plaintext)));
+        const won = await applyIncoming(recordType, JSON.parse(new TextDecoder().decode(plaintext)), epoch);
+        if (won === EPOCH_MOVED) return;
         if (won) applied.add(won);
       } catch {
         // Unreadable op — almost always the benign seq-in-AAD mis-prediction
@@ -1146,8 +1157,7 @@ async function pullTail(ctx) {
         // just skip the row and advance. Genuine tamper detection lives on the
         // snapshot decrypt path (bootstrap), which has no benign-failure case.
       }
-      // A pre-wipe pull stops here (bd med-7jgk). An op it already applied is
-      // a real server op the re-bootstrap's tail applies again: LWW, harmless.
+      // A pre-wipe pull stops here (bd med-7jgk).
       if (!(await writeMetaIfEpoch(epoch, recordType === 'importbump'
         ? { localLastSeq: op.seq, importBumpSeq: op.seq }
         : { localLastSeq: op.seq }))) return;

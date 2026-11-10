@@ -4624,4 +4624,41 @@ describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)',
     expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
     expect(await cursor()).toBe(9);
   });
+
+  it('resetLocalSync: an ops page fetched before the wipe applies nothing after it', async () => {
+    let snaps = 0;
+    let opsGets = 0;
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const opsEntered = new Promise((r) => { entered = r; });
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snaps++;
+        return snaps === 1 ? snapshot(7, 'bp-old') : snapshot(9, 'bp-new');
+      }
+      if (u.startsWith('/api/sync/ops')) {
+        opsGets++;
+        if (opsGets === 1) {
+          entered(); await held;
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const oldPull = pullOnOpen(ctx);
+    await opsEntered;
+    await resetLocalSync(ctx); // the new snapshot (seq 9) has no bp-ghost
+    release();
+    await oldPull;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
 });
