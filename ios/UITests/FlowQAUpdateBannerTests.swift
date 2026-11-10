@@ -69,7 +69,7 @@ final class FlowQAUpdateBannerTests: XCTestCase {
         let settings = app.webViews.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         settings.tap()
-        let version = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '20990101-0002'")).firstMatch
+        let version = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS '20990101-0002'")).firstMatch
         XCTAssertTrue(version.waitForExistence(timeout: 30), "Settings did not show B")
         let viewport = app.windows.firstMatch.frame
         for _ in 0..<8 where version.frame.isEmpty || !viewport.contains(version.frame) {
