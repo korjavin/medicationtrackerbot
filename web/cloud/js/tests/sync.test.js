@@ -4410,6 +4410,11 @@ describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
       const u = String(url);
       if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
         snapGets++;
+        if (snapStatus === 200) {
+          const records = [{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 121 }];
+          const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 7, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+          return new Response(JSON.stringify({ snapshot_seq: 7, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+        }
         return new Response(null, { status: snapStatus });
       }
       if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
@@ -4436,9 +4441,10 @@ describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
     await burst();
     expect(snapGets).toBe(2);
     now += 5_000;
-    snapStatus = 204;
-    await burst();
+    snapStatus = 200; // the server is back with the account's data
+    const [bp] = await burst();
     expect(snapGets).toBe(3);
+    expect(bp.map((r) => r.systolic)).toEqual([121]);
     expect((await getSyncStatus(ctx)).offline).toBe(false);
     await burst();
     expect(snapGets).toBe(3); // bootstrapped: no further snapshot GETs

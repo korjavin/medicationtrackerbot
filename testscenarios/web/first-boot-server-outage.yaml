@@ -1,5 +1,5 @@
 id: first-boot-server-outage
-title: A new device during a server outage retries the account download calmly and loads it once the server is back
+title: A new device in a server outage backs off its retries and loads the account once it's back
 platforms: [web]
 preconditions:
   - An account with data; a device that has never synced it (new device, or after Reset sync)
