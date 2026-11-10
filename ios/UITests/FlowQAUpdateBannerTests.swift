@@ -71,6 +71,8 @@ final class FlowQAUpdateBannerTests: XCTestCase {
         settings.tap()
         let version = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '20990101-0002'")).firstMatch
         XCTAssertTrue(version.waitForExistence(timeout: 30), "Settings did not show B")
+        for _ in 0..<8 where !version.isHittable { app.webViews.firstMatch.swipeUp() }
+        XCTAssertTrue(version.isHittable, "Settings version was not visible")
         shot("update-B-settings")
         probe(app).tap()
         Thread.sleep(forTimeInterval: 2)
