@@ -68,6 +68,7 @@ final class FlowQADegradedBootTests: XCTestCase {
         reload.tap()
         XCTAssertTrue(waitState(app, timeout: 90) { $0["pageNumber"] as? Int == faultPage + 1 && $0["build"] as? String == "20990101-0002" && $0["controlled"] as? Bool == true && $0["degraded"] as? Bool == false }, "offline recovery did not load controlled B")
         XCTAssertTrue(openAccount(app, timeout: 90))
+        try action(app, "read-settings")
         Thread.sleep(forTimeInterval: 4)
         XCTAssertEqual(state(app)?["pageNumber"] as? Int, faultPage + 1, "more than one recovery document")
         XCTAssertEqual(state(app)?["degradedBanners"] as? Int, 0)

@@ -105,6 +105,11 @@
       return entries;
     });
     addAction('reload', async () => { location.reload(); });
+    addAction('read-settings', async () => {
+      if (typeof window.offlineAwareApiCall !== 'function') throw new Error('account shim missing');
+      const settings = await window.offlineAwareApiCall('/api/settings', 'GET');
+      if (!settings || typeof settings !== 'object') throw new Error('offline settings read failed');
+    });
     setInterval(report, 500);
     report();
   }, { once: true });
