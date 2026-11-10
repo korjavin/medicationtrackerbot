@@ -156,6 +156,20 @@ function withRecordsLock(fn) {
   return run;
 }
 
+// bd med-7jgk — bumped by resetLocalSync's wipe and by a dropped DB handle. A
+// bootstrap or tail pull that began before either lands neither its snapshot
+// nor its cursor: they predate the wipe and would overwrite the re-bootstrap,
+// or pair its records with a stale cursor. The check runs under the lock the
+// wipe takes, so it cannot pass and then lose the race to the wipe.
+let syncEpoch = 0;
+function writeMetaIfEpoch(epoch, patch) {
+  return withRecordsLock(async () => {
+    if (epoch !== syncEpoch) return false;
+    await writeMeta(patch);
+    return true;
+  });
+}
+
 // The operational ctx is {accountId, kData, kMac}: non-extractable leaf keys
 // from the warm-unlock cache (unlock.js warmUnlock); every record and snapshot
 // path goes through here and never sees raw key bytes.
@@ -375,11 +389,14 @@ export function changesSince(recordType, token) {
 // so reset every derived cache. Also the reset hook that clears module state
 // between tests (fake-indexeddb's deleteDatabase fires onversionchange).
 onCachedDbDropped(() => {
+  syncEpoch++;
   recordsMemo.clear();
   rawMemo.clear();
   journalReset();
   recordsChangeCount++;
   bootstrapped = false;
+  // As in resetLocalSync: the old flight is fenced off, so don't make reads wait on it.
+  bootstrapInFlight = null;
   resetBootstrapBackoff();
   // Harmless to clear mid-session: the next push re-learns it with one 426.
   updateRequired = false;
@@ -418,7 +435,9 @@ const FLOOR_MAX_CLIENT_TS = 1;
 // not only a pending one, so an older bundle's compacted snapshot cannot bury
 // a fuller row this device already pushed; a local winner is re-stamped and
 // queued as a repair. An import replace never sets it.
-export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
+// `epoch` (bootstrap only): replace nothing and return false when syncEpoch
+// moved on since the caller captured it (bd med-7jgk).
+export async function replaceAllRecords(input, { reduceAcked = false, epoch } = {}) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -437,7 +456,7 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
   // timestamp says, because clock skew / blind concurrent writes leave real
   // timestamps unordered and a comparison alone can't prove an unsent user
   // edit stale.
-  await withRecordsLock(async () => {
+  const replaced = await withRecordsLock(async () => {
     let records = input;
     if (typeof input === 'function') {
       const computed = await input(await readAllRecords());
@@ -507,6 +526,8 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
       }
       overlay.push(merge ? merge(r, snap) : r);
     }
+    // Checked last, right before the write: no IDB wait between check and tx.
+    if (epoch !== undefined && epoch !== syncEpoch) return false;
     await withStore('records', 'readwrite', (store) => {
       store.clear();
       for (const record of records) store.put(record);
@@ -514,9 +535,12 @@ export async function replaceAllRecords(input, { reduceAcked = false } = {}) {
     });
     if (losingPending.length > 0) await clearPending(losingPending);
     for (const r of repairs) await markPending(r.recordId, r.recordType);
+    return true;
   });
+  if (!replaced) return false;
   invalidateRecords();
   announce({ reset: true });
+  return true;
 }
 
 // Drop not-yet-flushed writes for the given record types. A destructive
@@ -549,6 +573,7 @@ export async function dropPendingForTypes(types) {
 // heals is the worst case. pullOnOpen then re-bootstraps from the server.
 export async function resetLocalSync(ctx) {
   await withRecordsLock(async () => {
+    syncEpoch++;
     await withDb((db) => new Promise((resolve, reject) => {
       const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
       tx.objectStore('records').clear();
@@ -935,7 +960,9 @@ async function applyIncoming(recordType, record) {
 // bootstrapIfNeeded backs off a failed fetch only (bd med-nqgd).
 // `reduceAcked`: see replaceAllRecords. Off for a peer's full-vault import,
 // which replaces by intent.
-async function bootstrap(ctx, { reduceAcked = true } = {}) {
+// `epoch`: the syncEpoch the caller started under (bd med-7jgk); a moved epoch
+// lands nothing and returns null.
+async function bootstrap(ctx, { reduceAcked = true, epoch = syncEpoch } = {}) {
   // A stranded full-vault import (forceSnapshotPending) means the LOCAL store is
   // authoritative and has not been pushed yet. Replacing it with the server's
   // stale snapshot would destroy the import. pullOnOpen also guards this, but
@@ -981,7 +1008,7 @@ async function bootstrap(ctx, { reduceAcked = true } = {}) {
       // ones start with raw JSON, so sniff and gunzip only when compressed.
       const json = isGzip(plaintext) ? await gunzip(plaintext) : plaintext;
       const records = JSON.parse(new TextDecoder().decode(json));
-      await replaceAllRecords(records, { reduceAcked });
+      if (!(await replaceAllRecords(records, { reduceAcked, epoch }))) return null;
       lastSnapshotSeq = body.snapshot_seq;
     } catch {
       // Undecryptable snapshot (tampered ct or key mismatch): surface it and
@@ -989,11 +1016,12 @@ async function bootstrap(ctx, { reduceAcked = true } = {}) {
       // sees snapshot_seq > localLastSeq(0), re-bootstraps, fails again, and
       // spins in a tight fetch loop that never resolves. Mirrors the per-op
       // decrypt-failure handling below (advance past the bad seq).
-      await writeMeta({ integrityErrors: (await readMeta()).integrityErrors + 1 });
+      const { integrityErrors } = await readMeta();
+      if (!(await writeMetaIfEpoch(epoch, { integrityErrors: integrityErrors + 1 }))) return null;
       lastSnapshotSeq = body.snapshot_seq;
     }
   }
-  await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq, importBumpSeq: null });
+  if (!(await writeMetaIfEpoch(epoch, { localLastSeq: lastSnapshotSeq, lastSnapshotSeq, importBumpSeq: null }))) return null;
   return true;
 }
 
@@ -1043,6 +1071,7 @@ export async function bootstrapIfNeeded(ctx, { force = false } = {}) {
 }
 
 async function pullTail(ctx) {
+  const epoch = syncEpoch;
   const kData = await getKData(ctx);
   for (;;) {
     const meta = await readMeta();
@@ -1086,7 +1115,7 @@ async function pullTail(ctx) {
     if (typeof body.snapshot_seq === 'number' && (body.snapshot_seq > meta.localLastSeq || importLanded)) {
       // Transient failure, or a stranded import that must be pushed first: either
       // way the cursor didn't move, so looping would spin. Retry next open.
-      if (!(await bootstrap(ctx, { reduceAcked: !importLanded }))) return;
+      if (!(await bootstrap(ctx, { reduceAcked: !importLanded, epoch }))) return;
       // The whole mirror was replaced (e.g. a peer's full-vault import), and
       // the tail above the snapshot is usually empty — so nothing below would
       // repaint. Every type may have changed.
@@ -1117,15 +1146,17 @@ async function pullTail(ctx) {
         // just skip the row and advance. Genuine tamper detection lives on the
         // snapshot decrypt path (bootstrap), which has no benign-failure case.
       }
-      await writeMeta(recordType === 'importbump'
+      // A pre-wipe pull stops here (bd med-7jgk). An op it already applied is
+      // a real server op the re-bootstrap's tail applies again: LWW, harmless.
+      if (!(await writeMetaIfEpoch(epoch, recordType === 'importbump'
         ? { localLastSeq: op.seq, importBumpSeq: op.seq }
-        : { localLastSeq: op.seq });
+        : { localLastSeq: op.seq }))) return;
     }
     // tailCaughtUpAt: only here, on the last page of a successful pull — the
     // one moment the mirror provably holds the whole account. hasCaughtUp()
     // reads it (bd med-ejgf); lastSyncedAt is also stamped by any accepted
     // push, so it cannot say that. resetLocalSync clears both with sync_meta.
-    await writeMeta(body.next ? { lastSyncedAt: Date.now() } : { lastSyncedAt: Date.now(), tailCaughtUpAt: Date.now() });
+    if (!(await writeMetaIfEpoch(epoch, body.next ? { lastSyncedAt: Date.now() } : { lastSyncedAt: Date.now(), tailCaughtUpAt: Date.now() }))) return;
     if (!body.next) tailPulledThisSession = true;
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
     if (!body.next) break;

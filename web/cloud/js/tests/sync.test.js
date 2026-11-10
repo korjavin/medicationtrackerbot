@@ -4546,3 +4546,82 @@ describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
     expect(snapGets).toBe(2);
   });
 });
+
+describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)', () => {
+  let ctx;
+  let snapGets;
+  let releaseOld;
+  let oldEntered;
+
+  const snapshot = async (seq, recordId) => {
+    const records = [{ recordId, recordType: 'bp', clientTs: 1, deleted: false, systolic: seq }];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: seq, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+    return new Response(JSON.stringify({ snapshot_seq: seq, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+  };
+
+  const deleteDb = () => new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('medtracker-cloud');
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
+
+  const cursor = async () => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction('sync_meta', 'readonly').objectStore('sync_meta').get('localLastSeq');
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await deleteDb();
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    snapGets = 0;
+    const held = new Promise((r) => { releaseOld = r; });
+    let entered;
+    oldEntered = new Promise((r) => { entered = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snapGets++;
+        // The first GET is the pre-wipe one: it hangs, then answers the older snapshot.
+        if (snapGets === 1) { entered(); await held; return snapshot(7, 'bp-old'); }
+        return snapshot(9, 'bp-new');
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('resetLocalSync: the re-bootstrap snapshot and cursor win over the old GET resolved last', async () => {
+    const oldRead = listRecords(ctx, 'bp');
+    await oldEntered;
+    await resetLocalSync(ctx);
+    expect(snapGets).toBe(2);
+    releaseOld();
+    await oldRead;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('a dropped DB: the next bootstrap wins over the old GET resolved last', async () => {
+    const oldRead = listRecords(ctx, 'bp');
+    await oldEntered;
+    await deleteDb(); // versionchange drops the cached handle (e.g. another tab's account delete)
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    releaseOld();
+    await oldRead;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+});
