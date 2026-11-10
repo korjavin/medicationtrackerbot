@@ -4457,4 +4457,25 @@ describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
     await burst();
     expect(snapGets).toBe(4);
   });
+
+  it('a forced open that joins a failing read-started bootstrap still makes its own attempt', async () => {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const fetchEntered = new Promise((r) => { entered = r; });
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/snapshot' && snapGets === 0) { snapGets++; entered(); await held; return new Response(null, { status: 503 }); }
+      return base(url, init);
+    }));
+    const read = listRecords(ctx, 'bp');
+    await fetchEntered;
+    const open = pullOnOpen(ctx);
+    snapStatus = 204; // the server recovered while the read's GET hung
+    release();
+    await Promise.all([read, open]);
+    expect(snapGets).toBe(2);
+    await burst();
+    expect(snapGets).toBe(2); // the forced retry bootstrapped
+  });
 });

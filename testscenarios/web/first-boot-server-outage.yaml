@@ -1,0 +1,17 @@
+id: first-boot-server-outage
+title: A new device during a server outage retries the account download calmly and loads it once the server is back
+platforms: [web]
+preconditions:
+  - An account with data; a device that has never synced it (new device, or after Reset sync)
+  - The server answers errors (5xx) for the account download
+steps:
+  - Open and unlock the app on that device
+  - Move between sections for a minute
+  - Bring the server back, then reopen the app or regain the network
+invariants:
+  - While the server fails, reads do not each re-request the download; the retries back off (5 s doubling to 2 min)
+  - Reopening the app or regaining the network retries the download at once, without waiting out the backoff
+  - Once the server answers, the account's data loads and nothing is lost or skipped
+covered_by:
+  web: web/cloud/js/tests/sync.test.js#an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
+source: [med-nqgd]

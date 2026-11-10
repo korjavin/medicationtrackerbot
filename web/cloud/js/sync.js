@@ -1016,7 +1016,12 @@ export async function bootstrapIfNeeded(ctx, { force = false } = {}) {
   // A dropped connection / resetLocalSync clears this flag so a re-bootstrap
   // still runs.
   if (bootstrapped) return;
-  if (bootstrapInFlight) return bootstrapInFlight;
+  // A forced caller that joined an unforced flight (one that may have started
+  // before connectivity returned) still gets its own attempt if that one failed.
+  for (let f = bootstrapInFlight; f; f = bootstrapInFlight) {
+    await f;
+    if (bootstrapped || !force || f.forced) return;
+  }
   if (!force && Date.now() < bootstrapRetryAt) return;
   const flight = (async () => {
     const meta = await readMeta();
@@ -1028,6 +1033,7 @@ export async function bootstrapIfNeeded(ctx, { force = false } = {}) {
       bootstrapRetryAt = Date.now() + bootstrapBackoffMs;
     }
   })().finally(() => { if (bootstrapInFlight === flight) bootstrapInFlight = null; });
+  flight.forced = force;
   bootstrapInFlight = flight;
   return flight;
 }
