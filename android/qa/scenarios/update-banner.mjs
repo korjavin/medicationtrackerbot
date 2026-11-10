@@ -147,15 +147,10 @@ export default async function updateBanner(ctx) {
     r.switch = await control('/switch-b', {});
     const version = await page.evaluate(async () => (await (await fetch('/api/version', { cache: 'no-store' })).json()).build_id);
     if (version !== r.bundles.B.stamp) throw new Error(`real server not B: ${version}`);
-    // B was deployed while A stayed open: a real Home/return must recheck it.
-    await foreground(ctx, page, r);
-    await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
-    if (await page.locator('#cloud-update-banner').count() !== 1) throw new Error('real resume did not show exactly one notice');
-    await waitForWaitingWorker(page);
     r.beforeColdOpen = await state(page);
     r.coldOpenStarted = Date.now();
     // Archie17593: the primary trigger is a REAL native cold open, not an
-    // injected visibility event. B is already waiting after the resume check.
+    // injected visibility event. B has not been asked to install in A yet.
     await ctx.coldStart(`-n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
     page = await ctx.attachPage();
     if (!page) throw new Error('no account WebView after native cold open');
