@@ -85,13 +85,17 @@ function isNetworkMiss(reason) {
 }
 
 function createOfflineEmptyState({ tag = 'div', reason } = {}) {
-    const local = document.documentElement.classList.contains('wg-local-vault');
-    if (local || (navigator.onLine !== false && !isNetworkMiss(reason))) {
-        return createEmptyState({ title: 'Nothing to show yet', inline: true, tag });
-    }
     // bd med-kk1q.4: the account shim never installed on this page, so
     // reconnecting would not help; the boot banner owns the Reload action.
+    // bd med-bdts: checked first — with no shim every empty list is caused by
+    // the failure, whatever navigator.onLine says (callers pass no reason
+    // because apiCall resolves null). Only cloud-boot.js sets it, so device-
+    // only mode (wg-local-vault) never reaches this branch.
     const degraded = !!window.MedTrackerCloud?.degraded;
+    const local = document.documentElement.classList.contains('wg-local-vault');
+    if (!degraded && (local || (navigator.onLine !== false && !isNetworkMiss(reason)))) {
+        return createEmptyState({ title: 'Nothing to show yet', inline: true, tag });
+    }
     return createEmptyState({
         icon: 'cloud-off',
         title: degraded ? 'Some saved data did not load' : 'No cached data yet',
