@@ -157,12 +157,13 @@ function withRecordsLock(fn) {
   return run;
 }
 
-// bd med-7jgk — bumped by resetLocalSync's wipe and by a dropped DB handle. A
+// bd med-7jgk — bumped by resetLocalSync's wipe and by a DB drop that may have
+// wiped the store (deleteDatabase, forced close; not a benign reopen). A
 // bootstrap or tail pull that began before either lands neither its snapshot
 // nor its cursor: they predate the wipe and would overwrite the re-bootstrap,
 // or pair its records with a stale cursor. Writes check it inside their
-// transaction callback, so withDb's reopen-and-retry (which drops, so bumps)
-// rechecks it, and a tx created before reset's bump runs before its wipe.
+// transaction callback, so withDb's reopen-and-retry rechecks it after a
+// wiping drop, and a tx created before reset's bump runs before its wipe.
 // Merges (applyIncoming, adoptLedgerCut) check it under the records lock,
 // which reset's bump holds.
 let syncEpoch = 0;
@@ -393,15 +394,17 @@ export function changesSince(recordType, token) {
 // means the underlying store may have changed identity out from under the memo,
 // so reset every derived cache. Also the reset hook that clears module state
 // between tests (fake-indexeddb's deleteDatabase fires onversionchange).
-onCachedDbDropped(() => {
-  syncEpoch++;
+onCachedDbDropped(({ wiped } = {}) => {
+  if (wiped) {
+    syncEpoch++;
+    // As in resetLocalSync: the old flight is fenced off, so don't make reads wait on it.
+    bootstrapInFlight = null;
+  }
   recordsMemo.clear();
   rawMemo.clear();
   journalReset();
   recordsChangeCount++;
   bootstrapped = false;
-  // As in resetLocalSync: the old flight is fenced off, so don't make reads wait on it.
-  bootstrapInFlight = null;
   resetBootstrapBackoff();
   // Harmless to clear mid-session: the next push re-learns it with one 426.
   updateRequired = false;

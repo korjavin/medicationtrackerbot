@@ -2480,7 +2480,7 @@ describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
     const unsub = onCachedDbDropped(() => { fired += 1; });
     // The orphan still closes itself on versionchange (never blocks
     // deleteDatabase) but must not touch the cache.
-    orphan.onversionchange();
+    orphan.onversionchange({ newVersion: null });
     expect(orphan.close).toHaveBeenCalled();
     orphan.onclose();
     expect(fired).toBe(0);
@@ -4660,5 +4660,38 @@ describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)',
     await oldPull;
     expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
     expect(await cursor()).toBe(9);
+  });
+
+  it('a benign close and reopen during a pull keeps the page and the cursor', async () => {
+    let opsGets = 0;
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const opsEntered = new Promise((r) => { entered = r; });
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-tail', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-tail', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        opsGets++;
+        if (opsGets === 1) {
+          entered(); await held;
+          const op = { seq: 8, record_type_tag: 'bp:bp-tail', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const pull = pullOnOpen(ctx);
+    await opsEntered;
+    (await cachedDb()).close(); // no event: the next write hits InvalidStateError and withDb reopens
+    release();
+    await pull;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId).sort()).toEqual(['bp-old', 'bp-tail']);
+    expect(await cursor()).toBe(8);
   });
 });
