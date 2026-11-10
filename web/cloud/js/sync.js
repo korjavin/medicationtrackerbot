@@ -673,6 +673,24 @@ async function deleteDeviceValue(key) {
   await withStore('device', 'readwrite', (store) => store.delete(key));
 }
 
+// flushPending's ack: clear the pushed pending rows and advance the cursor in
+// one transaction, unless syncEpoch moved since `epoch` (bd med-w4nq; the check
+// sits inside the tx for the same reason as writeMetaIfEpoch).
+function ackPushIfEpoch(epoch, recordIds, localLastSeq) {
+  return withDb((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(['pending', 'sync_meta'], 'readwrite');
+    const ok = !epochMoved(epoch);
+    if (ok) {
+      const pending = tx.objectStore('pending');
+      for (const id of recordIds) pending.delete(id);
+      tx.objectStore('sync_meta').put(localLastSeq, 'localLastSeq');
+    }
+    tx.oncomplete = () => resolve(ok);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
+}
+
 async function clearPending(recordIds) {
   await withStore('pending', 'readwrite', (store) => {
     for (const id of recordIds) store.delete(id);
@@ -1363,6 +1381,7 @@ function isAuthExpiredStatus(status) {
 // compaction): it's a tombstone the snapshot below compacts away, never
 // decrypted by anyone.
 async function tryForceSnapshot(ctx) {
+  const epoch = syncEpoch; // bd med-w4nq: a reset/wipe mid-push fences the cursor write below
   const meta = await readMeta();
   if (!meta.forceSnapshotPending || meta.localLastSeq === null) return;
   // Writer gate hit this page load: pushes are paused, the marker waits for the
@@ -1430,8 +1449,10 @@ async function tryForceSnapshot(ctx) {
   }
   const snapshotSeq = Math.max(...assigned);
   // Advance our cursor to the bump so a subsequent pull sees our own snapshot as
-  // the floor (no re-bootstrap) once the marker clears.
-  await writeMeta({ localLastSeq: snapshotSeq });
+  // the floor (no re-bootstrap) once the marker clears. Dropped after a reset or
+  // wiping drop (bd med-w4nq): the wipe took the import and its marker with it,
+  // and a cursor in the emptied store would skip the re-bootstrap.
+  if (!(await writeMetaIfEpoch(epoch, { localLastSeq: snapshotSeq }))) return;
   // The bump tombstone rides in the snapshot (and every later one, as a peer
   // that pulled the op already holds it): a peer bootstrapping from it whose
   // store lacks this bump knows the snapshot carries an import it never saw,
@@ -1562,6 +1583,8 @@ async function flushPendingUnlocked(ctx) {
   let flushedAny = false;
   let mispredicts = 0;
   for (;;) {
+    // bd med-w4nq: per chunk, so a chunk read after a reset isn't fenced by it.
+    const epoch = syncEpoch;
     const pending = await readPending();
     if (pending.length === 0) {
       // Compact once the whole backlog has landed, not per chunk — a per-chunk
@@ -1678,14 +1701,16 @@ async function flushPendingUnlocked(ctx) {
     // accepting writes again, so the budget starts fresh.
     // syncWedged too: a flush only gets here past a wedge when that wedge was an
     // old tab's 426 (readMeta ignores it), and the server now takes the queue.
-    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0, syncWedged: false });
+    // A reset or wiping drop landed mid-POST (bd med-w4nq): it already wiped
+    // these pending rows, and the ops sit in the server tail the re-bootstrap
+    // pulls, so drop the ack and the cursor (nothing lost, nothing re-sent).
+    if (!(await writeMetaIfEpoch(epoch, { lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0, syncWedged: false }))) return false;
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.
       // We already hold these records locally, so just clear and advance, then
       // loop to flush the next chunk (if any).
-      await clearPending(includedIds);
-      await writeMeta({ localLastSeq: Math.max(...assigned) });
+      if (!(await ackPushIfEpoch(epoch, includedIds, Math.max(...assigned)))) return false;
       flushedAny = true;
       continue;
     }

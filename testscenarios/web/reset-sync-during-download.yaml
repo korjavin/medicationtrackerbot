@@ -6,9 +6,10 @@ preconditions:
 steps:
   - Open and unlock the app; while the download is still running, tap Reset sync in Settings
   - Let both the old and the new download finish
+  - Repeat with an upload in flight instead (save an entry, or import a full vault, on the weak network): reset while it is still sending, and let it finish
 invariants:
   - After the reset the app shows the server's current data, not the older copy from the download that began before it
   - Changes made on other devices after that older copy are not skipped later
 covered_by:
   web: web/cloud/js/tests/sync.test.js#a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)
-source: [med-7jgk]
+source: [med-7jgk, med-w4nq]
