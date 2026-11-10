@@ -97,6 +97,7 @@ export async function foreground(ctx, page, r) {
       hidden < 0 || !events.slice(hidden + 1).some((e) => e.state === 'visible')) {
     throw new Error(`native Home/return did not deliver trusted hidden then visible: ${JSON.stringify(events)}`);
   }
+  return observation;
 }
 
 export async function prepareAccount(ctx, r) {

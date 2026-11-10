@@ -1,5 +1,6 @@
-// Fresh A client: the only stimulus after B deploys is a real Home/return.
+// Fresh A client: assert the actual return, its version check and the B notice.
 import { control, foreground, prepareAccount, state, waitForWaitingWorker } from './update-banner.mjs';
+import { readFileSync } from 'node:fs';
 export const retry = false;
 
 export default async function updateResume(ctx) {
@@ -9,7 +10,16 @@ export default async function updateResume(ctx) {
     r.switch = await control('/switch-b', {});
     const version = await page.evaluate(async () => (await (await fetch('/api/version', { cache: 'no-store' })).json()).build_id);
     if (version !== r.bundles.B.stamp) throw new Error('server is not B');
-    await foreground(ctx, page, r);
+    if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
+    const observation = await foreground(ctx, page, r);
+    const until = Date.now() + 15_000;
+    do {
+      r.resumeReceipts = readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
+        .filter((entry) => entry.path === '/api/version' && entry.host === new URL(page.url()).host && Date.parse(entry.at) >= observation.returnStarted);
+      if (r.resumeReceipts.length) break;
+      await ctx.sleep(250);
+    } while (Date.now() < until);
+    if (!r.resumeReceipts.length) throw new Error('no version check received after native return');
     await page.locator('#cloud-update-banner').waitFor({ timeout: 60_000 });
     await waitForWaitingWorker(page);
     r.waiting = await state(page);

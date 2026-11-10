@@ -732,7 +732,7 @@ stays the acceptance device.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
-# Also: core-local (in all); offline-account, degraded-boot, update-banner, eu-register (standalone, one invite, no retry).
+# Also: core-local (in all); offline-account, degraded-boot, update-banner, update-resume, eu-register (standalone, one invite, no retry).
 # B3: file-backup and local-lock (invite-free, in all); file-backup-age is standalone and adds encrypted export/restore. health-connect stays standalone.
 # food-photo is standalone: it clears the app and checks the Food Photo and Gallery paths.
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
@@ -820,8 +820,8 @@ Later hides the settled notice, and a new A document with B already waiting stil
 (state C). The real Reload must activate B with exactly one new document, including after the
 two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
 must identify B, with the saved note intact. `update-resume` deploys B while A is open and requires
-one notice after a real three-second Home/return, with trusted hidden then visible events and no
-synthetic event for that step. Both scenarios disable Playwright's focus emulation in its own
+one notice present after a real three-second Home/return, a version request after return, trusted
+hidden then visible events and no synthetic event for that step. These scenarios and degraded-boot disable Playwright's focus emulation in its own
 session before it attaches; that emulation otherwise suppresses page visibility changes. Earlier
 run42161115363's missing events were observed with focus emulation enabled, so do not establish a
 native gap. The device check below remains pending. Local mode is bundled and outside this account

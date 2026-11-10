@@ -157,7 +157,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx playwright install android
-          if [[ "${{ inputs.scenario }}" = update-banner || "${{ inputs.scenario }}" = update-resume ]]; then node no-focus-emulation.mjs; fi
+          if [[ "${{ inputs.scenario }}" = update-banner || "${{ inputs.scenario }}" = update-resume || "${{ inputs.scenario }}" = degraded-boot ]]; then node no-focus-emulation.mjs; fi
 
       - name: Upload debug APK for device visibility check
         if: inputs.scenario == 'update-resume'
