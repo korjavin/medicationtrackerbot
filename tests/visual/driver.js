@@ -116,7 +116,18 @@
                 }
             }
             const settings = vault.data.settings || {};
-            qa.vaultAudit = { counts, settings: { timezone: settings.timezone, food_targets: settings.food_targets, features: settings.features } };
+            // Hash the complete settings object without publishing its API keys
+            // into the accessibility tree or CI artifacts. Sorting object keys
+            // makes the fingerprint independent of serialization order.
+            const canonical = (value) => {
+                if (Array.isArray(value)) return value.map(canonical);
+                if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+                return value;
+            };
+            const bytes = new TextEncoder().encode(JSON.stringify(canonical(settings)));
+            const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+            const settingsHash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+            qa.vaultAudit = { counts, settingsHash };
         }
         publish(report(def));
         watch(def);

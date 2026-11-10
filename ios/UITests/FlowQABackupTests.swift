@@ -144,6 +144,10 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(nativeSave.waitForExistence(timeout: 60), "no native Files Save")
         let name = try XCTUnwrap(filesIn(downloads).first, "no offered backup")
         XCTAssertTrue(name.hasSuffix(".json.gz"))
+        let offered = try XCTUnwrap(FileManager.default.enumerator(at: downloads, includingPropertiesForKeys: nil)?.allObjects
+            .compactMap { $0 as? URL }.first { $0.lastPathComponent == name })
+        let offeredBytes = try Data(contentsOf: offered)
+        XCTAssertFalse(offeredBytes.isEmpty)
         shot(flow, "native-save")
         nativeSave.tap()
         XCTAssertTrue(waitUntil(30) { filesIn(downloads).isEmpty }, "export picker did not complete")
@@ -158,6 +162,7 @@ final class FlowQABackupTests: XCTestCase {
             if url.lastPathComponent == name && !url.path.contains("/tmp/wg-downloads/") { saved = url; break }
         }
         let savedURL = try XCTUnwrap(saved, "native Save produced no provider-backed copy")
+        XCTAssertEqual(try Data(contentsOf: savedURL), offeredBytes, "provider-saved file differs from the export")
         let corrupt = savedURL.deletingLastPathComponent().appendingPathComponent("qa-corrupt.json.gz")
         try Data([0x1f, 0x8b, 0x08]).write(to: corrupt)
         defer { try? FileManager.default.removeItem(at: corrupt); try? FileManager.default.removeItem(at: savedURL) }
@@ -167,7 +172,9 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(QA.tapUntil(eraseRow, shows: eraseField))
         eraseField.tap()
         QA.dismissKeyboardTip(app)
-        eraseField.typeText("ERASE")
+        eraseField.typeText("erase")
+        QA.dismissKeyboardTip(app)
+        XCTAssertTrue(app.webViews.buttons["Erase"].isEnabled, "typed erase did not enable confirmation")
         hideKeyboard(app)
         app.webViews.buttons["Erase"].tap()
         XCTAssertTrue(waitUntil(30) { !QA.readyNode(app).exists }, "erase did not reload")
@@ -200,7 +207,8 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertFalse(replace.isEnabled, "Replace enabled without confirmation")
         field.tap()
         QA.dismissKeyboardTip(app)
-        field.typeText("REPLACE")
+        field.typeText("replace")
+        QA.dismissKeyboardTip(app)
         hideKeyboard(app)
         shot(flow, "typed-replace")
         XCTAssertTrue(replace.isEnabled)
