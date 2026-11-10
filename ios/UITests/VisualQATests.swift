@@ -234,8 +234,17 @@ final class VisualQATests: XCTestCase {
                 // report: "ready" in failed means the shot shows another view.
                 if failure == nil,
                    let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-                   (obj["failed"] as? [String])?.contains("ready") == true {
-                    failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
+                   let failed = obj["failed"] as? [String] {
+                    if failed.contains("ready") {
+                        failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
+                    } else if failed.contains("inView") {
+                        let probes = obj["probes"] as? [String: Any]
+                        let rows = probes?["inView"] as? [[String: Any]] ?? []
+                        let details = rows.filter { $0["ok"] as? Bool == false }.map { row in
+                            "selector=\(row["selector"] ?? "unknown") top=\(row["top"] ?? "unknown") bottom=\(row["bottom"] ?? "unknown") floor=\(row["floor"] ?? "unknown")"
+                        }.joined(separator: "; ")
+                        failure = "inView probe failed: \(details.isEmpty ? "details unavailable" : details)"
+                    }
                 }
             }
         }
