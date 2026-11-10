@@ -5,8 +5,13 @@
   if (location.pathname !== '/') return;
   const events = [];
   let updateSeenBeforeDegraded = false;
+  let maxUpdatesBeforeDegraded = 0;
   new MutationObserver(() => {
-    if (document.querySelector('#cloud-update-banner') && !document.querySelector('#boot-degraded-banner')) updateSeenBeforeDegraded = true;
+    const updates = document.querySelectorAll('#cloud-update-banner').length;
+    if (updates && !document.querySelector('#boot-degraded-banner')) {
+      updateSeenBeforeDegraded = true;
+      maxUpdatesBeforeDegraded = Math.max(maxUpdatesBeforeDegraded, updates);
+    }
   }).observe(document, { childList: true, subtree: true });
   const pageNumber = Number(sessionStorage.getItem('qa-update-page-number') || 0) + 1;
   sessionStorage.setItem('qa-update-page-number', String(pageNumber));
@@ -28,6 +33,7 @@
       specifier: window.MedTrackerCloud?.degraded?.error?.specifier || '',
       degradedBanners: document.querySelectorAll('#boot-degraded-banner').length,
       updateSeenBeforeDegraded,
+      maxUpdatesBeforeDegraded,
       action: button.dataset.action || '',
       detail: button.dataset.detail || '',
     };

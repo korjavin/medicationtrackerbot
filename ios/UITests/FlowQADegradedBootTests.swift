@@ -50,7 +50,7 @@ final class FlowQADegradedBootTests: XCTestCase {
         XCTAssertTrue(waitState(app, timeout: 60) {
             $0["pageNumber"] as? Int == priorPage + 1 && $0["degradedBanners"] as? Int == 1 &&
             $0["banners"] as? Int == 0 && $0["specifier"] as? String == "/js/apishim.js" &&
-            $0["updateSeenBeforeDegraded"] as? Bool == true
+            $0["updateSeenBeforeDegraded"] as? Bool == true && $0["maxUpdatesBeforeDegraded"] as? Int == 1
         }, "real module failure did not replace update banner: \(QA.json(state(app)))")
         let faultPage = try XCTUnwrap(state(app)?["pageNumber"] as? Int)
         let status = try control("/status", method: "GET")
