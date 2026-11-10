@@ -55,6 +55,9 @@ if [ "${QA:-}" = 1 ]; then
     # Android's debug-only soft authenticator, which the Debug shell injects
     # into account pages on -wgQASoftAuthn (Shell.swift, bd med-sz4k.6.1).
     cp "$repo/android/app/src/debug/assets/qa-softauthn.js" "$out/cloud/qa/softauthn.js"
+    if [ "${QA_UPDATE_PROBE:-}" = 1 ]; then
+        cat "$repo/ios/qa/update-probe.js" >> "$out/cloud/qa/softauthn.js"
+    fi
     sed -e 's|<script src="/js/local-boot.js"></script>|&<link rel="stylesheet" href="/qa/driver.css"><script src="/qa/driver.js"></script>|' \
         "$out/index.html" > "$out/index.qa.html"
     mv "$out/index.qa.html" "$out/index.html"

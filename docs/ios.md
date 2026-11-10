@@ -114,13 +114,13 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → four `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → five `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
   CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; the
   only part that waits for healthd, `QA_HEALTH_READY=1`), **data** (Backup,
-  Stash), **rest** (every other class in the bundle; today Lock and
+  Stash), **update** (UpdateBanner), **rest** (every other class in the bundle; today Lock and
   EURegister). The class lists live once, in the workflow env `QA_PARTS`;
   rest is the bundle minus every listed class, so **a new class runs in rest
   by default; move it into a named part when rest passes ~8 min of flows.**
@@ -275,8 +275,17 @@ tlsfront with `-control 127.0.0.1:8768`: from the Simulator,
 `https://qa.test:8768` (same CA) answers `GET /receipts` (every request it
 received, host/method/path/status), `POST /stop` (close the listener and its
 connections) and `POST /start` (`QA.fakeServer` / `QA.receipts`). The `qa` job runs every
-`MedTrackerUITests` class but `VisualQATests`, so a flow class in its own file
-needs no workflow edit.
+`MedTrackerUITests` class but `VisualQATests` and `HealthDiagnosticTests`;
+classes absent from `QA_PARTS` run in `rest`.
+
+The update part sets `QA_BUNDLES=1`: `build-bundles.mjs` makes two stamped
+cloud binaries and tlsfront supervises their serial swap (`-cloud-a`,
+`-cloud-b`, `-cloud-log`; POST `/switch-b` on `127.0.0.1:8766`). The server
+also mints `QA_UPDATE_CLAIM_URL`. Its Debug-only page probe
+[`ios/qa/update-probe.js`](../ios/qa/update-probe.js) is appended to the
+soft authenticator only for this part (`QA_UPDATE_PROBE=1`), to observe the
+worker and document and issue synthetic rechecks. The real Home/return event
+is recorded separately.
 
 ### Owner device checklist (account flows, need a passkey)
 
