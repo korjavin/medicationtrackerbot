@@ -3311,6 +3311,16 @@ func TestTelegramDisabledStatus(t *testing.T) {
 	if rec := doReq(t, router, http.MethodGet, "http://"+host+"/api/telegram/status", host, nil, nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status = %d, want 401", rec.Code)
 	}
+
+	// med-xmz3: the re-fire endpoints answer 204, not 404, and still need a session.
+	for _, path := range []string{"/api/telegram/cancel-refire", "/api/telegram/rearm-refire"} {
+		if rec := doReq(t, router, http.MethodPost, "http://"+host+path, host, session, []byte(`{"callback":"s:1"}`)); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s = %d, want 204", path, rec.Code)
+		}
+		if rec := doReq(t, router, http.MethodPost, "http://"+host+path, host, nil, []byte(`{"callback":"s:1"}`)); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated %s = %d, want 401", path, rec.Code)
+		}
+	}
 }
 
 // med-ru2e: a Confirm tap turns the tapped message into the Taken receipt, so it
