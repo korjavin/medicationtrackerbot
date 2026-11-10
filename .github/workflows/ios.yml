@@ -67,7 +67,8 @@ env:
     {"account": ["FlowQAOfflineAccountTests", "FlowQAAccountGoneTests", "FlowQACeremonyExitTests"],
      "core": ["FlowQACoreLocalTests", "FlowQATests", "HealthWriteBackTests"],
      "data": ["FlowQABackupTests", "FlowQAStashTests"],
-     "update": ["FlowQAUpdateBannerTests"]}
+     "update": ["FlowQAUpdateBannerTests"],
+     "degraded": ["FlowQADegradedBootTests"]}
 
 permissions:
   contents: read
@@ -525,7 +526,7 @@ jobs:
 
       - name: Bundle the web app with the QA driver
         env:
-          QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
+          QA_UPDATE_PROBE: ${{ (matrix.part == 'update' || matrix.part == 'degraded') && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
       - name: Generate Xcode project and build for testing
@@ -559,7 +560,7 @@ jobs:
 
       - name: Start the fake account server (tlsfront) and trust its CA
         env:
-          QA_BUNDLES: ${{ matrix.part == 'update' && '1' || '0' }}
+          QA_BUNDLES: ${{ (matrix.part == 'update' || matrix.part == 'degraded') && '1' || '0' }}
         run: ios/qa/fake-server.sh
 
       - name: Run the flows
