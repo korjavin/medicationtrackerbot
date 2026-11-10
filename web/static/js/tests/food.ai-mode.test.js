@@ -178,7 +178,7 @@ describe('Food Add sheet — Describe → review → Log (med-xso6.17)', () => {
         expect(items[1]).toEqual(expect.objectContaining({ weight: 158, carbs_100g: 28.5 }));
         expect(typeof opts.eatenAt).toBe('number');
 
-        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification']);
+        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification'], expect.anything());
         expect(window.loadFoodLogs).toHaveBeenCalled();
         expect(window.loadToday).toHaveBeenCalled();
         expect(document.getElementById('food-add-sheet').classList.contains('hidden')).toBe(true);

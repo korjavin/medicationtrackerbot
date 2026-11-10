@@ -795,8 +795,12 @@
             await settle('commit');
             const saved = Array.isArray(res && res.items) ? res.items : [];
             const failed = Math.max(0, Math.trunc(Number(res && res.failed) || 0));
-            await ds.invalidateTags(['food', 'gamification']);
-            if (typeof todayFoodKey === 'function' && ds.clearCached) await ds.clearCached(todayFoodKey(new Date()));
+            // Keep the committed keys painted until the fresh read (bd med-mc9l).
+            const keep = handles.map((h) => h.key);
+            await ds.invalidateTags(['food', 'gamification'], { keep });
+            if (typeof todayFoodKey === 'function' && ds.clearCached && !keep.includes(todayFoodKey(new Date()))) {
+                await ds.clearCached(todayFoodKey(new Date()));
+            }
             close();
             loadFoodLogs();
             if (typeof loadToday === 'function') loadToday();

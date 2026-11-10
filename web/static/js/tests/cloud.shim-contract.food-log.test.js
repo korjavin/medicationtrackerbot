@@ -783,4 +783,41 @@ describe('testscenarios: a meal logged now is in today\'s kcal total on Food and
         expect(await fuel()).toBe('750');
         expect((await window.apiCall(`/api/food/log?date=${day}`)).flatMap((g) => g.logs).map((l) => l.name).sort()).toEqual(['Lunch', 'Oats']);
     });
+
+    // bd med-mc9l: a Today read right after the save, before the food fetch
+    // lands, paints from the cache — the save must not have evicted its day key.
+    it('the Today Fuel tile keeps the saved total while the food fetch is in flight', async () => {
+        env = loadCloudShimFrontendEnv();
+        const { window, document } = env;
+        const cache = installApiCache(window);
+        window.MedTrackerDB.ApiCache.getWithMeta = async (k) => (cache.has(k) ? { data: cache.get(k), timestamp: Date.now() } : null);
+        window.MedTrackerDB.FoodProductsStore = { getCache: async () => null, saveCache: async () => {} };
+        document.getElementById('food-scanner-video').pause = vi.fn();
+        window.featureSettings = { medication: false, bp: false, weight: false, food: true, workout: false, health: false, gamification: false };
+        window.featureSettingsLoaded = true;
+        window.eval(fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../features/today.js'), 'utf8'));
+        window.AppStore.set('currentTab', 'today');
+        await window.loadToday(); // Today has painted once: its caches are warm
+        window.AppStore.set('currentTab', 'food');
+        const day = localDateStr();
+        await window.loadFoodLogs();
+        window.showAddFoodModal();
+        document.getElementById('food-add-manual-btn').click();
+        document.getElementById('food-name').value = 'Lunch';
+        document.querySelector('#food-per-100g-seg [data-per100g="false"]').click();
+        document.getElementById('food-calories').value = '450';
+        document.getElementById('food-modal-save-btn').click();
+        await vi.waitFor(() => expect(document.getElementById('food-macros-card-kcal').textContent).toBe('450'));
+
+        // Today's food fetch never resolves: only the cache paint can show the meal.
+        const apiCall = window.apiCall;
+        window.apiCall = (url, ...rest) => (String(url).startsWith(`/api/food/log?date=${day}`)
+            ? new Promise(() => {}) : apiCall(url, ...rest));
+        window.AppStore.set('currentTab', 'today');
+        document.getElementById('today-content').replaceChildren(); // drop the pre-save paint
+        window.loadToday();
+        const fuel = () => document.querySelector('#today-content [data-section="fuel"] .wg-stat__value')?.textContent;
+        await vi.waitFor(() => expect(fuel()).toBeTruthy());
+        expect(fuel()).toBe('450');
+    });
 });

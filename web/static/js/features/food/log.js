@@ -590,11 +590,15 @@ async function writeFoodLog(payload, id) {
 
     // The write answers with the log, not the day payload: commit the
     // optimistic rows, then invalidate `food` so the next read is authoritative.
+    // The committed keys stay painted until that read lands — evicting them
+    // read Today's Fuel tile as 0 in between (bd med-mc9l).
     for (const h of handles) {
         try { await h.commit(null); } catch (_) { /* best-effort */ }
     }
-    await window.DataStore.invalidateTags(['food', 'gamification']);
-    if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+    const keep = handles.map((h) => h.key);
+    await window.DataStore.invalidateTags(['food', 'gamification'], { keep });
+    if (typeof todayFoodKey === 'function' && window.DataStore.clearCached
+        && !keep.includes(todayFoodKey(new Date()))) {
         await window.DataStore.clearCached(todayFoodKey(new Date()));
     }
     loadFoodLogs();
@@ -1155,7 +1159,7 @@ async function _deleteFoodLogApi(id) {
     }
 
     for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['food', 'gamification']);
+    await window.DataStore.invalidateTags(['food', 'gamification'], { keep: handles.map((h) => h.key) });
     loadFoodLogs();
     return true;
 }
@@ -1345,7 +1349,7 @@ async function moveFoodLogs(groupLogs, ids, eatenAt) {
     }
 
     for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['food', 'gamification']);
+    await window.DataStore.invalidateTags(['food', 'gamification'], { keep: handles.map((h) => h.key) });
     safeToast(`Moved ${ids.length} item${ids.length === 1 ? '' : 's'} to ${formatFoodDateLabel(targetDay)}`);
     loadFoodLogs();
     if (window.AppStore && window.AppStore.get('currentTab') === 'today'
