@@ -153,7 +153,7 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(empty).toMatchObject({ scene: 'backup-audit', ok: true });
         expect(empty.vaultAudit.counts['medications.items']).toBe(0);
         expect(window.CloudVault.importAll).not.toHaveBeenCalled();
-        expect(empty.vaultAudit.settingsHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(empty.vaultAudit.vaultHash).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('audits the seeded collections', async () => {
@@ -162,7 +162,7 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(seeded).toMatchObject({ scene: 'backup-audit', ok: true });
         expect(seeded.vaultAudit.counts['medications.items']).toBeGreaterThan(0);
         expect(seeded.vaultAudit.counts['bp.readings']).toBeGreaterThan(0);
-        expect(seeded.vaultAudit.settingsHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(seeded.vaultAudit.vaultHash).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('reports a flow scene\'s page state and native tap targets (med-sz4k.6.1)', async () => {

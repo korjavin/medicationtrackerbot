@@ -172,6 +172,10 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertTrue(QA.tapUntil(eraseRow, shows: eraseField))
         eraseField.tap()
         QA.dismissKeyboardTip(app)
+        // WebKit can insert a keyboard suggestion on first focus (the
+        // simulator exposed "THE " before the phrase). Clear it before
+        // typing, then require the real destructive gate to enable.
+        eraseField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
         eraseField.typeText("erase")
         QA.dismissKeyboardTip(app)
         XCTAssertTrue(app.webViews.buttons["Erase"].isEnabled, "typed erase did not enable confirmation")
@@ -207,6 +211,7 @@ final class FlowQABackupTests: XCTestCase {
         XCTAssertFalse(replace.isEnabled, "Replace enabled without confirmation")
         field.tap()
         QA.dismissKeyboardTip(app)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
         field.typeText("replace")
         QA.dismissKeyboardTip(app)
         hideKeyboard(app)

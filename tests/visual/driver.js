@@ -115,19 +115,20 @@
                     }
                 }
             }
-            const settings = vault.data.settings || {};
-            // Hash the complete settings object without publishing its API keys
-            // into the accessibility tree or CI artifacts. Sorting object keys
-            // makes the fingerprint independent of serialization order.
+            // Hash the vault without publishing synthetic API keys into the
+            // accessibility tree or CI artifacts. The two backup clock fields
+            // change on each export; all records and settings remain covered.
+            delete vault.exported_at;
+            if (vault.data.protection) vault.data.protection.last_backup_at = '<export time>';
             const canonical = (value) => {
                 if (Array.isArray(value)) return value.map(canonical);
                 if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
                 return value;
             };
-            const bytes = new TextEncoder().encode(JSON.stringify(canonical(settings)));
+            const bytes = new TextEncoder().encode(JSON.stringify(canonical(vault)));
             const digest = await window.crypto.subtle.digest('SHA-256', bytes);
-            const settingsHash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-            qa.vaultAudit = { counts, settingsHash };
+            const vaultHash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+            qa.vaultAudit = { counts, vaultHash };
         }
         publish(report(def));
         watch(def);
