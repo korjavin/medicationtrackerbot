@@ -675,14 +675,23 @@ async function deleteDeviceValue(key) {
 
 // flushPending's ack: clear the pushed pending rows and advance the cursor in
 // one transaction, unless syncEpoch moved since `epoch` (bd med-w4nq; the check
-// sits inside the tx for the same reason as writeMetaIfEpoch).
-function ackPushIfEpoch(epoch, recordIds, localLastSeq) {
+// sits inside the tx for the same reason as writeMetaIfEpoch). `sent` maps
+// recordId → the clientTs pushed; a row edited during the POST (clientTs is
+// strictly monotone per record, nextClientTs) keeps its pending entry so the
+// newer version is pushed next, not dropped.
+function ackPushIfEpoch(epoch, sent, localLastSeq) {
   return withDb((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(['pending', 'sync_meta'], 'readwrite');
+    const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
     const ok = !epochMoved(epoch);
     if (ok) {
+      const records = tx.objectStore('records');
       const pending = tx.objectStore('pending');
-      for (const id of recordIds) pending.delete(id);
+      for (const [id, clientTs] of sent) {
+        const req = records.get(id);
+        req.onsuccess = () => {
+          if (!req.result || req.result.clientTs === clientTs) pending.delete(id);
+        };
+      }
       tx.objectStore('sync_meta').put(localLastSeq, 'localLastSeq');
     }
     tx.oncomplete = () => resolve(ok);
@@ -1601,7 +1610,7 @@ async function flushPendingUnlocked(ctx) {
     if (meta.localLastSeq === null) return false;
     let seq = meta.localLastSeq;
     const ops = [];
-    const includedIds = [];
+    const sent = new Map(); // recordId → clientTs pushed
     let bodyBytes = 0;
     for (const { recordId, recordType } of pending) {
       if (ops.length >= MAX_OPS_PER_BATCH) break;
@@ -1628,7 +1637,7 @@ async function flushPendingUnlocked(ctx) {
       if (ops.length > 0 && bodyBytes + opBytes > FLUSH_MAX_BODY_BYTES) break;
       seq += 1;
       ops.push(op);
-      includedIds.push(recordId);
+      sent.set(recordId, record.clientTs);
       bodyBytes += opBytes;
     }
     if (ops.length === 0) {
@@ -1710,7 +1719,7 @@ async function flushPendingUnlocked(ctx) {
       // seqs, so every op's AAD is correct and other devices can decrypt them.
       // We already hold these records locally, so just clear and advance, then
       // loop to flush the next chunk (if any).
-      if (!(await ackPushIfEpoch(epoch, includedIds, Math.max(...assigned)))) return false;
+      if (!(await ackPushIfEpoch(epoch, sent, Math.max(...assigned)))) return false;
       flushedAny = true;
       continue;
     }

@@ -962,6 +962,31 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
     await pullOnOpen(ctx);
     expect(await hasCaughtUp()).toBe(true);
   });
+
+  it('an edit made while its push is in flight stays queued and is pushed next (med-w4nq)', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let releasePush;
+    const pushGate = new Promise((r) => { releasePush = r; });
+    let entered;
+    const pushEntered = new Promise((r) => { entered = r; });
+    const pushed = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        pushed.push(ops.length);
+        if (pushed.length === 1) { entered(); await pushGate; }
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => pushed.length + i) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'first' });
+    await pushEntered;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'second' }); // its flush queues behind the held one
+    releasePush();
+    await vi.waitFor(() => expect(pushed).toHaveLength(2));
+    await vi.waitFor(async () => expect((await getSyncStatus(ctx)).pendingCount).toBe(0));
+  });
 });
 
 // med-gvk.2 — a half-open connection (captive portal / hung TCP) leaves a bare
