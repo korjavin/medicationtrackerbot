@@ -178,7 +178,8 @@ describe('Food Add sheet — Describe → review → Log (med-xso6.17)', () => {
         expect(items[1]).toEqual(expect.objectContaining({ weight: 158, carbs_100g: 28.5 }));
         expect(typeof opts.eatenAt).toBe('number');
 
-        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification'], expect.anything());
+        // Today's day key keeps the optimistic total until the refetch (med-mc9l).
+        expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification'], { keep: [window.todayFoodKey(new Date())] });
         expect(window.loadFoodLogs).toHaveBeenCalled();
         expect(window.loadToday).toHaveBeenCalled();
         expect(document.getElementById('food-add-sheet').classList.contains('hidden')).toBe(true);
@@ -188,6 +189,13 @@ describe('Food Add sheet — Describe → review → Log (med-xso6.17)', () => {
         expect(card.querySelector('.wg-toast__text').firstChild.textContent).toBe('2 items logged');
         expect(card.textContent).toContain('from description');
         expect(card.querySelector('.wg-toast__undo')).not.toBeNull();
+    });
+
+    it('a partial failure keeps no optimistic day total: the whole food family is evicted', async () => {
+        stubAI({ logParsedItems: vi.fn(async () => ({ status: 'created', items: SAVED.slice(0, 1), failed: 1 })) });
+        await estimate();
+        await logReviewed();
+        expect(env.window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification'], { keep: [] });
     });
 
     it('a row removed in review is not committed', async () => {
