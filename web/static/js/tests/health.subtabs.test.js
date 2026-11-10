@@ -167,7 +167,7 @@ describe('Health pull to refresh (med-y7b4.6)', () => {
         expect(pill.classList.contains('wg-ptr--ready')).toBe(false);
         // It sits under the segment strips, above the content.
         expect(pill.previousElementSibling.id).toBe('health-subtabs');
-        window.document.dispatchEvent(new window.Event('touchend'));
+        window.document.body.dispatchEvent(new window.Event('touchend'));
         expect(document.querySelector('.wg-ptr')).toBeNull();
         expect(calls).toEqual([]);
 

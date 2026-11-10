@@ -233,6 +233,37 @@ describe('Today pull to refresh (med-y7b4.6)', () => {
         }
     });
 
+    // med-nh65: Today re-renders the card under the finger mid-gesture; the
+    // touch's later events land on the detached card, not document.
+    it('a card re-rendered under the finger still ends the pull: past the threshold it syncs once, below it cancels', async () => {
+        const { window, cleanup } = today();
+        try {
+            const doc = window.document;
+            const syncer = vi.fn(async () => ({ arrived: false }));
+            window.AppRefresh.setSync(syncer);
+            const gesture = (dy) => {
+                const card = doc.createElement('div');
+                doc.getElementById('today-view').appendChild(card);
+                pullToRefresh(window, dy, { release: false, target: card });
+                expect(doc.querySelector('#today-view .wg-ptr')).not.toBeNull();
+                card.remove();
+                card.dispatchEvent(new window.Event('touchend', { bubbles: true }));
+            };
+
+            gesture(30);
+            expect(doc.querySelector('.wg-ptr')).toBeNull();
+            expect(syncer).not.toHaveBeenCalled();
+
+            gesture(100);
+            await window.AppRefresh.run();
+            await macrotask();
+            expect(syncer).toHaveBeenCalledTimes(1);
+            expect(doc.querySelector('.wg-ptr')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('local mode: no sync registered, so no gesture and no pull', async () => {
         const { window, cleanup } = today();
         try {
@@ -240,7 +271,7 @@ describe('Today pull to refresh (med-y7b4.6)', () => {
             window.AppRefresh.setImport(importer, 'Apple Health', () => true);
             pullToRefresh(window, 100, { release: false });
             expect(window.document.querySelector('.wg-ptr')).toBeNull();
-            window.document.dispatchEvent(new window.Event('touchend'));
+            window.document.body.dispatchEvent(new window.Event('touchend'));
             await window.AppRefresh.run('today');
             expect(importer).not.toHaveBeenCalled();
             expect(window.safeToast).not.toHaveBeenCalled();
