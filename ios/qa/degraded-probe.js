@@ -7,7 +7,7 @@
   let updateSeenBeforeDegraded = false;
   new MutationObserver(() => {
     if (document.querySelector('#cloud-update-banner') && !document.querySelector('#boot-degraded-banner')) updateSeenBeforeDegraded = true;
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  }).observe(document, { childList: true, subtree: true });
   const pageNumber = Number(sessionStorage.getItem('qa-update-page-number') || 0) + 1;
   sessionStorage.setItem('qa-update-page-number', String(pageNumber));
   document.addEventListener('visibilitychange', (event) => {
@@ -82,6 +82,12 @@
         }
       }
       if (entries.length !== 2) throw new Error('expected A and B module responses, got ' + entries.length);
+      if (!entries.some((entry) => entry.name.endsWith('v20990101-0001')) ||
+          !entries.some((entry) => entry.name.endsWith('v20990101-0002'))) throw new Error('missing A/B generations');
+      for (const name of await caches.keys()) {
+        const keys = await (await caches.open(name)).keys();
+        if (keys.some((key) => new URL(key.url).pathname === '/js/apishim.js')) throw new Error('module eviction incomplete');
+      }
       sessionStorage.setItem('qa-b2-saved', JSON.stringify(entries));
       return entries;
     });
@@ -92,7 +98,10 @@
       for (const entry of entries) {
         const response = await saved.match(entry.savedURL);
         if (!response?.ok) throw new Error('saved module response missing');
-        await (await caches.open(entry.name)).put(entry.url, response);
+        const body = await response.clone().text();
+        const cache = await caches.open(entry.name);
+        await cache.put(entry.url, response);
+        if (await (await cache.match(entry.url)).text() !== body) throw new Error('restored module differs');
       }
       await caches.delete('qa-b2-good-responses');
       return entries;
