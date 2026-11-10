@@ -15,4 +15,4 @@ covered_by:
   web: tests/visual/playwright/flows.mjs#boot-degraded-reload
   android: android/qa/scenarios/degraded-boot.mjs#degradedBoot  # real post-unlock failure, replacement, Reload title/body and one offline recovery navigation (shared title fix med-31gk)
   ios: manual  # no iOS run yet: banner, replacement of the update banner and offline Reload are med-sz4k.6.2; invariant 3 waits on the shared runtime fix med-31gk
-source: [med-kk1q.4]
+source: [med-kk1q.4, med-bdts]
