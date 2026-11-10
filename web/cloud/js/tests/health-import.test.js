@@ -3193,6 +3193,43 @@ describe('Health write-back', () => {
                 expect(sent().sort()).toEqual(['write bp bp-a', 'write hr bp-a/pulse', 'write weight w-2']);
             });
 
+            it('a marking whose rows were already delivered (the clear failed after the mark) is cleared, not sent again (Argus 22238 #3)', async () => {
+                storage.removeItem('wg.health.dirty');
+                storage.setItem('wg.health.copied', JSON.stringify({ bp: { 'bp-a': 1 } }));
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 1, ids: { bp: ['bp-a'] }, blocked: {},
+                    marking: [{ recordType: 'bp', recordId: 'bp-a', clientTs: 1 }],
+                }));
+                await open();
+                // Nothing left to copy: the job settles at load.
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
+                expect(ledgerSize()).toBe(0);
+                expect(health.write).not.toHaveBeenCalled();
+            });
+
+            it('a pending marking blocks a new admission and a stuck settle: its rows are neither replaced nor lost (Argus 22238 #1 #2)', async () => {
+                allowConsoleNoise();
+                storage.removeItem('wg.health.dirty');
+                const marking = [{ recordType: 'bp', recordId: 'bp-a', clientTs: 1 }];
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 3, ids: { bp: ['bp-a'] }, blocked: { weight: ['w-1', 'w-2'] }, marking, fails: 99,
+                }));
+                theirs.weight = [kgSample(U2, at('2026-10-01T20:00:00Z'), 80)];
+                const set = storage.setItem;
+                storage.setItem = (k, v) => {
+                    if (k === 'wg.health.dirty') throw new Error('quota');
+                    return set(k, v);
+                };
+                await open(health, { copyBackoffMs: 60000 });
+                await tick();
+                expect(job()).toMatchObject({ marking, blocked: { weight: ['w-1', 'w-2'] }, total: 3 });
+                storage.setItem = set;
+                foreground();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '2 entries.']));
+                expect(job().marking).toBeUndefined();
+                expect(sent().sort()).toEqual(['write bp bp-a', 'write hr bp-a/pulse', 'write weight w-2']);
+            });
+
             it('a Copy start whose ledger mark fails keeps the job with its marking, shows it running, no toast; the next pass marks and copies', async () => {
                 allowConsoleNoise();
                 await open(health, { copyBackoffMs: 60000 });
