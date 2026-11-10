@@ -85,7 +85,7 @@
         // Never import over a real vault: the QA bundle is local mode only; the
         // cloud pass opts in for its fresh test account.
         if (!document.documentElement.classList.contains('wg-local-vault') && !window.__wgQACloud) throw new Error('not local mode');
-        if (!(await window.CloudVault.hasUserContent())) {
+        if (!def.allowEmpty && !(await window.CloudVault.hasUserContent())) {
             await seed();
             return; // the import reloads the page; the next load runs the scene
         }
@@ -103,6 +103,20 @@
         if (typeof document.getAnimations === 'function') {
             await Promise.race([Promise.all(document.getAnimations()
                 .filter((a) => !(a.effect && a.effect.getTiming().iterations === Infinity)).map((a) => a.finished.catch(() => {}))), sleep(3000)]);
+        }
+        if (def.vaultAudit) {
+            const vault = JSON.parse(await window.CloudVault.exportAll());
+            const counts = {};
+            for (const [key, value] of Object.entries(vault.data || {})) {
+                if (Array.isArray(value)) counts[key] = value.length;
+                else if (value && typeof value === 'object') {
+                    for (const [child, rows] of Object.entries(value)) {
+                        if (Array.isArray(rows)) counts[`${key}.${child}`] = rows.length;
+                    }
+                }
+            }
+            const settings = vault.data.settings || {};
+            qa.vaultAudit = { counts, settings: { timezone: settings.timezone, food_targets: settings.food_targets, features: settings.features } };
         }
         publish(report(def));
         watch(def);
@@ -1249,7 +1263,7 @@
             if (probes.inView.some((v) => !v.ok)) failed.push('inView');
         }
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister,
-            flow: def.flow ? flowState(def) : undefined };
+            flow: def.flow ? flowState(def) : undefined, vaultAudit: qa.vaultAudit };
     }
 
     // The EU register check on this shell (bd med-3u28.4, twin of Android's
