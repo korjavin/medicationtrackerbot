@@ -60,9 +60,11 @@ export async function observeDocument(page, r) {
     if (msg.text().startsWith('B2_SW ')) (r.lifecycle ||= []).push(msg.text());
   });
   const observe = () => {
-    const report = (event) => console.log('B2_EVENT ' + JSON.stringify({ type: event.type,
+    window.__qaVis = [];
+    const report = (event) => { const record = { type: event.type,
       trusted: event.isTrusted, state: document.visibilityState, focused: document.hasFocus(),
-      target: event.target === window ? 'window' : 'document', at: Date.now(), timeOrigin: performance.timeOrigin }));
+      target: event.target === window ? 'window' : 'document', at: Date.now(), timeOrigin: performance.timeOrigin };
+      window.__qaVis.push(record); console.log('B2_EVENT ' + JSON.stringify(record)); };
     document.addEventListener('visibilitychange', report, true);
     window.addEventListener('focus', report);
     window.addEventListener('blur', report);
@@ -84,13 +86,14 @@ export async function foreground(ctx, page, r) {
   await page.waitForFunction(() => document.visibilityState === 'visible');
   await ctx.sleep(1000);
   observation.returned = await snapshot();
-  const events = (r?.documentEvents || []).filter((e) => e.trusted && e.type === 'visibilitychange' &&
+  observation.events = await page.evaluate(() => window.__qaVis || []);
+  if (r) (r.foregrounds ||= []).push(observation);
+  const events = observation.events.filter((e) => e.trusted && e.type === 'visibilitychange' &&
     e.timeOrigin === observation.before.timeOrigin && e.at >= observation.homeStarted);
   const hidden = events.findIndex((e) => e.state === 'hidden' && e.at < observation.returnStarted);
   if (hidden < 0 || !events.slice(hidden + 1).some((e) => e.state === 'visible' && e.at >= observation.returnStarted)) {
     throw new Error(`native Home/return did not deliver trusted hidden then visible: ${JSON.stringify(events)}`);
   }
-  if (r) (r.foregrounds ||= []).push(observation);
 }
 
 export async function prepareAccount(ctx, r) {
