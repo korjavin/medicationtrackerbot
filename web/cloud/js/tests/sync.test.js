@@ -4484,4 +4484,65 @@ describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
     await burst();
     expect(snapGets).toBe(2); // the forced retry bootstrapped
   });
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        for (const [k, v] of Object.entries(meta)) tx.objectStore('sync_meta').put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  it('a write inside the window bootstraps first once the server is back', async () => {
+    await burst();
+    expect(snapGets).toBe(1);
+    snapStatus = 200;
+    await writeRecord(ctx, 'bp', { recordId: 'bp-2', clientTs: 2, deleted: false, systolic: 130 }, ORIGIN_UI, { flush: false });
+    expect(snapGets).toBe(2);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+  });
+
+  it('a forced open that joins a rejected read-started bootstrap still makes its own attempt', async () => {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const fetchEntered = new Promise((r) => { entered = r; });
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/snapshot' && snapGets === 0) {
+        snapGets++; entered(); await held;
+        return new Response('not json', { status: 200 }); // bootstrap's body parse rejects
+      }
+      return base(url, init);
+    }));
+    const read = listRecords(ctx, 'bp');
+    await fetchEntered;
+    const open = pullOnOpen(ctx);
+    snapStatus = 204;
+    release();
+    await expect(read).rejects.toThrow();
+    await open;
+    expect(snapGets).toBe(2);
+    await burst();
+    expect(snapGets).toBe(2);
+  });
+
+  it('a stranded-import refusal does not extend the window, even with a stale offline flag', async () => {
+    await burst(); // 503: offline set, 5 s window
+    expect(snapGets).toBe(1);
+    now += 5_000;
+    await seedMeta({ forceSnapshotPending: true });
+    await burst(); // refused without a fetch; offline still set from the 503
+    expect(snapGets).toBe(1);
+    await seedMeta({ forceSnapshotPending: false });
+    now += 1;
+    await burst(); // the window was not doubled to 10 s by the refusal
+    expect(snapGets).toBe(2);
+  });
 });

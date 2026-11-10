@@ -931,6 +931,8 @@ async function applyIncoming(recordType, record) {
 
 // Returns true once the local mirror is at a known cursor. False means "did not
 // bootstrap" — callers that would otherwise proceed on a stale cursor must bail.
+// null is a falsy "did not bootstrap" too, but without a fetch (stranded import):
+// bootstrapIfNeeded backs off a failed fetch only (bd med-nqgd).
 // `reduceAcked`: see replaceAllRecords. Off for a peer's full-vault import,
 // which replaces by intent.
 async function bootstrap(ctx, { reduceAcked = true } = {}) {
@@ -940,7 +942,7 @@ async function bootstrap(ctx, { reduceAcked = true } = {}) {
   // bootstrap is reachable from pullTail's compaction branch — which flushPending
   // reaches on any write — so the guard has to live here, at the one place that
   // calls replaceAllRecords.
-  if ((await readMeta()).forceSnapshotPending) return false;
+  if ((await readMeta()).forceSnapshotPending) return null;
   const kData = await getKData(ctx);
   let snapRes;
   try {
@@ -1017,18 +1019,20 @@ export async function bootstrapIfNeeded(ctx, { force = false } = {}) {
   // still runs.
   if (bootstrapped) return;
   // A forced caller that joined an unforced flight (one that may have started
-  // before connectivity returned) still gets its own attempt if that one failed.
+  // before connectivity returned) still gets its own attempt if that one failed
+  // or rejected; other joiners share the flight's outcome, error included.
   for (let f = bootstrapInFlight; f; f = bootstrapInFlight) {
-    await f;
+    try { await f; } catch (e) { if (!force || f.forced) throw e; }
     if (bootstrapped || !force || f.forced) return;
   }
   if (!force && Date.now() < bootstrapRetryAt) return;
   const flight = (async () => {
     const meta = await readMeta();
     if (meta.localLastSeq !== null) { bootstrapped = true; resetBootstrapBackoff(); return; }
-    if (await bootstrap(ctx)) { bootstrapped = true; resetBootstrapBackoff(); return; }
-    // Back off only a failed fetch: a forceSnapshotPending refusal never left the device.
-    if (offline || authExpired) {
+    const ok = await bootstrap(ctx);
+    if (ok) { bootstrapped = true; resetBootstrapBackoff(); return; }
+    // Back off only this attempt's failed fetch: a forceSnapshotPending refusal (null) never left the device.
+    if (ok === false) {
       bootstrapBackoffMs = Math.min(bootstrapBackoffMs * 2 || BOOTSTRAP_BACKOFF_MIN_MS, BOOTSTRAP_BACKOFF_MAX_MS);
       bootstrapRetryAt = Date.now() + bootstrapBackoffMs;
     }
@@ -1934,7 +1938,8 @@ export async function isSyncWedged() {
 // put, no pending row) and the call resolves null; a body is stamped and
 // written like put.
 export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false, ifMatchTs, update = null } = {}) {
-  await bootstrapIfNeeded(ctx);
+  // A write never skips a bootstrap on the backoff window (bd med-nqgd).
+  await bootstrapIfNeeded(ctx, { force: true });
   const meta = await readMeta();
   const { stamped, wrote } = await stampAndPut(recordType, record, {
     ifAbsent, ifMatchTs, update, skewMs: meta.clockSkewMs, pending: true,
