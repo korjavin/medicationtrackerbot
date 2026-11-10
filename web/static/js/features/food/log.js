@@ -1350,7 +1350,7 @@ async function moveFoodLogs(groupLogs, ids, eatenAt) {
     }
 
     for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['food', 'gamification'], { keep: handles.map((h) => h.key) });
+    await window.DataStore.invalidateTags(['food', 'gamification']);
     safeToast(`Moved ${ids.length} item${ids.length === 1 ? '' : 's'} to ${formatFoodDateLabel(targetDay)}`);
     loadFoodLogs();
     if (window.AppStore && window.AppStore.get('currentTab') === 'today'
