@@ -61,6 +61,7 @@ gh run download <run> -n ios-visual-web-compare -D /tmp/claude-vw/<run>-webcmp
 | `canvasOverflow` | a `canvas`/chart `svg` over 64px wider than its parent | an intentionally scrollable chart strip |
 | `focusUnderKeyboard`, `bottomNavCovered` | focused field behind the keyboard / tab bar below the viewport | `bottomNavCovered` is meaningless in scenes where the keyboard is up |
 | `readyLost` (`failed` has `ready`) | a ready selector vanished before the shot: the app switched away | race with a late redraw; re-run once before filing |
+| `inView` | a scene's target is outside the viewport or below the tab bar; fails the scene like `readyLost` | a scene step scrolled the target past the floor; inspect the PNG and steps |
 | `paint` | rect the XCUITest waits on to be non-blank | a blank-frame failure means boot starvation or a crash, not a layout bug |
 
 `keyboardShown` is inferred from viewport shrink against the pre-focus height, including WKWebView shrinking both viewport heights. It is informational; inspect the screenshot for the actual software keyboard. `focusContext` records the target, active modal and coordinate data. Only a visible editable field in the top modal can be classified as keyboard-occluded; a focused field outside the viewport without keyboard evidence instead fails `focusOutsideViewport`. A keyboard scene captured without a keyboard (for example `ConnectHardwareKeyboard` enabled) remains unverified.

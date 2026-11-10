@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js  # invariant 2: tests/visual/playwright/flows.mjs#meds-timeline-focus-in-view (gates the scene's inView probe, Pixel 7 and 390 wide)
   android: android/qa/scenarios/local-visual.mjs#meds-timeline-focus-in-view  # invariant 2: local-visual dispatch gates inView; invariants 1 and 3 data/logic only: web/static/js/tests/meds.timeline.test.js
-  ios: manual  # partial: data/logic only: web/static/js/tests/meds.timeline.test.js (invariants 1 and 3); invariant 2 has the tests/visual/scenes.json#meds-timeline-focus-in-view inView probe in ios-visual (iPhone 16e 390pt, 17 Pro Max), which reports it in the scene JSON and does not fail on it; no gating iOS run of the focus card's Take/Skip in view
+  ios: ios/UITests/VisualQATests.swift  # invariant 2: tests/visual/scenes.json#meds-timeline-focus-in-view, dispatched: visual_scenes (inView gates both iPhone sizes); invariants 1 and 3 data/logic: web/static/js/tests/meds.timeline.test.js
 source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, bd med-5y49]
