@@ -77,10 +77,12 @@ export async function foreground(ctx, page, r) {
   const snapshot = () => page.evaluate(() => ({ state: document.visibilityState,
     focused: document.hasFocus(), at: Date.now(), timeOrigin: performance.timeOrigin,
     banners: document.querySelectorAll('#cloud-update-banner').length }));
+  await page.evaluate(() => { window.__qaVis = []; });
   const observation = { before: await snapshot(), homeStarted: Date.now() };
   await ctx.shell('input keyevent KEYCODE_HOME');
   await ctx.sleep(3000);
   observation.away = await snapshot();
+  observation.awayEvents = await page.evaluate(() => window.__qaVis || []);
   observation.returnStarted = Date.now();
   await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
   await page.waitForFunction(() => document.visibilityState === 'visible');
@@ -89,9 +91,10 @@ export async function foreground(ctx, page, r) {
   observation.events = await page.evaluate(() => window.__qaVis || []);
   if (r) (r.foregrounds ||= []).push(observation);
   const events = observation.events.filter((e) => e.trusted && e.type === 'visibilitychange' &&
-    e.timeOrigin === observation.before.timeOrigin && e.at >= observation.homeStarted);
-  const hidden = events.findIndex((e) => e.state === 'hidden' && e.at < observation.returnStarted);
-  if (hidden < 0 || !events.slice(hidden + 1).some((e) => e.state === 'visible' && e.at >= observation.returnStarted)) {
+    e.timeOrigin === observation.before.timeOrigin);
+  const hidden = events.findIndex((e) => e.state === 'hidden');
+  if (!observation.awayEvents.some((e) => e.trusted && e.type === 'visibilitychange' && e.state === 'hidden') ||
+      hidden < 0 || !events.slice(hidden + 1).some((e) => e.state === 'visible')) {
     throw new Error(`native Home/return did not deliver trusted hidden then visible: ${JSON.stringify(events)}`);
   }
 }
