@@ -1073,12 +1073,17 @@ export function startHealthImport(ctx, {
     // The only reader of job.marking: mark its rows, then clear it. A row
     // already delivered (a copied marker: the clear failed after an earlier
     // mark and drain) is not marked again, so a failing job write never
-    // resends it (Argus 22238 #3).
+    // resends it (Argus 22238 #3); nor is a row already dropped.
     const reconcileMarking = () => {
         const j = readJob();
         if (!j || !Array.isArray(j.marking)) return;
         const c = readJSON(storage, COPIED_KEY, {});
-        const rows = j.marking.filter((r) => r && MARKS[r.recordType] && c[MARKS[r.recordType][0]]?.[r.recordId] === undefined);
+        // A row dropped as permanently rejected is resolved too (Argus 22243 #1).
+        const done = (r) => {
+            const k = MARKS[r.recordType][0];
+            return c[k]?.[r.recordId] !== undefined || (Array.isArray(j.dropped?.[k]) && j.dropped[k].includes(r.recordId));
+        };
+        const rows = j.marking.filter((r) => r && MARKS[r.recordType] && !done(r));
         if (rows.length && !writeBack.mark(rows)) return;
         delete j.marking;
         writeJSON(storage, JOB_KEY, j);

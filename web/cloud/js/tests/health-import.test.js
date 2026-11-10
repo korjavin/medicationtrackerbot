@@ -3185,10 +3185,19 @@ describe('Health write-back', () => {
                     startedAt: 1, total: 2, ids: { bp: ['bp-a'], weight: ['w-2'] }, blocked: {},
                     marking: [{ recordType: 'bp', recordId: 'bp-a', clientTs: 1 }, { recordType: 'weight', recordId: 'w-2', clientTs: 1 }],
                 }));
+                // Hold delivery to see the reconciled state before it drains.
+                let release;
+                const gate = new Promise((r) => { release = r; });
+                const deliver = health.write.getMockImplementation();
+                health.write.mockImplementation(async (...a) => { await gate; return deliver(...a); });
                 await open();
+                expect(dirty()).toEqual({ bp: { 'bp-a': 1 }, hr: { 'bp-a': 1 }, weight: { 'w-2': 1 } });
+                expect(job().marking).toBeUndefined();
+                expect(copyRow().dataset.state).toBe('running');
+                expect([copyRow().querySelector('progress').value, copyRow().querySelector('progress').max]).toEqual([0, 2]);
+                release();
                 await finished();
                 expect(rowText()).toEqual(['Copied to Health Connect', '2 entries.']);
-                expect(job().marking).toBeUndefined();
                 expect(ledgerSize()).toBe(0);
                 expect(sent().sort()).toEqual(['write bp bp-a', 'write hr bp-a/pulse', 'write weight w-2']);
             });
@@ -3205,6 +3214,18 @@ describe('Health write-back', () => {
                 expect(storage.getItem('wg.health.backfill')).toBe('null');
                 expect(ledgerSize()).toBe(0);
                 expect(health.write).not.toHaveBeenCalled();
+            });
+
+            it('a marking whose row was already dropped as rejected is cleared, not sent again (Argus 22243 #1)', async () => {
+                storage.removeItem('wg.health.dirty');
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 1, ids: { bp: [] }, blocked: {}, dropped: { bp: ['bp-c'] },
+                    marking: [{ recordType: 'bp', recordId: 'bp-c', clientTs: 1, pulse: false }],
+                }));
+                await open();
+                expect(ledgerSize()).toBe(0);
+                expect(health.write).not.toHaveBeenCalled();
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
             });
 
             it('a pending marking blocks a new admission and a stuck settle: its rows are neither replaced nor lost (Argus 22238 #1 #2)', async () => {
