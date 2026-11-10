@@ -34,6 +34,9 @@
       degradedBanners: document.querySelectorAll('#boot-degraded-banner').length,
       updateSeenBeforeDegraded,
       maxUpdatesBeforeDegraded,
+      online: navigator.onLine,
+      emptyTitle: document.querySelector('#fooddb-list .wg-empty__title')?.textContent?.trim() || '',
+      emptyBody: document.querySelector('#fooddb-list .wg-empty__body')?.textContent?.trim() || '',
       action: button.dataset.action || '',
       detail: button.dataset.detail || '',
     };
@@ -110,6 +113,7 @@
       await caches.delete('qa-b2-good-responses');
       return entries;
     });
+    addAction('clear-cache', async () => { await window.MedTrackerDB.ApiCache.clear(); });
     addAction('reload', async () => { location.reload(); });
     addAction('read-settings', async () => {
       if (typeof window.offlineAwareApiCall !== 'function') throw new Error('account shim missing');
