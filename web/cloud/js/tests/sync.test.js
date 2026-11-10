@@ -4386,3 +4386,75 @@ describe('records.update: locked compare-and-merge on the raw row (med-yzag)', (
     expect((await settings.readIntegrationsUnmasked()).openai).toMatchObject({ api_key: 'fixture-key-b', url: 'https://b.example/v1' });
   });
 });
+
+// bd med-nqgd — every read calls bootstrapIfNeeded; with no cursor and a failing
+// snapshot GET, each read used to refetch (hundreds of GETs per render on a 5xx).
+describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)', () => {
+  let ctx;
+  let snapGets;
+  let snapStatus;
+  let now;
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    snapGets = 0;
+    snapStatus = 503;
+    now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snapGets++;
+        return new Response(null, { status: snapStatus });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const burst = (n = 20) => Promise.all(Array.from({ length: n }, () => listRecords(ctx, 'bp')));
+
+  it('single-flights concurrent reads, skips inside the window, retries after it, and clears on success', async () => {
+    await burst();
+    expect(snapGets).toBe(1);
+    await burst();
+    expect(snapGets).toBe(1); // inside the 5 s window: no fetch
+    now += 5_000;
+    await burst();
+    expect(snapGets).toBe(2); // window elapsed: one retry, window doubles to 10 s
+    now += 5_000;
+    await burst();
+    expect(snapGets).toBe(2);
+    now += 5_000;
+    snapStatus = 204;
+    await burst();
+    expect(snapGets).toBe(3);
+    expect((await getSyncStatus(ctx)).offline).toBe(false);
+    await burst();
+    expect(snapGets).toBe(3); // bootstrapped: no further snapshot GETs
+  });
+
+  it('pullOnOpen and a reconnect drain retry at once inside the window', async () => {
+    await burst();
+    expect(snapGets).toBe(1);
+    await pullOnOpen(ctx);
+    expect(snapGets).toBe(2);
+    await requestDrain(ctx);
+    expect(snapGets).toBe(3);
+    snapStatus = 204;
+    await requestDrain(ctx);
+    expect(snapGets).toBe(4);
+    await burst();
+    expect(snapGets).toBe(4);
+  });
+});

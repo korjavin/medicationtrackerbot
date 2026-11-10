@@ -380,6 +380,7 @@ onCachedDbDropped(() => {
   journalReset();
   recordsChangeCount++;
   bootstrapped = false;
+  resetBootstrapBackoff();
   // Harmless to clear mid-session: the next push re-learns it with one 426.
   updateRequired = false;
 });
@@ -561,6 +562,9 @@ export async function resetLocalSync(ctx) {
   invalidateRecords();
   announce({ reset: true });
   bootstrapped = false;
+  // A flight that read the pre-wipe meta must not stand in for the re-bootstrap.
+  bootstrapInFlight = null;
+  resetBootstrapBackoff();
   offline = false;
   authExpired = false;
   await pullOnOpen(ctx);
@@ -991,14 +995,41 @@ async function bootstrap(ctx, { reduceAcked = true } = {}) {
   return true;
 }
 
-export async function bootstrapIfNeeded(ctx) {
+// bd med-nqgd — every read calls bootstrapIfNeeded, so an un-bootstrapped device
+// whose snapshot GET keeps failing (5xx / offline) would refetch at the page's
+// read rate. Single-flight the bootstrap, and after a failed fetch skip it for a
+// backoff window (5 s doubling to 2 min); a skipped read behaves exactly like a
+// failed one (cursor stays null). `force` (pullOnOpen: open, reconnect drains,
+// reauth, resetLocalSync) ignores the window so a regained network retries now.
+const BOOTSTRAP_BACKOFF_MIN_MS = 5_000;
+const BOOTSTRAP_BACKOFF_MAX_MS = 120_000;
+let bootstrapInFlight = null;
+let bootstrapBackoffMs = 0;
+let bootstrapRetryAt = 0;
+function resetBootstrapBackoff() {
+  bootstrapBackoffMs = 0;
+  bootstrapRetryAt = 0;
+}
+
+export async function bootstrapIfNeeded(ctx, { force = false } = {}) {
   // Once we know our cursor, skip the 11-key sync_meta read on every list call.
   // A dropped connection / resetLocalSync clears this flag so a re-bootstrap
   // still runs.
   if (bootstrapped) return;
-  const meta = await readMeta();
-  if (meta.localLastSeq !== null) { bootstrapped = true; return; }
-  if (await bootstrap(ctx)) bootstrapped = true;
+  if (bootstrapInFlight) return bootstrapInFlight;
+  if (!force && Date.now() < bootstrapRetryAt) return;
+  const flight = (async () => {
+    const meta = await readMeta();
+    if (meta.localLastSeq !== null) { bootstrapped = true; resetBootstrapBackoff(); return; }
+    if (await bootstrap(ctx)) { bootstrapped = true; resetBootstrapBackoff(); return; }
+    // Back off only a failed fetch: a forceSnapshotPending refusal never left the device.
+    if (offline || authExpired) {
+      bootstrapBackoffMs = Math.min(bootstrapBackoffMs * 2 || BOOTSTRAP_BACKOFF_MIN_MS, BOOTSTRAP_BACKOFF_MAX_MS);
+      bootstrapRetryAt = Date.now() + bootstrapBackoffMs;
+    }
+  })().finally(() => { if (bootstrapInFlight === flight) bootstrapInFlight = null; });
+  bootstrapInFlight = flight;
+  return flight;
 }
 
 async function pullTail(ctx) {
@@ -1626,7 +1657,7 @@ async function flushPendingUnlocked(ctx) {
 // would otherwise start the next retry — an unbounded upload loop while the
 // snapshot keeps failing. Open/visibility/online/reauth drains still retry.
 export async function pullOnOpen(ctx, { retryForcedSnapshot = true } = {}) {
-  await bootstrapIfNeeded(ctx);
+  await bootstrapIfNeeded(ctx, { force: true });
   // A pending forced snapshot (a C2e full-vault import a prior session couldn't
   // complete offline) means the LOCAL store is authoritative and must be PUSHED
   // before anything is pulled. The imported records live only in 'records',
