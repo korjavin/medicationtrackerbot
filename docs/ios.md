@@ -164,7 +164,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   export picker shows and is gone once it is swiped away (med-o7zq.43). `testRestoreFromFile` — restore via
   the Settings import input (driver seed) into an erased store, records survive
   a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
-  Meds empty after relaunch, local mode kept.
+  Meds empty after relaunch, local mode kept. `testBackupExportRestoreChain`
+  saves and restores the same file through Files, checks typed Replace and
+  corrupt-file refusal, and audits the vault through the `backup-audit` and
+  `backup-sentinel` flow-only scenes.
 - **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
   bd med-w6gx.23.3): the shell's stashes from the local
   side, as files in the container's `Application Support/{move,leave}/vault.json`:
