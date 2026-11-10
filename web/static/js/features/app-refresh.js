@@ -161,20 +161,25 @@
         else view.prepend(pill);
     }
 
+    // A touch's events go to the element it started on, even after the page
+    // detaches that element (Today re-renders a card mid-gesture); detached,
+    // they no longer bubble to document. So the gesture listens on its own
+    // target (med-nh65).
+    function listen(state, on) {
+        if (!state || !state.target) return;
+        for (const [type, fn] of gesture) {
+            if (on) state.target.addEventListener(type, fn, { passive: true });
+            else state.target.removeEventListener(type, fn);
+        }
+    }
+
     function drop(state) {
         if (state && state.pill) state.pill.remove();
+        listen(state, false);
         if (pull === state) pull = null;
     }
 
-    document.addEventListener('touchstart', (e) => {
-        drop(pull);
-        if (inFlight || !e.touches || e.touches.length !== 1) return;
-        const section = currentSection();
-        if (!canRefresh(section) || !atTop() || modalOpen()) return;
-        pull = { section, startY: e.touches[0].clientY, pill: null, ready: false };
-    }, { passive: true });
-
-    document.addEventListener('touchmove', (e) => {
+    function onMove(e) {
         const state = pull;
         if (!state || !e.touches || !e.touches.length) return;
         const dy = e.touches[0].clientY - state.startY;
@@ -188,18 +193,28 @@
             state.ready = ready;
             paint(state, state.section, ready ? 'ready' : 'pull');
         }
-    }, { passive: true });
+    }
 
-    document.addEventListener('touchend', () => {
+    function onEnd() {
         const state = pull;
         if (!state) return;
         pull = null;
+        listen(state, false);
         if (!state.ready || inFlight) { drop(state); return; }
         paint(state, state.section, 'busy');
         run(state.section).finally(() => drop(state));
-    }, { passive: true });
+    }
 
-    document.addEventListener('touchcancel', () => drop(pull), { passive: true });
+    const gesture = [['touchmove', onMove], ['touchend', onEnd], ['touchcancel', () => drop(pull)]];
+
+    document.addEventListener('touchstart', (e) => {
+        drop(pull);
+        if (inFlight || !e.touches || e.touches.length !== 1) return;
+        const section = currentSection();
+        if (!canRefresh(section) || !atTop() || modalOpen()) return;
+        pull = { section, startY: e.touches[0].clientY, pill: null, ready: false, target: e.target };
+        listen(pull, true);
+    }, { passive: true });
 
     window.AppRefresh = {
         run,

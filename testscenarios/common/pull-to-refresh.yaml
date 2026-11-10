@@ -12,7 +12,7 @@ invariants:
   - Pull to refresh runs a sync pull (not a Health import); new entries show a toast, nothing new shows none
   - The offline banner shows only while offline and goes once the network is back
   - 'Local mode shows no sync pull gesture, no offline banner, no network chip (Health pull there runs the Health import only)'
-source: [med-duj9]
+source: [med-duj9, med-nh65]
 covered_by:
   web: tests/visual/playwright/flows.mjs#pull-to-refresh  # a second device's blood pressure arrives on the pull ("Syncing…", "Synced · new entries", the row in Vitals); a pull with nothing new shows no toast; the Health import is never loaded; the offline banner only while offline; the local-mode invariant is n/a on web (local mode runs only in the phone shells)
   android: manual  # partial: android/qa/scenarios/pull-refresh.mjs (sync request/pill, Health-only local pull, real offline/online banner and local banner absence); no network-chip, second-device entry/new-row toast or no-new-entry toast assertions
