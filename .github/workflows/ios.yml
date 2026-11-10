@@ -7,10 +7,10 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as four restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as five restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
-# today Lock + EURegister), joined by the `qa` gate. Lists: env QA_PARTS.
+# today Lock + EURegister), and update (A/B banner), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -55,7 +55,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -583,7 +583,7 @@ jobs:
           # WebKit has no in-page heap API: the Simulator's WebContent RSS
           # (KB) each second, for the EU register numbers (bd med-3u28.4;
           # FlowQAEURegisterTests attaches the page's epoch-ms windows).
-          # Named per part so the merged ios-qa keeps all four.
+          # Named per part so the merged ios-qa keeps every part.
           mkdir -p "$GITHUB_WORKSPACE/shots"
           while :; do ps -axo pid=,rss=,command= | awk -v t="$(date +%s)" '/WebKit\.WebContent/ && !/awk/ {print t, $1, $2}'; sleep 1; done \
             > "$GITHUB_WORKSPACE/shots/webcontent-rss-$PART.log" 2>/dev/null &
