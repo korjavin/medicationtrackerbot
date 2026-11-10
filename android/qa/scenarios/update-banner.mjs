@@ -54,12 +54,6 @@ export async function checkSaved(page, note) {
 }
 
 export async function observeDocument(page, r) {
-  // Playwright enables focus emulation by default; Chrome explicitly says it
-  // keeps visibilityState visible and suppresses visibilitychange. Turn it off
-  // for this native lifecycle probe: https://developer.chrome.com/docs/devtools/rendering/apply-effects
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: false });
-  r.visibilityCDP = true;
   r.documentEvents ||= [];
   page.on('console', (msg) => {
     if (msg.text().startsWith('B2_EVENT ')) r.documentEvents.push(JSON.parse(msg.text().slice(9)));
