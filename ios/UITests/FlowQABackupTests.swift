@@ -246,7 +246,9 @@ final class FlowQABackupTests: XCTestCase {
         let choose = app.webViews.buttons["Choose"].firstMatch
         XCTAssertTrue(choose.waitForExistence(timeout: 15), "no backup file chooser")
         choose.tap()
-        let file = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+        // Files exposes both an inner filename text and the actual tappable
+        // document cell. The text itself can be tapped without selecting it.
+        let file = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@ OR label BEGINSWITH %@", name, name)).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 30), "native picker lacks \(name): \(tree(app, tail: true))")
         shot(flow, "picker-\(name)")
         file.tap()
