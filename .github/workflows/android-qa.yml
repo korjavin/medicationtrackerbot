@@ -157,6 +157,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx playwright install android
+          if [[ "${{ inputs.scenario }}" = update-banner ]]; then node no-focus-emulation.mjs; fi
 
       # KVM for the x86_64 emulator, per the android-emulator-runner README.
       - name: Enable KVM
