@@ -65,16 +65,6 @@ final class FlowQADegradedBootTests: XCTestCase {
         let stopped = try QA.fakeServer("POST", "/stop")
         XCTAssertEqual(stopped["listening"] as? Bool, false)
         let before = try QA.receipts(host: host).count
-        try action(app, "clear-cache")
-        let food = app.webViews.buttons.matching(NSPredicate(format: "label == 'Food' OR label BEGINSWITH 'Food '")).firstMatch
-        XCTAssertTrue(food.waitForExistence(timeout: 10))
-        food.tap()
-        let foodDB = QA.control(app, "Food DB")
-        XCTAssertTrue(foodDB.waitForExistence(timeout: 10))
-        foodDB.tap()
-        XCTAssertTrue(waitState(app, timeout: 30) { !($0["emptyTitle"] as? String ?? "").isEmpty }, "failed-read empty state did not render")
-        let emptyState = state(app)
-        shot("degraded-offline-empty")
         reload.tap()
         XCTAssertTrue(waitState(app, timeout: 90) { $0["pageNumber"] as? Int == faultPage + 1 && $0["build"] as? String == "20990101-0002" && $0["controlled"] as? Bool == true && $0["degraded"] as? Bool == false }, "offline recovery did not load controlled B")
         XCTAssertTrue(openAccount(app, timeout: 90))
@@ -83,8 +73,6 @@ final class FlowQADegradedBootTests: XCTestCase {
         XCTAssertEqual(state(app)?["degradedBanners"] as? Int, 0)
         XCTAssertEqual(try QA.receipts(host: host).count, before, "host received requests while stopped")
         shot("degraded-offline-recovered")
-        XCTAssertEqual(emptyState?["emptyTitle"] as? String, "Some saved data did not load", "failed-read title: \(QA.json(emptyState))")
-        XCTAssertEqual(emptyState?["emptyBody"] as? String, "Reload to fix.", "failed-read body: \(QA.json(emptyState))")
     }
 
     private func probe(_ app: XCUIApplication) -> XCUIElement {

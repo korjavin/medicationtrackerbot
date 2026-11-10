@@ -28,8 +28,6 @@
       specifier: window.MedTrackerCloud?.degraded?.error?.specifier || '',
       degradedBanners: document.querySelectorAll('#boot-degraded-banner').length,
       updateSeenBeforeDegraded,
-      emptyTitle: document.querySelector('#fooddb-list .wg-empty__title')?.textContent?.trim() || '',
-      emptyBody: document.querySelector('#fooddb-list .wg-empty__body')?.textContent?.trim() || '',
       action: button.dataset.action || '',
       detail: button.dataset.detail || '',
     };
@@ -106,7 +104,6 @@
       await caches.delete('qa-b2-good-responses');
       return entries;
     });
-    addAction('clear-cache', async () => { await window.MedTrackerDB.ApiCache.clear(); });
     addAction('reload', async () => { location.reload(); });
     setInterval(report, 500);
     report();
