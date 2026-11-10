@@ -2480,7 +2480,7 @@ describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
     const unsub = onCachedDbDropped(() => { fired += 1; });
     // The orphan still closes itself on versionchange (never blocks
     // deleteDatabase) but must not touch the cache.
-    orphan.onversionchange();
+    orphan.onversionchange({ newVersion: null });
     expect(orphan.close).toHaveBeenCalled();
     orphan.onclose();
     expect(fired).toBe(0);
@@ -4544,5 +4544,154 @@ describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)
     now += 1;
     await burst(); // the window was not doubled to 10 s by the refusal
     expect(snapGets).toBe(2);
+  });
+});
+
+describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)', () => {
+  let ctx;
+  let snapGets;
+  let releaseOld;
+  let oldEntered;
+
+  const snapshot = async (seq, recordId) => {
+    const records = [{ recordId, recordType: 'bp', clientTs: 1, deleted: false, systolic: seq }];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: seq, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+    return new Response(JSON.stringify({ snapshot_seq: seq, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+  };
+
+  const deleteDb = () => new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('medtracker-cloud');
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
+
+  const cursor = async () => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction('sync_meta', 'readonly').objectStore('sync_meta').get('localLastSeq');
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await deleteDb();
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    snapGets = 0;
+    const held = new Promise((r) => { releaseOld = r; });
+    let entered;
+    oldEntered = new Promise((r) => { entered = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snapGets++;
+        // The first GET is the pre-wipe one: it hangs, then answers the older snapshot.
+        if (snapGets === 1) { entered(); await held; return snapshot(7, 'bp-old'); }
+        return snapshot(9, 'bp-new');
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('resetLocalSync: the re-bootstrap snapshot and cursor win over the old GET resolved last', async () => {
+    const oldRead = listRecords(ctx, 'bp');
+    await oldEntered;
+    await resetLocalSync(ctx);
+    expect(snapGets).toBe(2);
+    releaseOld();
+    await oldRead;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('a dropped DB: the next bootstrap wins over the old GET resolved last', async () => {
+    const oldRead = listRecords(ctx, 'bp');
+    await oldEntered;
+    await deleteDb(); // versionchange drops the cached handle (e.g. another tab's account delete)
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    releaseOld();
+    await oldRead;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('resetLocalSync: an ops page fetched before the wipe applies nothing after it', async () => {
+    let snaps = 0;
+    let opsGets = 0;
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const opsEntered = new Promise((r) => { entered = r; });
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snaps++;
+        return snaps === 1 ? snapshot(7, 'bp-old') : snapshot(9, 'bp-new');
+      }
+      if (u.startsWith('/api/sync/ops')) {
+        opsGets++;
+        if (opsGets === 1) {
+          entered(); await held;
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const oldPull = pullOnOpen(ctx);
+    await opsEntered;
+    await resetLocalSync(ctx); // the new snapshot (seq 9) has no bp-ghost
+    release();
+    await oldPull;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('a benign close and reopen during a pull keeps the page and the cursor', async () => {
+    let opsGets = 0;
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const opsEntered = new Promise((r) => { entered = r; });
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-tail', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-tail', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        opsGets++;
+        if (opsGets === 1) {
+          entered(); await held;
+          const op = { seq: 8, record_type_tag: 'bp:bp-tail', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const pull = pullOnOpen(ctx);
+    await opsEntered;
+    (await cachedDb()).close(); // no event: the next write hits InvalidStateError and withDb reopens
+    release();
+    await pull;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId).sort()).toEqual(['bp-old', 'bp-tail']);
+    expect(await cursor()).toBe(8);
   });
 });
