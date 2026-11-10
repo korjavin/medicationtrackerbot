@@ -38,7 +38,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     button = document.createElement('button');
     button.textContent = 'QA update probe';
-    button.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;font-size:8px';
+    button.style.cssText = 'position:fixed;top:100px;right:0;z-index:2147483647;font-size:8px';
     button.addEventListener('click', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       setTimeout(report, 1000);
@@ -61,7 +61,7 @@
     function addAction(label, work) {
       const control = document.createElement('button');
       control.textContent = 'QA ' + label;
-      control.style.cssText = `position:fixed;top:${20 + actionIndex++ * 20}px;right:0;z-index:2147483647;font-size:8px`;
+      control.style.cssText = `position:fixed;top:${120 + actionIndex++ * 20}px;right:0;z-index:2147483647;font-size:8px`;
       control.addEventListener('click', () => action(label, work));
       document.body.appendChild(control);
     }
