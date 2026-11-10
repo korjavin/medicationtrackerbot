@@ -45,6 +45,7 @@ final class FlowQAUpdateBannerTests: XCTestCase {
         XCTAssertTrue(waitState(app, timeout: 90) { $0["build"] as? String == "20990101-0001" && $0["banners"] as? Int == 1 && $0["waiting"] as? String == "installed" }, "A did not show one banner with B waiting")
         let banner = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS 'A new version is available'")).firstMatch
         XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        shot("update-A-banner")
 
         // Record the native event independently of the synthetic checks.
         XCUIDevice.shared.press(.home)
@@ -70,6 +71,7 @@ final class FlowQAUpdateBannerTests: XCTestCase {
         settings.tap()
         let version = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '20990101-0002'")).firstMatch
         XCTAssertTrue(version.waitForExistence(timeout: 30), "Settings did not show B")
+        shot("update-B-settings")
         probe(app).tap()
         Thread.sleep(forTimeInterval: 2)
         XCTAssertEqual(state(app)?["banners"] as? Int, 0, "matching B showed a banner")
@@ -80,7 +82,9 @@ final class FlowQAUpdateBannerTests: XCTestCase {
     }
 
     private func state(_ app: XCUIApplication) -> [String: Any]? {
-        let label = probe(app).label
+        let element = probe(app)
+        guard element.exists else { return nil }
+        let label = element.label
         guard let data = String(label.dropFirst("QA update ".count)).data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
@@ -124,5 +128,12 @@ final class FlowQAUpdateBannerTests: XCTestCase {
         }.resume()
         XCTAssertEqual(done.wait(timeout: .now() + 35), .success)
         XCTAssertEqual(status, 200, "fixture failed to switch to B")
+    }
+
+    private func shot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: QA.stableScreenshot().0)
+        attachment.name = name + ".png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
