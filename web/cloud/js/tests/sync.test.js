@@ -962,6 +962,31 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
     await pullOnOpen(ctx);
     expect(await hasCaughtUp()).toBe(true);
   });
+
+  it('an edit made while its push is in flight stays queued and is pushed next (med-w4nq)', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let releasePush;
+    const pushGate = new Promise((r) => { releasePush = r; });
+    let entered;
+    const pushEntered = new Promise((r) => { entered = r; });
+    const pushed = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        pushed.push(ops.length);
+        if (pushed.length === 1) { entered(); await pushGate; }
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => pushed.length + i) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'first' });
+    await pushEntered;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'second' }); // its flush queues behind the held one
+    releasePush();
+    await vi.waitFor(() => expect(pushed).toHaveLength(2));
+    await vi.waitFor(async () => expect((await getSyncStatus(ctx)).pendingCount).toBe(0));
+  });
 });
 
 // med-gvk.2 — a half-open connection (captive portal / hung TCP) leaves a bare
@@ -4693,5 +4718,66 @@ describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)',
     await pull;
     expect((await listRecords(ctx, 'bp')).map((r) => r.recordId).sort()).toEqual(['bp-old', 'bp-tail']);
     expect(await cursor()).toBe(8);
+  });
+
+  describe('a push begun before a reset lands no cursor (med-w4nq)', () => {
+    // Snapshot GETs: the initial bootstrap (seq 7), reset's re-bootstrap fails
+    // (503, cursor stays null), then the next read gets seq 9. The first ops
+    // POST hangs until released, then reports the seq it would have assigned.
+    let releasePost;
+    let postEntered;
+    let snaps;
+    beforeEach(() => {
+      snaps = 0;
+      const held = new Promise((r) => { releasePost = r; });
+      let entered;
+      postEntered = new Promise((r) => { entered = r; });
+      let posts = 0;
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        const u = String(url);
+        if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+          snaps++;
+          if (snaps === 1) return snapshot(7, 'bp-old');
+          if (snaps === 2) return new Response('busy', { status: 503 });
+          return snapshot(9, 'bp-new');
+        }
+        if (u === '/api/sync/ops' && init?.method === 'POST') {
+          posts++;
+          if (posts === 1) { entered(); await held; }
+          return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+        }
+        if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+        return new Response('{}', { status: 200 });
+      }));
+    });
+
+    const resetThenRelease = async () => {
+      await postEntered;
+      const reset = resetLocalSync(ctx).catch((e) => e);
+      // reset's own flush queues behind the hung one, so release it before awaiting reset.
+      await vi.waitFor(() => expect(snaps).toBe(2));
+      releasePost();
+      expect(await reset).toBeInstanceOf(Error); // re-bootstrap failed: cursor null
+    };
+
+    it('flushPending: the ack after the wipe writes no cursor; the next read bootstraps', async () => {
+      await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+      await resetThenRelease();
+      expect(await cursor()).toBe(null);
+      await pullOnOpen(ctx);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+      expect(await cursor()).toBe(9);
+    });
+
+    it('forceSnapshot: the bump answered after the wipe writes no cursor; the next read bootstraps', async () => {
+      await listRecords(ctx, 'bp');
+      const forced = forceSnapshot(ctx);
+      await resetThenRelease();
+      await forced;
+      expect(await cursor()).toBe(null);
+      await pullOnOpen(ctx);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+      expect(await cursor()).toBe(9);
+    });
   });
 });
