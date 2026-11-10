@@ -1058,17 +1058,35 @@ export function startHealthImport(ctx, {
         return writeJSON(storage, JOB_KEY, job);
     };
     const writeBack = startHealthWriteBack({ health, storage, records, onAccess, onPermanent });
-    // Copy rows marked into the ledger and the job that owns them, as one
-    // step: a job that did not save takes its marks back, else the rows would
-    // go out as nobody's (a re-plan skips dirty rows). Synchronous: nothing
-    // marks in between. (Argus 17374)
+    // Copy rows marked into the ledger and the job that owns them, crash-atomic
+    // (bd med-8f4s.20): the job is saved first with the rows as `marking` (the
+    // intent), then the ledger mark (idempotent), then the job without it. A
+    // death or failed write after the first save leaves `marking`, which
+    // reconcileMarking() finishes before every pass and at load; a failed first
+    // save changed nothing. True once the job is stored: the copy has started.
     const markWithJob = (rows, job) => {
-        const before = storage.getItem(DIRTY_KEY);
-        if (rows.length && !writeBack.mark(rows)) return false;
-        if (writeJSON(storage, JOB_KEY, job)) return true;
-        // An absent ledger comes back empty, never the string 'null' (Argus 17376).
-        try { storage.setItem(DIRTY_KEY, before ?? '{}'); } catch { /* the rows go out as live ids */ }
-        return false;
+        if (!rows.length) return writeJSON(storage, JOB_KEY, job);
+        if (!writeJSON(storage, JOB_KEY, { ...job, marking: rows })) return false;
+        if (writeBack.mark(rows)) writeJSON(storage, JOB_KEY, job);
+        return true;
+    };
+    // The only reader of job.marking: mark its rows, then clear it. A row
+    // already delivered (a copied marker: the clear failed after an earlier
+    // mark and drain) is not marked again, so a failing job write never
+    // resends it (Argus 22238 #3); nor is a row already dropped.
+    const reconcileMarking = () => {
+        const j = readJob();
+        if (!j || !Array.isArray(j.marking)) return;
+        const c = readJSON(storage, COPIED_KEY, {});
+        // A row dropped as permanently rejected is resolved too (Argus 22243 #1).
+        const done = (r) => {
+            const k = MARKS[r.recordType][0];
+            return c[k]?.[r.recordId] !== undefined || (Array.isArray(j.dropped?.[k]) && j.dropped[k].includes(r.recordId));
+        };
+        const rows = j.marking.filter((r) => r && MARKS[r.recordType] && !done(r));
+        if (rows.length && !writeBack.mark(rows)) return;
+        delete j.marking;
+        writeJSON(storage, JOB_KEY, j);
     };
 
     // Copy past entries (bd med-8f4s.11, kit HW6-HW9b): mark every past entry
@@ -1088,9 +1106,11 @@ export function startHealthImport(ctx, {
         const blocked = job.blocked || {};
         let done = 0;
         const left = {};
+        // Ids still being marked (job.marking) are left, never done.
+        const marking = new Set(Array.isArray(job.marking) ? job.marking.map((r) => r && r.recordId) : []);
         for (const [kind, ids] of Object.entries(job.ids)) {
             for (const id of Array.isArray(ids) ? ids : []) {
-                if (l[kind] && l[kind][id] !== undefined) left[kind] = (left[kind] || 0) + 1;
+                if (marking.has(id) || (l[kind] && l[kind][id] !== undefined)) left[kind] = (left[kind] || 0) + 1;
                 else done++;
             }
         }
@@ -1184,7 +1204,9 @@ export function startHealthImport(ctx, {
             return; // store busy: next pass
         }
         const job = readJob();
-        if (!job) return;
+        // A pending marking (its ledger write failed) is finished first: a new
+        // admission would replace it (Argus 22238 #1).
+        if (!job || job.marking) return 0;
         const rows = [];
         for (const k of kinds) {
             if (plan.blocked[k] !== undefined || !Array.isArray(job.blocked[k])) continue;
@@ -1228,6 +1250,7 @@ export function startHealthImport(ctx, {
             return copying;
         }
         copying = (async () => {
+            reconcileMarking();
             if (!readJob()) return writeBack.drain();
             const delivered = await writeBack.drain();
             // After the drain: its access read set lastReadable. Ids admitted
@@ -1279,6 +1302,9 @@ export function startHealthImport(ctx, {
         if (!st) return;
         const stuck = fails(st.job) >= COPY_STUCK_FAILS;
         if (st.pending && !stuck) return;
+        // Rows still only in job.marking are in no ledger: clearing the job
+        // would lose them, so it stays until a pass marks them (Argus 22238 #2).
+        if (Array.isArray(st.job.marking) && st.job.marking.length) return;
         writeJSON(storage, JOB_KEY, null);
         renderCopy();
     };
@@ -1345,6 +1371,7 @@ export function startHealthImport(ctx, {
             opening = false;
         }
     };
+    reconcileMarking();
     settleCopy();
     const view = doc.getElementById('settings-view');
     const Observer = doc.defaultView && doc.defaultView.MutationObserver;

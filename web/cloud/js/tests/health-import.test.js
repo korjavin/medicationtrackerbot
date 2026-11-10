@@ -3104,7 +3104,30 @@ describe('Health write-back', () => {
                 expect(storage.getItem('wg.health.anchors')).toBe(ANCHORS);
             });
 
-            it('(d) admitting a granted kind whose job save fails takes its marks back; the next pass admits, counts and names them (Argus 17374)', async () => {
+            it('(d) a relaunch after admitting a granted kind saved its marking but not the ledger mark counts it, drops nothing from the total (bd med-8f4s.20)', async () => {
+                theirs.weight = null;
+                await open();
+                await tap();
+                await finished();
+                expect(job().blocked).toEqual({ weight: ['w-1', 'w-2'] });
+                // retryBlocked died between the intent write and the ledger mark.
+                const j = job();
+                delete j.blocked.weight;
+                j.ids.weight = ['w-2'];
+                j.total = 5;
+                j.marking = [{ recordType: 'weight', recordId: 'w-2', clientTs: 1 }];
+                storage.setItem('wg.health.backfill', JSON.stringify(j));
+                theirs.weight = [kgSample(U2, at('2026-10-01T20:00:00Z'), 80)];
+                document.body.innerHTML = home;
+                await open();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']));
+                expect(job().marking).toBeUndefined();
+                expect(ledgerSize()).toBe(0);
+                expect(job()).toMatchObject({ total: 5, blocked: {}, ids: { weight: ['w-2'] } });
+                expect(health.write.mock.calls.filter(([a]) => a.id === 'w-2')).toHaveLength(1);
+            });
+
+            it('(d) admitting a granted kind whose job save fails marks nothing; the next pass admits, counts and names them (Argus 17374, bd med-8f4s.20)', async () => {
                 allowConsoleNoise();
                 theirs.weight = null;
                 await open(health, { copyBackoffMs: 0 });
@@ -3122,11 +3145,11 @@ describe('Health write-back', () => {
                     try {
                         set(k, v);
                     } catch (e) {
+                        // The intent write failed first: nothing marked, the kind still blocked.
+                        if (!failed) afterFailed = { weight: dirty().weight, blocked: job().blocked };
                         failed = true;
                         throw e;
                     }
-                    // The rollback: the ledger write right after the failed job save.
-                    if (k === 'wg.health.dirty' && failed && afterFailed === null) afterFailed = { weight: dirty().weight, blocked: job().blocked };
                 };
                 foreground();
                 await vi.waitFor(() => expect(afterFailed).toEqual({ weight: undefined, blocked: { weight: ['w-1', 'w-2'] } }));
@@ -3139,19 +3162,116 @@ describe('Health write-back', () => {
                 expect(ledgerSize()).toBe(0);
             });
 
-            it('a Copy start whose job save fails over an absent ledger leaves it empty, not "null"; a retry copies (Argus 17376)', async () => {
+            it('a Copy start whose job save fails leaves an absent ledger untouched; a retry copies (Argus 17376, bd med-8f4s.20)', async () => {
                 allowConsoleNoise();
                 storage.removeItem('wg.health.dirty');
                 await open();
                 failJobWriteOnce();
                 await tap();
                 await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't start the copy — try again.", 'error'));
-                expect(storage.getItem('wg.health.dirty')).toBe('{}');
+                expect(storage.getItem('wg.health.dirty')).toBeNull();
                 expect(storage.getItem('wg.health.backfill')).toBeNull();
                 await tap();
                 await finished();
                 expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
                 expect(ledgerSize()).toBe(0);
+            });
+
+            // bd med-8f4s.20: the job is saved with its rows as `marking` before
+            // the ledger mark; a death in between is finished at load.
+            it('a relaunch after the job saved its marking but before the ledger mark marks, counts and delivers each row once', async () => {
+                storage.removeItem('wg.health.dirty');
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 2, ids: { bp: ['bp-a'], weight: ['w-2'] }, blocked: {},
+                    marking: [{ recordType: 'bp', recordId: 'bp-a', clientTs: 1 }, { recordType: 'weight', recordId: 'w-2', clientTs: 1 }],
+                }));
+                // Hold delivery to see the reconciled state before it drains.
+                let release;
+                const gate = new Promise((r) => { release = r; });
+                const deliver = health.write.getMockImplementation();
+                health.write.mockImplementation(async (...a) => { await gate; return deliver(...a); });
+                await open();
+                expect(dirty()).toEqual({ bp: { 'bp-a': 1 }, hr: { 'bp-a': 1 }, weight: { 'w-2': 1 } });
+                expect(job().marking).toBeUndefined();
+                expect(copyRow().dataset.state).toBe('running');
+                expect([copyRow().querySelector('progress').value, copyRow().querySelector('progress').max]).toEqual([0, 2]);
+                release();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', '2 entries.']);
+                expect(ledgerSize()).toBe(0);
+                expect(sent().sort()).toEqual(['write bp bp-a', 'write hr bp-a/pulse', 'write weight w-2']);
+            });
+
+            it('a marking whose rows were already delivered (the clear failed after the mark) is cleared, not sent again (Argus 22238 #3)', async () => {
+                storage.removeItem('wg.health.dirty');
+                storage.setItem('wg.health.copied', JSON.stringify({ bp: { 'bp-a': 1 } }));
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 1, ids: { bp: ['bp-a'] }, blocked: {},
+                    marking: [{ recordType: 'bp', recordId: 'bp-a', clientTs: 1 }],
+                }));
+                await open();
+                // Nothing left to copy: the job settles at load.
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
+                expect(ledgerSize()).toBe(0);
+                expect(health.write).not.toHaveBeenCalled();
+            });
+
+            it('a marking whose row was already dropped as rejected is cleared, not sent again (Argus 22243 #1)', async () => {
+                storage.removeItem('wg.health.dirty');
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 1, ids: { bp: [] }, blocked: {}, dropped: { bp: ['bp-c'] },
+                    marking: [{ recordType: 'bp', recordId: 'bp-c', clientTs: 1, pulse: false }],
+                }));
+                await open();
+                expect(ledgerSize()).toBe(0);
+                expect(health.write).not.toHaveBeenCalled();
+                expect(storage.getItem('wg.health.backfill')).toBe('null');
+            });
+
+            it('a pending marking blocks a new admission and a stuck settle: its rows are neither replaced nor lost (Argus 22238 #1 #2)', async () => {
+                allowConsoleNoise();
+                storage.removeItem('wg.health.dirty');
+                const marking = [{ recordType: 'bp', recordId: 'bp-a', clientTs: 1 }];
+                storage.setItem('wg.health.backfill', JSON.stringify({
+                    startedAt: 1, total: 3, ids: { bp: ['bp-a'] }, blocked: { weight: ['w-1', 'w-2'] }, marking, fails: 99,
+                }));
+                theirs.weight = [kgSample(U2, at('2026-10-01T20:00:00Z'), 80)];
+                const set = storage.setItem;
+                storage.setItem = (k, v) => {
+                    if (k === 'wg.health.dirty') throw new Error('quota');
+                    return set(k, v);
+                };
+                await open(health, { copyBackoffMs: 60000 });
+                await tick();
+                expect(job()).toMatchObject({ marking, blocked: { weight: ['w-1', 'w-2'] }, total: 3 });
+                storage.setItem = set;
+                foreground();
+                await vi.waitFor(() => expect(rowText()).toEqual(['Copied to Health Connect', '2 entries.']));
+                expect(job().marking).toBeUndefined();
+                expect(sent().sort()).toEqual(['write bp bp-a', 'write hr bp-a/pulse', 'write weight w-2']);
+            });
+
+            it('a Copy start whose ledger mark fails keeps the job with its marking, shows it running, no toast; the next pass marks and copies', async () => {
+                allowConsoleNoise();
+                await open(health, { copyBackoffMs: 60000 });
+                const set = storage.setItem;
+                let failDirty = true;
+                storage.setItem = (k, v) => {
+                    if (k === 'wg.health.dirty' && failDirty) throw new Error('quota');
+                    return set(k, v);
+                };
+                await tap();
+                await vi.waitFor(() => expect(copyRow().dataset.state).toBe('paused'));
+                expect(toast).not.toHaveBeenCalled();
+                expect(job().marking.map((r) => r.recordId).sort()).toEqual(['bp-a', 'bp-c', 'bp-e', 'session-s2', 'w-2']);
+                expect(ledgerSize()).toBe(0);
+                expect(health.write).not.toHaveBeenCalled();
+                failDirty = false;
+                foreground();
+                await finished();
+                expect(rowText()).toEqual(['Copied to Health Connect', '5 entries.']);
+                expect(job().marking).toBeUndefined();
+                expect(sent().sort()).toEqual([...COPIED].sort());
             });
 
             it('a ledger already stored as "null" reads as empty: a Copy marks and drains it', async () => {
