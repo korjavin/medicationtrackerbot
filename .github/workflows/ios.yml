@@ -405,11 +405,16 @@ jobs:
           command -v xcodegen >/dev/null || brew install xcodegen
           xcodegen generate
           xcodebuild -version
-          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+          if xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/sim CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
-            WG_BASE_DOMAIN=qa.test | tail -n 30
-          test "${PIPESTATUS[0]}" -eq 0
+            WG_BASE_DOMAIN=qa.test > "$RUNNER_TEMP/qa-build.log" 2>&1; then
+            tail -n 30 "$RUNNER_TEMP/qa-build.log"
+          else
+            grep -n -C 3 'error:' "$RUNNER_TEMP/qa-build.log" || true
+            tail -n 30 "$RUNNER_TEMP/qa-build.log"
+            exit 1
+          fi
 
       - name: Create and boot the simulator
         run: ios/qa/boot-sim.sh "${{ matrix.types }}" "${{ matrix.width }}pt"
