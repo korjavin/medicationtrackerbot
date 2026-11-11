@@ -22,8 +22,10 @@ struct HealthDiagnosticView: View {
         let kinds: Set<HKSampleType> = seed
             ? [type, HKQuantityType(.heartRate), HKQuantityType(.oxygenSaturation), HKCategoryType(.sleepAnalysis)]
             : [type]
+        // Match the app's real authorization contract: HealthKit requests the
+        // two BP quantities, not the derived correlation type.
         let labelKinds: Set<HKSampleType> = [HKQuantityType(.bodyMass), HKQuantityType(.bloodPressureSystolic),
-                                            HKQuantityType(.bloodPressureDiastolic), HKCorrelationType(.bloodPressure)]
+                                            HKQuantityType(.bloodPressureDiastolic)]
         do {
             let requested = labels ? kinds.union(labelKinds) : kinds
             try await store.requestAuthorization(toShare: seed ? requested : [], read: Set(requested.map { $0 as HKObjectType }))

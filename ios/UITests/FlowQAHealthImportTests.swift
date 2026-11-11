@@ -142,7 +142,7 @@ final class FlowQAHealthDeniedTests: XCTestCase {
                     acted = true; break pass
                 }
                 if denied.count < kinds.count { continue }
-                if ["Don't Allow", "Continue", "Allow", "Done"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
+                if ["Don’t Allow", "Don't Allow", "Continue", "Allow", "Done"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
                     acted = true; break pass
                 }
             }
