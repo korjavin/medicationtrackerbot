@@ -75,6 +75,7 @@ env:
   QA_GREEN_SECONDS: >-
     {"testCoreLocal": 294, "testLocalFirstRun": 63,
      "testWriteReplaceFilterDelete": 110, "testDegradedBootReload": 211,
+     "testAccountUpdateBanner": 211.2,
      "testBackupExport": 160, "testErase": 98, "testRestoreFromFile": 163,
      "testLeaveStashPickup": 92, "testMoveLocalSide": 68,
      "testAccountGone": 66.470, "testWebExitBarLeaves": 183.059,
