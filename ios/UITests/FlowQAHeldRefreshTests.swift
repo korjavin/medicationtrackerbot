@@ -11,7 +11,7 @@ final class FlowQAHeldRefreshTests: XCTestCase {
     func testOpenSessionHoldsRefresh() throws {
         continueAfterFailure = false
         // Seed real HealthKit records before the app's import is enabled.
-        let seed = try HealthDiagnosticTests.run("-wgQAHealthSeed", in: self, retryCode100: true)
+        let seed = try HealthDiagnosticTests.run("-wgQAHealthSeed", in: self)
         XCTAssertGreaterThan(seed["sampleCount"] as? Int ?? 0, 0, "Health seed has no steps")
         let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_OFFLINE_CLAIM_URL"].flatMap(URL.init(string:)))
         let sub = try XCTUnwrap(claim.host?.split(separator: ".").first)
