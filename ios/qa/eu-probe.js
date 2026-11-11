@@ -59,7 +59,7 @@
     const med = meds.find(m => m.name === 'Candecor');
     if (!med?.ema) throw new Error('saved medication has no EU match');
     state.medId = med.id;
-    const sync = await import('/js/sync.js');
+    const sync = await import(new URL('/js/sync.js', location.href).href);
     if (!await sync.flushConfirmed(window.MedTrackerCloud.ctx)) throw new Error('EU save not synced');
   }
   async function offline() {
@@ -77,8 +77,8 @@
   }
   async function peer() {
     await window.apiCall('/api/settings/body', 'PATCH', { med_register: 'us' });
-    const sync = await import('/js/sync.js');
-    const c = await import('/js/crypto.js');
+    const sync = await import(new URL('/js/sync.js', location.href).href);
+    const c = await import(new URL('/js/crypto.js', location.href).href);
     const ctx = window.MedTrackerCloud.ctx;
     if (!await sync.flushConfirmed(ctx)) throw new Error('US setting not synced');
     const port = sync.recordsPort(ctx);
@@ -105,7 +105,7 @@
     state.peerSeq = seq + 1;
   }
   async function observe() {
-    const sync = await import('/js/sync.js');
+    const sync = await import(new URL('/js/sync.js', location.href).href);
     const port = sync.recordsPort(window.MedTrackerCloud.ctx);
     await wait(async () => (await port.list('settings')).find(x => x.recordId === 'settings')?.med_register === 'eu', 'peer setting');
     state.afterPull = 'eu';
