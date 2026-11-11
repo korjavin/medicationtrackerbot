@@ -1211,82 +1211,37 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         });
 
         // bd med-kraa: the pre-wipe deletes the outbound queue, so a cancelled
-        // passkey would lose unsynced entries. Drain first; refuse while any remain.
-        it('drains before the pre-wipe and refuses the delete while entries are unsynced', async () => {
-            allowConsoleNoise();
-            const { window, document, cleanup } = loadFrontendEnv();
-            try {
-                const requestDrain = vi.fn(async () => {});
-                const mod = await mountCloudWithDeleteModule(window, {}, {
-                    requestDrain,
-                    getSyncStatus: vi.fn(async () => ({ pendingCount: 2 })),
-                });
-                await confirmDelete(window, document);
-
-                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent)
-                    .toBe("Some entries haven't synced yet. Connect and try again, or export a backup first."));
-                expect(requestDrain).toHaveBeenCalledTimes(1);
-                expect(mod.clearLocalVault).not.toHaveBeenCalled();
-                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
-                const exportLink = document.getElementById('delete-account-export');
-                expect(exportLink.classList.contains('wg-settings-hidden')).toBe(false);
-                expect(document.getElementById('delete-account-open').disabled).toBe(false);
-
-                exportLink.click();
-                await vi.waitFor(() => expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
-                    ?.querySelector('.wg-pagebar__title').textContent).toBe('Backup & import'));
-            } finally {
-                delete window.__MEDTRACKER_CLOUD__;
-                cleanup();
-            }
-        });
-
-        it.each([
-            ['a drain that throws', { requestDrain: vi.fn(async () => { throw new Error('offline'); }) }],
-            // Imported records live only in 'records', never in the queue.
-            ['a full-vault import still stranded offline', { getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: true })) }],
-            // Syncable edits queued beside a rejected import: refuse, don't offer Continue.
-            ['a queued edit beside a rejected import', { getSyncStatus: vi.fn(async () => ({ pendingCount: 1, importPending: false, importRejected: true })) }],
-            ['a queued edit beside a rejected import bump', { getSyncStatus: vi.fn(async () => ({ pendingCount: 1, importPending: true, importRejected: true })) }],
-        ])('%s counts as unsynced: nothing is wiped or deleted', async (_name, sync) => {
-            allowConsoleNoise();
-            const { window, document, cleanup } = loadFrontendEnv();
-            try {
-                const mod = await mountCloudWithDeleteModule(window, {}, sync);
-                await confirmDelete(window, document);
-
-                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent).toMatch(/haven't synced yet/));
-                expect(mod.clearLocalVault).not.toHaveBeenCalled();
-                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
-            } finally {
-                delete window.__MEDTRACKER_CLOUD__;
-                cleanup();
-            }
-        });
-
-        // Miles (Zulip 22739): an import the server refused for good never
-        // syncs, so delete asks instead of refusing — the user can always leave.
-        const localOnlyChoice = async (window, document, importPending = false) => {
-            const mod = await mountCloudWithDeleteModule(window, {}, {
-                getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending, importRejected: true })),
-            });
+        // passkey would lose entries the server lacks. Drain first; if any
+        // remain, one in-page choice (Miles, Zulip 22739/22767): Export backup /
+        // Continue / Cancel — a warning, never a refusal, and only Continue wipes.
+        const UNSYNCED_COPY = "Some entries haven't synced yet. Connect and try again, or export a backup first. If you continue and then cancel the passkey step, they're gone.";
+        const LOCAL_ONLY_COPY = "Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?";
+        const status = (s) => ({ getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: false, importRejected: false, ...s })) });
+        const lossChoice = async (window, document, sync) => {
+            const mod = await mountCloudWithDeleteModule(window, {}, sync);
             await confirmDelete(window, document);
             const dialog = await vi.waitFor(() => {
                 const d = document.querySelector('mt-modal.mt-confirm-modal');
                 if (!d?.querySelector('.mt-confirm-modal__choice')) throw new Error('no choice dialog');
                 return d;
             });
-            expect(dialog.textContent).toContain("Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?");
+            expect(mod.clearLocalVault).not.toHaveBeenCalled();
+            expect(mod.reauthAndDelete).not.toHaveBeenCalled();
             const pick = (label) => [...dialog.querySelectorAll('.mt-confirm-modal__choice')].find((b) => b.textContent === label).click();
             return { mod, dialog, pick };
         };
 
-        it('a permanently rejected import asks first; Continue proceeds in the current order', async () => {
+        it.each([
+            ['entries waiting to sync', status({ pendingCount: 2 }), UNSYNCED_COPY],
+            ['an import the server refused for good', status({ importRejected: true }), LOCAL_ONLY_COPY],
+        ])('%s: the choice offers Export backup / Continue / Cancel; Continue proceeds in the current order', async (_name, sync, copy) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const { mod, pick } = await localOnlyChoice(window, document);
-                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                const { mod, dialog, pick } = await lossChoice(window, document, sync);
+                expect(dialog.textContent).toContain(copy);
+                expect([...dialog.querySelectorAll('.mt-confirm-modal__choice')].map((b) => b.textContent)).toEqual(['Export backup', 'Continue']);
+                expect(dialog.querySelector('.mt-confirm-modal__cancel').textContent).toBe('Cancel');
                 pick('Continue');
                 await vi.waitFor(() => expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1));
                 expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
@@ -1297,11 +1252,14 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('a permanently rejected import: Export backup opens Backup & import and wipes nothing', async () => {
+        it.each([
+            ['entries waiting to sync', status({ pendingCount: 2 })],
+            ['an import the server refused for good', status({ importRejected: true })],
+        ])('%s: Export backup opens Backup & import and wipes nothing', async (_name, sync) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const { mod, pick } = await localOnlyChoice(window, document);
+                const { mod, pick } = await lossChoice(window, document, sync);
                 pick('Export backup');
                 await vi.waitFor(() => expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
                     ?.querySelector('.wg-pagebar__title').textContent).toBe('Backup & import'));
@@ -1314,11 +1272,14 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('a permanently rejected import (its bump still marked pending): Cancel does nothing', async () => {
+        it.each([
+            ['entries waiting to sync', status({ pendingCount: 2 })],
+            ['an import the server refused for good', status({ importRejected: true })],
+        ])('%s: Cancel wipes and deletes nothing', async (_name, sync) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const { mod, dialog } = await localOnlyChoice(window, document, true);
+                const { mod, dialog } = await lossChoice(window, document, sync);
                 dialog.querySelector('.mt-confirm-modal__cancel').click();
                 await vi.waitFor(() => expect(document.getElementById('delete-account-open').disabled).toBe(false));
                 expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
@@ -1331,7 +1292,30 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('a drain still running after 15 s counts as unsynced', async () => {
+        // Every state the server may lack, or that can't be checked, gets the
+        // unsynced warning — never a silent wipe, never a dead end.
+        it.each([
+            ['a drain that throws', { requestDrain: vi.fn(async () => { throw new Error('offline'); }) }],
+            ['an unreadable sync status', { getSyncStatus: vi.fn(async () => { throw new Error('idb'); }) }],
+            ['a full-vault import still waiting to upload', status({ importPending: true })],
+            ['a queued edit beside a rejected import', status({ pendingCount: 1, importRejected: true })],
+            // Precedence: an older tab never clears importRejected, so a stale
+            // flag must not relabel an import that is still waiting to upload.
+            ['an import waiting beside a (stale) rejected flag', status({ importPending: true, importRejected: true })],
+        ])('%s shows the unsynced warning first', async (_name, sync) => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { dialog } = await lossChoice(window, document, sync);
+                expect(dialog.textContent).toContain(UNSYNCED_COPY);
+                expect(dialog.textContent).not.toContain('exist only on this device');
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('a drain still running after 15 s shows the unsynced warning', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
@@ -1342,7 +1326,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 await confirmDelete(window, document);
                 await vi.advanceTimersByTimeAsync(15000);
                 vi.useRealTimers();
-                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent).toMatch(/haven't synced yet/));
+                await vi.waitFor(() => expect(document.querySelector('mt-modal.mt-confirm-modal')?.textContent).toContain(UNSYNCED_COPY));
                 expect(mod.clearLocalVault).not.toHaveBeenCalled();
                 expect(mod.reauthAndDelete).not.toHaveBeenCalled();
             } finally {

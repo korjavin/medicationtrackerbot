@@ -789,17 +789,20 @@ async function bindOperatorVisibility() {
 // ponytail: no memoization — import() caches by specifier.
 function loadAccountDeleteModule() { return import('/js/account-delete.js'); }
 
-const UNSYNCED_DELETE_MSG = "Some entries haven't synced yet. Connect and try again, or export a backup first.";
 const DELETE_DRAIN_TIMEOUT_MS = 15000;
-
-const LOCAL_ONLY_DELETE_MSG = "Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?";
+// What the pre-wipe would lose → the warning the delete shows first (bd med-kraa).
+const DELETE_LOSS_MSG = {
+    unsynced: "Some entries haven't synced yet. Connect and try again, or export a backup first. If you continue and then cancel the passkey step, they're gone.",
+    'local-only': "Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?",
+};
 
 // Drain the outbound queue, then say what the pre-wipe would lose:
-// 'local-only' — an import the server refused for good (it never syncs, so
-// refusing would block delete forever: the user confirms instead);
-// 'unsynced' — writes still pending. A drain that throws, hangs (offline) or a
-// status that can't be read counts as 'unsynced': the delete flow must never
-// guess that the server has it all. null — nothing to lose.
+// 'unsynced' — writes or an import still waiting to upload. A drain that
+// throws, hangs (offline) or a status that can't be read counts too: the
+// delete flow must never guess that the server has it all.
+// 'local-only' — only an import the server refused for good (it never syncs).
+// null — nothing to lose. Either loss is a warning, never a refusal: a stuck
+// state must not trap the user in the account (Miles, Zulip 22767).
 async function unsyncedEntries() {
     try {
         const sync = await loadCloudSyncModule();
@@ -811,12 +814,10 @@ async function unsyncedEntries() {
         ]).finally(() => clearTimeout(timer));
         if (!drained) return 'unsynced';
         const st = await sync.getSyncStatus(ctx);
-        // Queued edits can still sync (a quota-rejected bump retries once quota
-        // is freed), so they always get the refusal; a rejected import alone
-        // gets the choice, even with its bump still marked pending.
-        if (st.pendingCount !== 0) return 'unsynced';
-        if (st.importRejected) return 'local-only';
-        return st.importPending !== false ? 'unsynced' : null;
+        // Waiting before rejected: an older tab never clears importRejected,
+        // so a stale flag must not relabel an import that is still uploading.
+        if (st.pendingCount !== 0 || st.importPending !== false) return 'unsynced';
+        return st.importRejected ? 'local-only' : null;
     } catch {
         return 'unsynced';
     }
@@ -836,10 +837,6 @@ function bindDeleteAccount() {
     if (!openBtn) return;
     // Kit .wg-error (danger text); empty, it takes no space (.wg-page .wg-error:empty).
     const showError = (text) => { if (errorEl) errorEl.textContent = text; };
-    // Shown only beside the unsynced-entries refusal (bd med-kraa).
-    const exportLink = document.getElementById('delete-account-export');
-    exportLink?.addEventListener('click', () => openSettingsPage('backup'));
-    const showExport = (on) => exportLink?.classList.toggle('wg-settings-hidden', !on);
 
     // Hoisted across clicks: once the server delete succeeds, the account (and
     // its session) is gone — a retry after a blocked local wipe must skip the
@@ -847,7 +844,6 @@ function bindDeleteAccount() {
     let serverDeleted = false;
     openBtn.addEventListener('click', async () => {
         showError('');
-        showExport(false);
         let mod;
         try {
             mod = await loadAccountDeleteModule();
@@ -891,17 +887,11 @@ function bindDeleteAccount() {
                 // pre-delete is always safe — the account is intact and the
                 // cloud copy is authoritative, so an erased mirror re-syncs if
                 // the user aborts at the passkey prompt. That holds only for
-                // what the server has: refuse while the outbound queue (inside
-                // the mirror the wipe deletes) is not empty (bd med-kraa).
-                const unsynced = await unsyncedEntries();
-                if (unsynced === 'unsynced') {
-                    showError(UNSYNCED_DELETE_MSG);
-                    showExport(true);
-                    openBtn.disabled = false;
-                    return;
-                }
-                if (unsynced === 'local-only') {
-                    const pick = await window.safeChoose(LOCAL_ONLY_DELETE_MSG, [
+                // what the server has: warn first when the wipe would take
+                // entries it lacks (bd med-kraa); only Continue goes on.
+                const loss = await unsyncedEntries();
+                if (loss) {
+                    const pick = await window.safeChoose(DELETE_LOSS_MSG[loss], [
                         { value: 'export', label: 'Export backup' },
                         { value: 'continue', label: 'Continue' },
                     ], { title: 'Delete your account?', icon: 'trash', tone: 'danger', cancelLabel: 'Cancel' });

@@ -2252,7 +2252,7 @@ export async function getSyncStatus(ctx) {
     lastSyncedAt: meta.lastSyncedAt,
     pendingCount,
     // A full-vault import still stranded on this device (its records are not
-    // in 'pending'): the delete flow refuses on it too (bd med-kraa).
+    // in 'pending'): the delete flow warns on it too (bd med-kraa).
     importPending: meta.forceSnapshotPending,
     // ...or one the server refused for good (the forced snapshot or its bump
     // got a permanent 4xx): those records exist only here and never upload.
