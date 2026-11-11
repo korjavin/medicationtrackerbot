@@ -11,7 +11,8 @@ final class FlowQAHeldRefreshTests: XCTestCase {
     func testOpenSessionHoldsRefresh() throws {
         continueAfterFailure = false
         // Seed real HealthKit records before the app's import is enabled.
-        try HealthDiagnosticTests.run(seed: true, in: self)
+        let seed = try HealthDiagnosticTests.run("-wgQAHealthSeed", in: self, retryCode100: true)
+        XCTAssertGreaterThan(seed["sampleCount"] as? Int ?? 0, 0, "Health seed has no steps")
         let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_OFFLINE_CLAIM_URL"].flatMap(URL.init(string:)))
         let sub = try XCTUnwrap(claim.host?.split(separator: ".").first)
         let token = try XCTUnwrap(claim.fragment?.split(separator: "=").last)
@@ -36,21 +37,12 @@ final class FlowQAHeldRefreshTests: XCTestCase {
         XCTAssertTrue(openAccount(app, timeout: 120), "account cold open failed")
         let setup = app.webViews.buttons["QA held setup"]
         XCTAssertTrue(setup.waitForExistence(timeout: 60)); setup.tap()
-        // The app asks for any remaining Health read kinds. Answer the real
-        // system sheet; it may already have been answered by the seed.
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        // Every read kind was determined in the seed's one sheet. A second
+        // sheet signals drift from HEALTH_KINDS; never accept it as coverage.
         let end = Date().addingTimeInterval(120)
         while Date() < end && !(state(app)?["phase"] as? String ?? "").hasSuffix("-done") && !(state(app)?["phase"] as? String ?? "").hasSuffix("-error") {
-            for host in [app, springboard] {
-                let all = host.descendants(matching: .any).matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
-                if all.exists && all.isHittable { all.tap(); break }
-                let history = host.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'All Recorded Data'")).firstMatch
-                if history.exists && history.isHittable { history.tap(); break }
-                for label in ["Allow", "Continue"] {
-                    let b = host.buttons[label].firstMatch
-                    if b.exists && b.isEnabled && b.isHittable { b.tap(); break }
-                }
-            }
+            let secondSheet = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'UIA.Health.'")).firstMatch
+            XCTAssertFalse(secondSheet.exists, "second Health sheet: seed read set drifted from HEALTH_KINDS")
             Thread.sleep(forTimeInterval: 1)
         }
         XCTAssertEqual(state(app)?["phase"] as? String, "setup-done", QA.json(state(app)))
