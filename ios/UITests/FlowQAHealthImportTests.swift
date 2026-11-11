@@ -1,13 +1,10 @@
 import XCTest
 
-/// Health's hosted sheet has a large accessibility tree. Take one tree per
-/// pass, then use its identifiers and off-screen values; only the chosen
-/// action gets the two settled snapshots required by XCTest's native tap.
+/// Health's hosted sheet has a large accessibility tree. Read its full
+/// hierarchy once per pass; only the chosen action needs settled snapshots.
 @MainActor
 private enum HealthSheet {
     static let readPrefix = "UIA.Health.Read."
-    static let all = "UIA.Health.AuthSheet.AllCategoryButton"
-    static let allow = "UIA.Health.Allow.Button"
     static let deny = "UIA.Health.DoNotAllow.Button"
     static let expected = Set(["ActiveEnergy", "CyclingDistance", "Steps", "SwimmingDistance", "Walking+RunningDistance", "Workouts", "Weight", "BloodPressure", "HeartRate", "BloodOxygen", "Sleep"])
 
@@ -16,16 +13,22 @@ private enum HealthSheet {
         while let node = pending.popLast() { result.append(node); pending.append(contentsOf: node.children) }
         return result
     }
-    static func readValues(_ nodes: [XCUIElementSnapshot]) -> [String: String] {
+    // snapshot().children omits the hosted HealthUI subtree on iOS 27, while
+    // debugDescription includes it (run 42975744180). Read each switch's
+    // identifier and value from that one full hierarchy per pass.
+    static func readValues(_ description: String) -> [String: String] {
         var result = [String: String]()
-        for node in nodes where node.identifier.hasPrefix(readPrefix) && node.identifier.hasSuffix(".SwitchCell.Switch") {
-            let kind = String(node.identifier.dropFirst(readPrefix.count).dropLast(".SwitchCell.Switch".count))
-            if let value = node.value { result[kind] = String(describing: value) }
+        for line in description.split(separator: "\n") {
+            guard let start = line.range(of: "identifier: '\(readPrefix)"),
+                  let end = line[start.upperBound...].firstIndex(of: "'"),
+                  let value = line.range(of: ", value: ") else { continue }
+            let id = String(line[start.upperBound..<end])
+            guard id.hasSuffix(".SwitchCell.Switch") else { continue }
+            let kind = String(id.dropLast(".SwitchCell.Switch".count))
+            let tail = line[value.upperBound...]
+            if let bit = tail.first, bit == "0" || bit == "1" { result[kind] = String(bit) }
         }
         return result
-    }
-    static func visible(_ node: XCUIElementSnapshot, screen: CGRect) -> Bool {
-        node.isEnabled && !node.frame.isEmpty && screen.contains(CGPoint(x: node.frame.midX, y: node.frame.midY))
     }
     static func tap(_ id: String, host: XCUIApplication, screen: CGRect) -> Bool {
         let element = host.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", id)).firstMatch
@@ -35,14 +38,6 @@ private enum HealthSheet {
         let data = try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys])
         let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
         attachment.name = name + ".json"; attachment.lifetime = .keepAlways; test.add(attachment)
-    }
-    static func evidence(_ nodes: [XCUIElementSnapshot]) -> [String: String] {
-        var result = ["count": String(nodes.count), "firstIdentifiers": nodes.prefix(20).map(\.identifier).joined(separator: ", ")]
-        for (index, node) in nodes.enumerated() where !node.identifier.isEmpty || !node.label.isEmpty {
-            let value = node.value.map { "\(type(of: $0)):\($0)" } ?? "nil"
-            result[String(index)] = "id=\(node.identifier) label=\(node.label) value=\(value)"
-        }
-        return result
     }
     static func screenshot(_ name: String, in test: XCTestCase) {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -81,6 +76,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         XCTAssertTrue(finished, "Health authorization did not finish; bridge: \(QA.json(QA.flow(app)?["memo"]))")
         launch(app, "health-qa-import")
         XCTAssertTrue(webText(app, "Sources · Health import").waitForExistence(timeout: 30), "sleep source label absent")
+        reveal(app, "Sources · Health import")
         shot("health-import-sleep")
 
         launch(app, "health-qa-bp-add")
@@ -91,10 +87,14 @@ final class FlowQAHealthImportTests: XCTestCase {
         let bp = rows(after ?? [:], "bp")
         XCTAssertTrue(bp.contains { $0.contains("141/91") && !$0.contains("Health import") }, "typed BP has Health label: \(bp)")
         XCTAssertTrue(bp.contains { $0.contains("123/79") && $0.contains("Health import") }, "imported BP source absent: \(bp)")
+        let notNow = app.buttons["Not now"].firstMatch
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
+        reveal(app, "123/79")
         shot("health-import-bp")
         launch(app, "health-qa-weight")
         let (weightOK, weightState) = QA.waitFlow(app, timeout: 30) { rows($0, "weight").contains { $0.contains("73.4") && $0.contains("Health import") } }
         XCTAssertTrue(weightOK, "imported weight source absent: \(QA.json(weightState))")
+        reveal(app, "73.4")
         shot("health-import-weight")
     }
 
@@ -118,6 +118,13 @@ final class FlowQAHealthImportTests: XCTestCase {
     private func webText(_ app: XCUIApplication, _ text: String) -> XCUIElement {
         app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND NOT (label BEGINSWITH '{')", text)).firstMatch
     }
+    private func reveal(_ app: XCUIApplication, _ text: String) {
+        let element = webText(app, text)
+        for _ in 0..<6 {
+            if element.isHittable { return }
+            app.swipeUp()
+        }
+    }
     private func shot(_ name: String) {
         let image = XCTAttachment(screenshot: QA.stableScreenshot().0)
         image.name = name + ".png"; image.lifetime = .keepAlways; add(image)
@@ -139,38 +146,29 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         QA.coordinate(app, target).tap()
         Thread.sleep(forTimeInterval: 3)
         HealthSheet.screenshot("health-denied-after-tap", in: self)
-        let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
         let screen = app.frame
         let deadline = Date().addingTimeInterval(120)
         var denied = [String: String]()
-        var evidence = [String: String]()
         var submitted = false, finished = false
+        var hierarchy = ""
         while Date() < deadline {
-            var acted = false
-            pass: for host in hosts {
-                guard let tree = try? host.snapshot() else { continue }
-                let nodes = HealthSheet.nodes(tree)
-                evidence.merge(HealthSheet.evidence(nodes).mapKeys(prefix: host == app ? "app-" : "springboard-")) { _, new in new }
-                let reads = HealthSheet.readValues(nodes)
-                if !reads.isEmpty { denied = reads }
-                if let deny = nodes.first(where: { $0.identifier == HealthSheet.deny }),
-                   Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
-                    if HealthSheet.visible(deny, screen: screen) { submitted = HealthSheet.tap(HealthSheet.deny, host: host, screen: screen) || submitted }
-                    else { app.swipeUp() }
-                    acted = true; break pass
-                }
-                if submitted, nodes.contains(where: { $0.label.contains("Checked") && $0.label.contains("nothing yet") && $0.label.contains("Settings → Health → Data Access & Devices") && !$0.label.hasPrefix("{") }) {
-                    finished = true; break pass
-                }
+            hierarchy = app.debugDescription
+            let reads = HealthSheet.readValues(hierarchy)
+            if !reads.isEmpty { denied = reads }
+            if !submitted, hierarchy.contains("identifier: '\(HealthSheet.deny)'"),
+               Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
+                submitted = HealthSheet.tap(HealthSheet.deny, host: app, screen: screen)
+                if !submitted { app.swipeUp() }
+            } else if submitted && hierarchy.contains("nothing yet") && hierarchy.contains("Settings → Health → Data Access & Devices") {
+                finished = true; break
+            } else if !submitted {
+                app.swipeUp()
             }
-            if finished { break }
-            if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
         try HealthSheet.attach(denied, name: "health-import-denied-kinds", in: self)
         if denied.isEmpty {
-            evidence["app-debugDescription"] = app.debugDescription
-            try HealthSheet.attach(evidence, name: "health-denied-hierarchy", in: self)
+            try HealthSheet.attach(["app-debugDescription": hierarchy], name: "health-denied-hierarchy", in: self)
             HealthSheet.screenshot("health-denied-missing-sheet", in: self)
         }
         XCTAssertEqual(Set(denied.keys), HealthSheet.expected, "wrong Health read switches: \(denied); bridge: \(QA.json(QA.flow(app)?["memo"]))")
@@ -178,11 +176,5 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         XCTAssertTrue(submitted && finished, "no denied-read guidance after the native denial")
         let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
         shot.name = "health-import-denied-guidance.png"; shot.lifetime = .keepAlways; add(shot)
-    }
-}
-
-private extension Dictionary where Key == String {
-    func mapKeys(prefix: String) -> [String: Value] {
-        Dictionary(uniqueKeysWithValues: map { (prefix + $0.key, $0.value) })
     }
 }
