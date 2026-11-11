@@ -194,7 +194,8 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    **One device per job** (bd med-y5xx.12): `visual` is a two-entry matrix
    (`width` 390 / 440, `fail-fast: false`, a concurrency group per width so
    the two never cancel each other), each building, booting and shooting its
-   own device and uploading `ios-visual-<width>` (1-day retention). The
+   own device and uploading `ios-visual-<width>-<shard>` (1-day retention;
+   440 later split into two contiguous halves of the catalog, bd med-05az). The
    Linux job `visual-merge` downloads both into `shots/`, runs the compare
    step once and uploads the single `ios-visual` artifact with the same
    `<device>/<scene>.png|json` + `compare/` layout. It also runs when a

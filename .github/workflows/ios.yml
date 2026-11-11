@@ -380,24 +380,63 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # First available type per width.
+          # First available type per width. A job runs part `shard` of
+          # `shards`: the full list overran 440's 60 min cap (bd med-05az, run
+          # 42882605423: ~9 min setup, 105/138 scenes at ~38 min), so 440 runs
+          # it in two halves. 390 fits (~41 min there); split it the same way
+          # when it nears the cap.
           - width: 390
             types: iPhone 16e,iPhone 16,iPhone 15
+            shard: 1
+            shards: 1
           - width: 440
             types: iPhone 17 Pro Max,iPhone 16 Pro Max
-    # Per device: one shared group would make the two matrix jobs cancel each other.
+            shard: 1
+            shards: 2
+          - width: 440
+            types: iPhone 17 Pro Max,iPhone 16 Pro Max
+            shard: 2
+            shards: 2
+    # Per job: one shared group would make the matrix jobs cancel each other.
     concurrency:
-      group: ${{ github.workflow }}-visual-${{ github.ref }}-${{ matrix.width }}
+      group: ${{ github.workflow }}-visual-${{ github.ref }}-${{ matrix.width }}-${{ matrix.shard }}
       cancel-in-progress: true
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
+      # This job's part of the catalog: a contiguous slice, so catalog order
+      # holds (later scenes can depend on earlier fixture writes). The filter
+      # mirrors VisualQATests.scenes(); a name it lets through that iOS
+      # rejects fails the run loudly (no scenes run). An explicit
+      # visual_scenes dispatch runs whole on shard 1; the other shards skip.
+      - name: Pick this job's scenes
+        id: scenes
+        env:
+          VISUAL_SCENES: ${{ inputs.visual_scenes }}
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ matrix.shards }}
+        run: |
+          if [ -n "$VISUAL_SCENES" ]; then
+            run=true; [ "$SHARD" -eq 1 ] || run=false
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          list="$(jq -r --argjson k "$SHARD" --argjson n "$SHARDS" '
+            [.scenes[] | select(.cloudOnly != true and .flowOnly != true and (.platform // "ios") == "ios") | .name]
+            | ((length + $n - 1) / $n | floor) as $size
+            | .[($k - 1) * $size : $k * $size] | join(",")' tests/visual/scenes.json)"
+          echo "part $SHARD/$SHARDS: $(tr ',' '\n' <<< "$list" | wc -l | tr -d ' ') scenes"
+          run=true; [ -n "$list" ] || run=false
+          { echo "run=$run"; echo "list=$list"; } >> "$GITHUB_OUTPUT"
+
       - name: Bundle the web app with the QA driver
+        if: steps.scenes.outputs.run == 'true'
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
       - name: Generate Xcode project and build for testing
+        if: steps.scenes.outputs.run == 'true'
         working-directory: ios
         run: |
           command -v xcodegen >/dev/null || brew install xcodegen
@@ -410,12 +449,15 @@ jobs:
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Create and boot the simulator
+        if: steps.scenes.outputs.run == 'true'
         run: ios/qa/boot-sim.sh "${{ matrix.types }}" "${{ matrix.width }}pt"
 
       - name: Run the scenes per device
+        if: steps.scenes.outputs.run == 'true'
         working-directory: ios
         env:
-          TEST_RUNNER_WG_QA_SCENES: ${{ inputs.visual_scenes }}
+          VISUAL_SCENES: ${{ inputs.visual_scenes }}
+          TEST_RUNNER_WG_QA_SCENES: ${{ inputs.visual_scenes || steps.scenes.outputs.list }}
         run: |
           while IFS='=' read -r dev udid; do
             echo "::group::$dev"
@@ -441,16 +483,18 @@ jobs:
             fi
             ls -l "$out"
             echo "::endgroup::"
-            if [ -n "$TEST_RUNNER_WG_QA_SCENES" ] && [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+            if [ -n "$VISUAL_SCENES" ] && [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
           done < "$RUNNER_TEMP/devices"
 
       - name: Summary
-        if: always()
+        if: always() && steps.scenes.outputs.run == 'true'
+        env:
+          SCENES: ${{ inputs.visual_scenes || steps.scenes.outputs.list }}
         run: |
-          scenes="$(jq -r '.scenes[] | select(.flowOnly != true) | .name' tests/visual/scenes.json)"
+          scenes="$(tr ',' ' ' <<< "$SCENES")"
           broken=""
           {
-            echo "## iOS visual QA"
+            echo "## iOS visual QA (${{ matrix.width }}pt, part ${{ matrix.shard }}/${{ matrix.shards }})"
             echo
             echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Full runs are evidence-only; explicit \`visual_scenes\` runs fail on XCTest errors."
             while IFS='=' read -r dev udid; do
@@ -480,9 +524,9 @@ jobs:
           fi
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.scenes.outputs.run == 'true'
         with:
-          name: ios-visual-${{ matrix.width }}
+          name: ios-visual-${{ matrix.width }}-${{ matrix.shard }}
           path: shots/
           retention-days: 1
           if-no-files-found: warn
