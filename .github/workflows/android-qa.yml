@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, invite-link, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, load-error, external-link, authn-probe, smoke, reminders-offline, local-smoke, local-visual, local-spike, local-app, local-backup, local-to-cloud, local-to-cloud-seamless, move-ops, push-wake, delete-account, health-connect, pull-refresh, eu-register, core-local, offline-account, degraded-boot, update-banner, local-lock, file-backup, file-backup-age, food-photo]
+        options: [all, firstrun, invite-link, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, load-error, external-link, authn-probe, smoke, reminders-offline, local-smoke, local-visual, local-spike, local-app, local-backup, local-to-cloud, local-to-cloud-seamless, move-ops, push-wake, delete-account, health-connect, pull-refresh, eu-register, core-local, offline-account, degraded-boot, update-banner, update-resume, local-lock, file-backup, file-backup-age, food-photo]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -108,7 +108,7 @@ jobs:
         run: |
           go build -o "$RUNNER_TEMP/tlsfront" ./android/qa/tlsfront
           export SESSION_SECRET="$(openssl rand -base64 48)" CLOUD_DB_PATH="$RUNNER_TEMP/cloud.db" PORT=8080
-          if [[ "$QA_SCENARIO" = update-banner || "$QA_SCENARIO" = degraded-boot ]]; then
+          if [[ "$QA_SCENARIO" = update-banner || "$QA_SCENARIO" = update-resume || "$QA_SCENARIO" = degraded-boot ]]; then
             # Real embedded binaries, one source tree; overlay only deployment stamps.
             # Match deploy.yml's HTML asset and SW byte-version stamping;
             # fixture Settings labels distinguish A/B from the same source commit.
@@ -123,7 +123,7 @@ jobs:
             nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &
           fi
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
-          if [[ "$QA_SCENARIO" = update-banner || "$QA_SCENARIO" = degraded-boot ]]; then
+          if [[ "$QA_SCENARIO" = update-banner || "$QA_SCENARIO" = update-resume || "$QA_SCENARIO" = degraded-boot ]]; then
             # The supervised cloud runs under tlsfront's existing privileged
             # launcher; mint as the same user so SQLite/WAL remain writable.
             inv="$(sudo --preserve-env=SESSION_SECRET,CLOUD_DB_PATH,PORT,CLOUD_BASE_DOMAIN "$RUNNER_TEMP/cloud" admin invite)"
@@ -136,7 +136,7 @@ jobs:
           [ -n "$landing" ] || { echo "no claim URL in: $inv"; exit 1; }
           rest="${landing#https://}"; sub="${rest#*/i/}"; sub="${sub%%#*}"
           host="$sub.${rest%%/*}"; claim="https://$host/#claim=${landing##*#}"
-          if [[ "$QA_SCENARIO" != update-banner && "$QA_SCENARIO" != degraded-boot ]]; then
+          if [[ "$QA_SCENARIO" != update-banner && "$QA_SCENARIO" != update-resume && "$QA_SCENARIO" != degraded-boot ]]; then
             if [[ "$QA_SCENARIO" = local-to-cloud-seamless ]]; then
               sudo -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" -receipts "$RUNNER_TEMP/tlsfront-receipts.jsonl" -move-fault "$host" > "$RUNNER_TEMP/tlsfront.log" 2>&1
               echo "QA_MOVE_FAULT=1" >> "$GITHUB_ENV"
@@ -157,6 +157,15 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx playwright install android
+          if [[ "${{ inputs.scenario }}" = update-banner || "${{ inputs.scenario }}" = update-resume || "${{ inputs.scenario }}" = degraded-boot ]]; then node no-focus-emulation.mjs; fi
+
+      - name: Upload debug APK for device visibility check
+        if: inputs.scenario == 'update-resume'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-visibility-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
 
       # KVM for the x86_64 emulator, per the android-emulator-runner README.
       - name: Enable KVM
