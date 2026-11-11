@@ -652,7 +652,7 @@ jobs:
               while IFS=$'\t' read -r file name test; do
                 name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
                 case "$name" in
-                  *.png|*.json|*.ips) cp "$raw/$file" "$out/$name" ;;
+                  *.png|*.json|*.ips|*.mp4) cp "$raw/$file" "$out/$name" ;;
                   "App UI hierarchy"*) [ -e "$out/$test-hierarchy.txt" ] || cp "$raw/$file" "$out/$test-hierarchy.txt" ;;
                 esac
               done

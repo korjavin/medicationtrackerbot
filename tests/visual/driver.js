@@ -878,13 +878,18 @@
             const health = window.Health;
             if (!health || typeof health.requestAuthorization !== 'function') throw new Error('no Health authorization port');
             const request = health.requestAuthorization;
+            const trace = (state) => {
+                qa.memo.healthAuthorization = state;
+                if (qa.report?.flow) publish({ ...qa.report, flow: { ...qa.report.flow, memo: qa.memo } });
+            };
             health.requestAuthorization = async function (...args) {
+                trace({ called: true });
                 try {
                     const value = await request.apply(this, args);
-                    qa.memo.healthAuthorization = { returned: value };
+                    trace({ returned: value });
                     return value;
                 } catch (error) {
-                    qa.memo.healthAuthorization = { error: String(error && error.message || error) };
+                    trace({ error: String(error && error.message || error) });
                     throw error;
                 }
             };

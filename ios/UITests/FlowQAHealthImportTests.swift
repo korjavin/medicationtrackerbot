@@ -37,7 +37,7 @@ private enum HealthSheet {
         attachment.name = name + ".json"; attachment.lifetime = .keepAlways; test.add(attachment)
     }
     static func evidence(_ nodes: [XCUIElementSnapshot]) -> [String: String] {
-        var result = [String: String]()
+        var result = ["count": String(nodes.count), "firstIdentifiers": nodes.prefix(20).map(\.identifier).joined(separator: ", ")]
         for (index, node) in nodes.enumerated() where !node.identifier.isEmpty || !node.label.isEmpty {
             let value = node.value.map { "\(type(of: $0)):\($0)" } ?? "nil"
             result[String(index)] = "id=\(node.identifier) label=\(node.label) value=\(value)"
@@ -106,6 +106,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         }
         try HealthSheet.attach(seen, name: "health-import-requested-kinds", in: self)
         if seen.isEmpty {
+            evidence["app-debugDescription"] = app.debugDescription
             try HealthSheet.attach(evidence, name: "health-import-hierarchy", in: self)
             HealthSheet.screenshot("health-import-missing-sheet", in: self)
         }
@@ -208,6 +209,7 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         }
         try HealthSheet.attach(denied, name: "health-import-denied-kinds", in: self)
         if denied.isEmpty {
+            evidence["app-debugDescription"] = app.debugDescription
             try HealthSheet.attach(evidence, name: "health-denied-hierarchy", in: self)
             HealthSheet.screenshot("health-denied-missing-sheet", in: self)
         }
