@@ -135,7 +135,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   every part.
 - **Output:** each part's step summary reports simulator settle and healthd
   readiness times, per-test result, duration, factor vs a fixed green reference
-  and failure message, plus the slowest test. Missing references are `n/a`.
+  and failure message, plus the test with the highest factor vs its green
+  reference. Missing references are `n/a`.
   It uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
   a failed test's UI hierarchy (`<Class>-<test>-hierarchy.txt`) and
   `webcontent-rss-<part>.log` and `qa-tests-<part>.json` (xcresult test data).

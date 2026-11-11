@@ -49,23 +49,23 @@ except ValueError:
 baselines = json.loads(os.environ.get("QA_GREEN_SECONDS", "{}"))
 print("| test | result | duration | vs green | message |")
 print("|---|---|---:|---:|---|")
-durations = []
+factors = []
 for test in cases(results):
     name = test.get("name") or test.get("nodeIdentifier", "unknown")
     method = name.rsplit("/", 1)[-1].removesuffix("()")
     duration = seconds(test.get("duration"))
     baseline = baselines.get(method)
     factor = duration / baseline if duration is not None and baseline else None
-    if duration is not None:
-        durations.append((duration, name, factor))
+    if factor is not None:
+        factors.append((factor, name))
     failures = "; ".join(child.get("name", "") for child in test.get("children", [])
                          if child.get("nodeType") == "Failure Message")
     clean = lambda text: str(text).replace("|", "/").replace("\n", " ")
     print(f"| {clean(name)} | {clean(test.get('result', 'n/a'))} | "
           f"{f'{duration:g} s' if duration is not None else 'n/a'} | "
           f"{f'{factor:.2f}x' if factor is not None else 'n/a'} | {clean(failures)} |")
-if durations:
-    duration, name, factor = max(durations, key=lambda row: row[0])
-    print(f"\nSlowest test: {name} {f'{factor:.2f}x' if factor is not None else 'n/a (no green reference)'}")
+if factors:
+    factor, name = max(factors, key=lambda row: row[0])
+    print(f"\nSlowest test: {name} {factor:.2f}x")
 else:
-    print("\nSlowest test: n/a (no completed durations)")
+    print("\nSlowest test: n/a (no comparable durations)")
