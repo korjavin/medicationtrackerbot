@@ -185,7 +185,7 @@ function metaLine(item) {
 }
 
 // renderAttachment builds one inline media element from a decoded attachment.
-// Only image/* and audio/* are rendered; anything else becomes a plain note, so
+// Only image/*, audio/* and the text/plain log are rendered; anything else becomes a plain note, so
 // an unexpected mime can never become an active element on the page.
 function renderAttachment(att) {
   let bytes;
@@ -211,6 +211,13 @@ function renderAttachment(att) {
     audio.controls = true;
     audio.src = URL.createObjectURL(new Blob([bytes], { type: mime }));
     return audio;
+  }
+  // The app's diagnostic log (bd med-vjxz.4): plain text via textContent.
+  if (att.type === 'log' && mime === 'text/plain') {
+    const pre = document.createElement('pre');
+    pre.className = 'fr-attachment fr-log';
+    pre.textContent = new TextDecoder().decode(bytes);
+    return pre;
   }
   const p = document.createElement('p');
   p.className = 'muted';

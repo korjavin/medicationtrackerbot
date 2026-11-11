@@ -363,6 +363,17 @@ describe('feedback-ui', () => {
             expect(new TextDecoder().decode(log.bytes)).toBe('visible\nhidden\n');
         });
 
+        it('masks account labels and tokens in paths a pre-redaction line still carries', async () => {
+            shell(['diag.read'], '{"path":"/d/vivid-vole","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/Xy9 /mcp/tok/tools /unlock\n');
+            await openWithText('x');
+            q('[data-feedback-log]').checked = true;
+            click(q('[data-feedback-choice="send"]'));
+            await flush();
+
+            const text = new TextDecoder().decode(enqueueFeedback.mock.calls[0][0].attachments[0].bytes);
+            expect(text).toBe('{"path":"/d/<sub>","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/<token> /mcp/<token>/tools /unlock\n');
+        });
+
         it('unticked: no diag.read call and the bundle is as before', async () => {
             const call = shell(['diag.read'], 'secret log');
             await openWithText('plain');

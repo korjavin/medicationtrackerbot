@@ -31,6 +31,15 @@ function canRecordAudio() {
     return !!(w().MediaCapture && typeof w().MediaCapture.recordAudio === 'function');
 }
 
+// Lines logged before med-vjxz.1 masked paths page-side can still sit in the
+// shell's 200-line log: mask the account label (/d/, /i/) and token (/s/,
+// /mcp/) path segments again before the log leaves the phone.
+function maskLogPaths(text) {
+    return text
+        .replace(/\/(d|i)\/[^/"\s]+/g, '/$1/<sub>')
+        .replace(/\/(s|mcp)\/[^/"\s]+/g, '/$1/<token>');
+}
+
 function toast(message) {
     if (w().SyncManager && typeof w().SyncManager.showToast === 'function') {
         w().SyncManager.showToast(message, 'success');
@@ -270,7 +279,7 @@ function openFeedbackModal() {
             try {
                 const text = await native.call('diag.read');
                 if (typeof text === 'string' && text) {
-                    attachments.push({ type: 'log', mime: 'text/plain', bytes: new TextEncoder().encode(text) });
+                    attachments.push({ type: 'log', mime: 'text/plain', bytes: new TextEncoder().encode(maskLogPaths(text)) });
                 }
             } catch (_) { /* no log — send the rest */ }
         }
