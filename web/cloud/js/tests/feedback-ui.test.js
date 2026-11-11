@@ -363,15 +363,21 @@ describe('feedback-ui', () => {
             expect(new TextDecoder().decode(log.bytes)).toBe('visible\nhidden\n');
         });
 
-        it('masks account labels and tokens in paths a pre-redaction line still carries', async () => {
-            shell(['diag.read'], '{"path":"/d/vivid-vole","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/Xy9 /mcp/tok/tools /unlock\n');
+        it('scrubs what a pre-redaction line still carries: path labels, tokens, raw Health error text', async () => {
+            shell(['diag.read'], '{"path":"/d/vivid-vole","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/Xy9 /mcp/tok/tools /unlock\n'
+                + '{"op":"log","line":"[health] write bp failed Systolic 142 \\"bad\\" rejected","x":1}\n'
+                + '[health] write batch of 3 failed Weight 80.0 kg\n'
+                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n');
             await openWithText('x');
             q('[data-feedback-log]').checked = true;
             click(q('[data-feedback-choice="send"]'));
             await flush();
 
             const text = new TextDecoder().decode(enqueueFeedback.mock.calls[0][0].attachments[0].bytes);
-            expect(text).toBe('{"path":"/d/<sub>","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/<token> /mcp/<token>/tools /unlock\n');
+            expect(text).toBe('{"path":"/d/<sub>","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/<token> /mcp/<token>/tools /unlock\n'
+                + '{"op":"log","line":"[health] write bp failed <redacted>","x":1}\n'
+                + '[health] write batch of 3 failed <redacted>\n'
+                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n');
         });
 
         it('unticked: no diag.read call and the bundle is as before', async () => {

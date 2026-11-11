@@ -31,13 +31,15 @@ function canRecordAudio() {
     return !!(w().MediaCapture && typeof w().MediaCapture.recordAudio === 'function');
 }
 
-// Lines logged before med-vjxz.1 masked paths page-side can still sit in the
-// shell's 200-line log: mask the account label (/d/, /i/) and token (/s/,
-// /mcp/) path segments again before the log leaves the phone.
-function maskLogPaths(text) {
+// Lines logged before med-vjxz.1 can still sit in the shell's 200-line log:
+// paths with an account label (/d/, /i/) or a token (/s/, /mcp/), and Health
+// write failures carrying the store's raw error text (which can hold a value).
+// Mask both before the log leaves the phone; .1's class words pass unchanged.
+function scrubLog(text) {
     return text
         .replace(/\/(d|i)\/[^/"\s]+/g, '/$1/<sub>')
-        .replace(/\/(s|mcp)\/[^/"\s]+/g, '/$1/<token>');
+        .replace(/\/(s|mcp)\/[^/"\s]+/g, '/$1/<token>')
+        .replace(/(\[health\] (?:[^"\\\n]|\\.)*? failed )(?!(?:denied|quota|other|no result)(?:["\\\n]|$))(?:[^"\\\n]|\\.)*/g, '$1<redacted>');
 }
 
 function toast(message) {
@@ -128,7 +130,7 @@ function openFeedbackModal() {
     // Local mode (bd med-ta2n.20): where it goes. .wg-local-only hides it in cloud.
     const localNote = doc.createElement('p');
     localNote.className = 'wg-feedback-modal__chip wg-local-only';
-    localNote.textContent = 'Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.';
+    localNote.textContent = 'Sent encrypted to the developer through our server; the server can\'t read it. Your records stay on this phone.';
     body.appendChild(localNote);
 
     // Why a send could not go out (local mode: no server key for this install,
@@ -279,7 +281,7 @@ function openFeedbackModal() {
             try {
                 const text = await native.call('diag.read');
                 if (typeof text === 'string' && text) {
-                    attachments.push({ type: 'log', mime: 'text/plain', bytes: new TextEncoder().encode(maskLogPaths(text)) });
+                    attachments.push({ type: 'log', mime: 'text/plain', bytes: new TextEncoder().encode(scrubLog(text)) });
                 }
             } catch (_) { /* no log — send the rest */ }
         }
