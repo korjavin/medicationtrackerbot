@@ -37,8 +37,15 @@
     const button = document.createElement('button'); button.textContent = 'QA schedule reminder';
     button.style.cssText = 'position:fixed;right:0;top:0;z-index:2147483647;font-size:8px';
     button.addEventListener('click', schedule);
+    const inspect = document.createElement('button'); inspect.textContent = 'QA inspect notification settings';
+    inspect.style.cssText = 'position:fixed;right:0;top:30px;z-index:2147483647;font-size:8px';
+    inspect.addEventListener('click', () => {
+      state.phase = 'inspected'; state.cardHidden = document.querySelector('#cloud-push-card')?.hidden;
+      state.warning = document.querySelector('#cloud-push-chip')?.classList.contains('wg-chip--warn');
+      state.note = document.querySelector('#cloud-push-note [data-notify-denied]')?.textContent.trim(); publish();
+    });
     output = document.createElement('button'); output.textContent = 'QA reminder state';
     output.style.cssText = 'position:fixed;right:0;top:15px;z-index:2147483647;font-size:8px';
-    document.body.append(button, output); publish();
+    document.body.append(button, output, inspect); publish();
   }, { once: true });
 })();

@@ -41,11 +41,39 @@ final class FlowQARemindersDeniedTests: XCTestCase {
         let deny = springboard.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Don’t Allow", "Don't Allow")).firstMatch
         XCTAssertTrue(deny.waitForExistence(timeout: 30), "fresh install did not show the system permission prompt")
         deny.tap()
-        let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'iOS Settings'" )).firstMatch
-        XCTAssertTrue(guidance.waitForExistence(timeout: 30), "refusal gave no iOS Settings guidance")
-        XCTAssertTrue(enable.waitForExistence(timeout: 10), "Enable is not ready after refusal")
-        enable.tap()
-        XCTAssertFalse(deny.waitForExistence(timeout: 5), "later Enable repeated the system prompt")
-        XCTAssertTrue(guidance.exists, "later Enable lost the Settings guidance")
+        let open = app.webViews.buttons["Open iOS Settings"]
+        XCTAssertTrue(open.waitForExistence(timeout: 30), "refusal gave no iOS Settings button")
+        let inspect = app.webViews.buttons["QA inspect notification settings"]
+        XCTAssertTrue(inspect.waitForExistence(timeout: 10)); inspect.tap()
+        let state = try readState(app)
+        XCTAssertEqual(state["cardHidden"] as? Bool, true, "denied card is still visible")
+        XCTAssertEqual(state["warning"] as? Bool, true, "denied chip lacks warning state")
+        XCTAssertTrue((state["note"] as? String ?? "").contains("Reminders won’t fire. Notifications are off for Med Tracker."), "wrong denied note: \(QA.json(state))")
+        XCTAssertFalse(enable.exists, "Enable should be hidden after denial")
+        shot("denied")
+        let preferences = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        open.tap()
+        XCTAssertTrue(preferences.wait(for: .runningForeground, timeout: 30), "iOS Settings did not open")
+        shot("settings")
+        XCTAssertFalse(deny.waitForExistence(timeout: 5), "Settings action repeated the system prompt")
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        XCTAssertTrue(open.waitForExistence(timeout: 15), "return lost denied guidance")
+    }
+
+    private func readState(_ app: XCUIApplication) throws -> [String: Any] {
+        let node = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA reminder {'")).firstMatch
+        let end = Date().addingTimeInterval(15)
+        while Date() < end {
+            if node.exists, let data = String(node.label.dropFirst("QA reminder ".count)).data(using: .utf8),
+               let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any], state["phase"] as? String == "inspected" { return state }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        throw NSError(domain: "ReminderQA", code: 3, userInfo: [NSLocalizedDescriptionKey: "denied state probe timed out"])
+    }
+
+    private func shot(_ step: String) {
+        let attachment = XCTAttachment(screenshot: QA.stableScreenshot().0)
+        attachment.name = "reminder-\(step).png"; attachment.lifetime = .keepAlways; add(attachment)
     }
 }
