@@ -150,6 +150,7 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         let deadline = Date().addingTimeInterval(120)
         var denied = [String: String]()
         var submitted = false, finished = false
+        var confirmed = false
         var hierarchy = ""
         while Date() < deadline {
             hierarchy = app.debugDescription
@@ -159,6 +160,12 @@ final class FlowQAHealthDeniedTests: XCTestCase {
                Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
                 submitted = HealthSheet.tap(HealthSheet.deny, host: app, screen: screen)
                 if !submitted { app.swipeUp() }
+            } else if submitted && !confirmed && hierarchy.contains("later in the Health app") {
+                for host in [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")] {
+                    if HealthDiagnosticTests.tapIfSettled(host.alerts.buttons["OK"].firstMatch, within: screen) {
+                        confirmed = true; break
+                    }
+                }
             // Copy: web/cloud/js/health-import.js:981 and web/static/js/native/health.js:140.
             } else if submitted && hierarchy.contains("nothing yet") && hierarchy.contains("Settings → Health → Data Access & Devices") {
                 finished = true; break
