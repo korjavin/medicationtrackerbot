@@ -1315,13 +1315,14 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('a drain still running after 15 s shows the unsynced warning', async () => {
+        it.each([
+            ['a drain', { requestDrain: vi.fn(() => new Promise(() => {})) }], // offline: never settles
+            ['a status read', { getSyncStatus: vi.fn(() => new Promise(() => {})) }], // blocked IndexedDB
+        ])('%s still running after 15 s shows the unsynced warning', async (_name, sync) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const mod = await mountCloudWithDeleteModule(window, {}, {
-                    requestDrain: vi.fn(() => new Promise(() => {})), // offline: never settles
-                });
+                const mod = await mountCloudWithDeleteModule(window, {}, sync);
                 vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
                 await confirmDelete(window, document);
                 await vi.advanceTimersByTimeAsync(15000);

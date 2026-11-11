@@ -804,23 +804,23 @@ const DELETE_LOSS_MSG = {
 // null — nothing to lose. Either loss is a warning, never a refusal: a stuck
 // state must not trap the user in the account (Miles, Zulip 22767).
 async function unsyncedEntries() {
-    try {
+    // One deadline over the whole check (module load, drain, status read): a
+    // blocked IndexedDB must not leave Delete disabled forever.
+    const check = async () => {
         const sync = await loadCloudSyncModule();
         const ctx = cloudCtx();
-        let timer;
-        const drained = await Promise.race([
-            Promise.resolve(sync.requestDrain(ctx)).then(() => true),
-            new Promise((resolve) => { timer = setTimeout(() => resolve(false), DELETE_DRAIN_TIMEOUT_MS); }),
-        ]).finally(() => clearTimeout(timer));
-        if (!drained) return 'unsynced';
+        await sync.requestDrain(ctx);
         const st = await sync.getSyncStatus(ctx);
         // Waiting before rejected: an older tab never clears importRejected,
         // so a stale flag must not relabel an import that is still uploading.
         if (st.pendingCount !== 0 || st.importPending !== false) return 'unsynced';
         return st.importRejected ? 'local-only' : null;
-    } catch {
-        return 'unsynced';
-    }
+    };
+    let timer;
+    return Promise.race([
+        check(),
+        new Promise((resolve) => { timer = setTimeout(() => resolve('unsynced'), DELETE_DRAIN_TIMEOUT_MS); }),
+    ]).catch(() => 'unsynced').finally(() => clearTimeout(timer));
 }
 
 let _deleteAccountBound = false; // module-state: bind the delete modal's listeners once across repeated loadSettings() calls
