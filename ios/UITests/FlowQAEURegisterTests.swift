@@ -71,6 +71,100 @@ final class FlowQAEURegisterTests: XCTestCase {
         app.terminate()
     }
 
+    /// Account-backed cold reopen and a real encrypted peer setting operation.
+    /// The Simulator has no airplane switch: tlsfront stops its listener.
+    func testAccountEURegister() throws {
+        continueAfterFailure = false
+        defer { _ = try? QA.fakeServer("POST", "/start") }
+        let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_OFFLINE_CLAIM_URL"].flatMap(URL.init(string:)))
+        let host = try XCTUnwrap(claim.host)
+        let sub = try XCTUnwrap(host.split(separator: ".").first)
+        let token = try XCTUnwrap(claim.fragment?.split(separator: "=").last)
+        let link = try XCTUnwrap(URL(string: "medtracker://i/\(sub)#\(token)"))
+        let app = XCUIApplication()
+        app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQASoftAuthn", "YES"]
+        app.launch()
+        XCTAssertTrue(app.webViews.buttons.firstMatch.waitForExistence(timeout: 60))
+        app.open(link)
+        let offer = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Turn on sync' OR label BEGINSWITH 'Sign in with'")).firstMatch
+        XCTAssertTrue(offer.waitForExistence(timeout: 60)); offer.tap()
+        let create = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Continue with'")).firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 60)); create.tap()
+        XCTAssertTrue(openAccount(app, timeout: 120), "claim did not open account")
+        let before = try QA.receipts(host: host).count
+        let initial = try command(app, "initial", timeout: 180)
+        XCTAssertEqual(initial["nameEgress"] as? Int, 0, "name sent by page fetch: \(QA.json(initial))")
+        XCTAssertEqual(initial["rxnav"] as? Int, 0, "RxNav sent by page fetch: \(QA.json(initial))")
+        let online = try QA.receipts(host: host)
+        XCTAssertGreaterThan(online.count, before, "server observed no account requests")
+        XCTAssertFalse(online.dropFirst(before).contains { $0["nameEgress"] as? Bool == true }, "synthetic medication name reached fake server")
+        XCTAssertFalse(online.dropFirst(before).contains { $0["inspectionTruncated"] as? Bool == true }, "request body was too large to inspect")
+        XCTAssertFalse(online.dropFirst(before).contains { ($0["path"] as? String ?? "").contains("rxnav") }, "RxNav proxy was requested with EU selected")
+        XCTAssertEqual(try QA.fakeServer("POST", "/stop")["listening"] as? Bool, false)
+        app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
+        app.launchArguments = ["-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQASoftAuthn", "YES"]
+        app.launch()
+        XCTAssertTrue(openAccount(app, timeout: 90), "offline account did not open")
+        let offline = try command(app, "offline", timeout: 90)
+        XCTAssertTrue((offline["chip"] as? String ?? "").contains("Candesartan"), "offline chip: \(QA.json(offline))")
+        XCTAssertNotNil((offline["saved"] as? String)?.range(of: #"Saved EU entry · Rev\.\d+, data of \d{2}\.\d{2}\.\d{4}"#, options: .regularExpression), "offline saved entry: \(QA.json(offline))")
+        shot("eu-account", "offline-saved")
+        _ = try QA.fakeServer("POST", "/start")
+        app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30)); app.launch()
+        XCTAssertTrue(openAccount(app, timeout: 90), "account did not reopen online")
+        let peer = try command(app, "peer", timeout: 120)
+        XCTAssertEqual(peer["beforePull"] as? String, "us")
+        let document = try XCTUnwrap(peer["document"] as? String)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.1)
+        let observed = try command(app, "observe", timeout: 120)
+        XCTAssertEqual(observed["document"] as? String, document, "account reloaded across pull")
+        XCTAssertEqual(observed["trustedTouchEnd"] as? Bool, true, "pull did not deliver a native touch")
+        XCTAssertEqual(observed["sawPull"] as? Bool, true, "pull-to-refresh was not observed")
+        XCTAssertGreaterThan(observed["pulls"] as? Int ?? 0, 0, "no pull reached server")
+        XCTAssertEqual(observed["setting"] as? String, "EU register")
+        XCTAssertTrue((observed["chip"] as? String ?? "").contains("Candesartan"))
+        XCTAssertEqual(observed["nameEgress"] as? Int, 0, "name sent by page fetch: \(QA.json(observed))")
+        XCTAssertEqual(observed["rxnav"] as? Int, 0, "RxNav sent by page fetch: \(QA.json(observed))")
+        shot("eu-account", "pulled-chip")
+        let all = try QA.receipts(host: host)
+        XCTAssertFalse(all.dropFirst(before).contains { $0["nameEgress"] as? Bool == true }, "synthetic medication name reached fake server")
+        XCTAssertFalse(all.dropFirst(before).contains { $0["inspectionTruncated"] as? Bool == true }, "request body was too large to inspect")
+        XCTAssertFalse(all.dropFirst(before).contains { ($0["path"] as? String ?? "").contains("rxnav") }, "RxNav proxy requested")
+    }
+
+    private func openAccount(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if QA.tabBarShows(app, timeout: 2) { return true }
+            for label in ["Continue in browser anyway", "Skip all", "Unlock with passkey"] {
+                let b = app.webViews.buttons[label]; if b.exists { b.tap() }
+            }
+        }
+        return false
+    }
+
+    @discardableResult
+    private func command(_ app: XCUIApplication, _ name: String, timeout: TimeInterval) throws -> [String: Any] {
+        let button = app.webViews.buttons["QA EU " + name]
+        XCTAssertTrue(button.waitForExistence(timeout: 30), "missing EU probe \(name)")
+        button.tap()
+        let node = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA EU {'")).firstMatch
+        let end = Date().addingTimeInterval(timeout)
+        repeat {
+            if node.exists, let data = String(node.label.dropFirst("QA EU ".count)).data(using: .utf8),
+               let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let phase = state["phase"] as? String, phase == name + "-done" || phase == name + "-error" {
+                XCTAssertEqual(phase, name + "-done", "EU probe: \(QA.json(state))")
+                return state
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        } while Date() < end
+        XCTFail("EU probe \(name) timed out: \(node.label)")
+        return [:]
+    }
+
     private func launch(_ app: XCUIApplication, _ scene: String) {
         app.launchArguments = ["-wgLocalMode", "1", "-wgLocalLockOn", "0", "-wgLocalLock", "0", "-wgQAScene", scene]
         app.launch()

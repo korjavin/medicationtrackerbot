@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -230,10 +231,26 @@ type gateReceipt struct {
 	// Tags: a sync push's record_type_tag list ("note:<id>"), which the server
 	// stores in the clear anyway: proves which write an answered push carried.
 	Tags []string `json:"tags,omitempty"`
+	// NameEgress records only whether this QA's synthetic name appeared; never
+	// retain a query string or request body in the control receipts.
+	NameEgress          bool `json:"nameEgress,omitempty"`
+	InspectionTruncated bool `json:"inspectionTruncated,omitempty"`
 }
 
 func (g *listenGate) receive(r *http.Request) int {
 	var tags []string
+	// The EU QA uses one synthetic name. Decode URL and form escaping, and
+	// inspect a bounded body prefix while preserving every byte for the proxy.
+	const maxInspect = 4 << 20
+	prefix, inspectErr := io.ReadAll(io.LimitReader(r.Body, maxInspect+1))
+	r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(prefix), r.Body))
+	query, _ := url.QueryUnescape(r.URL.String())
+	body := string(prefix)
+	if decoded, err := url.QueryUnescape(body); err == nil {
+		body = decoded
+	}
+	payload := query + "\n" + body
+	nameEgress := strings.Contains(strings.ToLower(payload), "candecor")
 	if r.Method == http.MethodPost && r.URL.Path == "/api/sync/ops" {
 		body, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
@@ -249,7 +266,7 @@ func (g *listenGate) receive(r *http.Request) int {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.receipts = append(g.receipts, gateReceipt{At: time.Now().UTC(), Host: r.Host, Method: r.Method, Path: r.URL.Path, Tags: tags})
+	g.receipts = append(g.receipts, gateReceipt{At: time.Now().UTC(), Host: r.Host, Method: r.Method, Path: r.URL.Path, Tags: tags, NameEgress: nameEgress, InspectionTruncated: len(prefix) > maxInspect || inspectErr != nil})
 	return len(g.receipts) - 1
 }
 
