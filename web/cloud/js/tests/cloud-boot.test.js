@@ -282,6 +282,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     let state = 'hidden';
     Object.defineProperty(doc, 'visibilityState', { get: () => state, configurable: true });
     vi.stubGlobal('document', doc);
+    vi.stubGlobal('navigator', { onLine: true });
     try {
       let drainOpts;
       let changes = 0;
