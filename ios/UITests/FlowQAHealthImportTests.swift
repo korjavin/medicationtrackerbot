@@ -94,7 +94,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         launch(app, "health-qa-weight")
         let (weightOK, weightState) = QA.waitFlow(app, timeout: 30) { rows($0, "weight").contains { $0.contains("73.4") && $0.contains("Health import") } }
         XCTAssertTrue(weightOK, "imported weight source absent: \(QA.json(weightState))")
-        reveal(app, "73.4")
+        reveal(app, "Health import")
         shot("health-import-weight")
     }
 
@@ -159,15 +159,14 @@ final class FlowQAHealthDeniedTests: XCTestCase {
                Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
                 submitted = HealthSheet.tap(HealthSheet.deny, host: app, screen: screen)
                 if !submitted { app.swipeUp() }
+            // Copy: web/cloud/js/health-import.js:981 and web/static/js/native/health.js:140.
             } else if submitted && hierarchy.contains("nothing yet") && hierarchy.contains("Settings → Health → Data Access & Devices") {
                 finished = true; break
-            } else if !submitted {
-                app.swipeUp()
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
         try HealthSheet.attach(denied, name: "health-import-denied-kinds", in: self)
-        if denied.isEmpty {
+        if Set(denied.keys) != HealthSheet.expected || !denied.values.allSatisfy({ $0 == "0" }) || !(submitted && finished) {
             try HealthSheet.attach(["app-debugDescription": hierarchy], name: "health-denied-hierarchy", in: self)
             HealthSheet.screenshot("health-denied-missing-sheet", in: self)
         }
