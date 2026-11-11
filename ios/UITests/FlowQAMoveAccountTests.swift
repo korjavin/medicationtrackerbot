@@ -78,8 +78,8 @@ final class FlowQAMoveAccountTests: XCTestCase {
         launch(app, [])
         XCTAssertTrue(openAccount(app, timeout: 120))
         XCTAssertTrue(text(app, "Records already in your account").waitForExistence(timeout: 120))
-        XCTAssertTrue(text(app, "Merge").exists, "the populated account offers no Merge")
-        let replace = text(app, "Replace")
+        XCTAssertTrue(choice(app, "Merge").exists, "the populated account offers no Merge")
+        let replace = choice(app, "Replace")
         XCTAssertTrue(replace.waitForExistence(timeout: 10)); replace.tap()
         let next = button(app, "Continue")
         XCTAssertTrue(next.waitForExistence(timeout: 10)); next.tap()
@@ -130,16 +130,16 @@ final class FlowQAMoveAccountTests: XCTestCase {
         defer { _ = try? fault("/release", [:]) }
         create.tap()
         let error = text(app, "Records not moved yet")
-        let choice = text(app, "Records already in your account")
+        let choiceDialog = text(app, "Records already in your account")
         let deadline = Date().addingTimeInterval(180)
-        while Date() < deadline && !error.exists && !choice.exists {
+        while Date() < deadline && !error.exists && !choiceDialog.exists {
             for label in ["Continue in browser anyway", "Skip all", "Unlock with passkey"] {
                 let b = app.webViews.buttons[label]; if b.exists { b.tap() }
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        if choice.exists {
-            let merge = text(app, "Merge")
+        if choiceDialog.exists {
+            let merge = choice(app, "Merge")
             XCTAssertTrue(merge.waitForExistence(timeout: 10)); merge.tap()
             button(app, "Continue").tap()
         }
@@ -182,6 +182,10 @@ final class FlowQAMoveAccountTests: XCTestCase {
 
     private func text(_ app: XCUIApplication, _ value: String) -> XCUIElement {
         app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+    }
+
+    private func choice(_ app: XCUIApplication, _ value: String) -> XCUIElement {
+        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", value)).firstMatch
     }
 
     private func command(_ app: XCUIApplication, _ name: String) throws -> [String: Any] {
