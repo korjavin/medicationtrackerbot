@@ -7,12 +7,13 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as ten restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as twelve restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
-# eu (EU register), held (open-session refresh), reminders (grant + cold
-# notification), and reminders-denied, joined by the `qa` gate. Lists: env QA_PARTS.
+# eu (EU register), health and health-denied (separate Health permission states),
+# held (open-session refresh), reminders and reminders-denied, joined by the
+# `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -57,7 +58,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,held,reminders,reminders-denied,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,health,health-denied,held,reminders,reminders-denied,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -72,6 +73,8 @@ env:
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
+     "health": ["FlowQAHealthImportTests"],
+     "health-denied": ["FlowQAHealthDeniedTests"],
      "held": ["FlowQAHeldRefreshTests"],
      "reminders": ["FlowQARemindersTests"],
      "reminders-denied": ["FlowQARemindersDeniedTests"]}
@@ -567,8 +570,8 @@ jobs:
 
       - name: Create and boot the simulator
         env:
-          # Core and held exercise HealthKit and wait for healthd.
-          QA_HEALTH_READY: ${{ (matrix.part == 'core' || matrix.part == 'held') && '1' || '0' }}
+          # Every Health part is the first Health ask on its own simulator.
+          QA_HEALTH_READY: ${{ (matrix.part == 'core' || matrix.part == 'health' || matrix.part == 'health-denied' || matrix.part == 'held') && '1' || '0' }}
         run: |
           ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt | tee "$RUNNER_TEMP/qa-boot.log"
           exit "${PIPESTATUS[0]}"
@@ -645,6 +648,10 @@ jobs:
           python3 qa/runner-summary.py "$RUNNER_TEMP/qa-boot.log" "$RUNNER_TEMP/qa-tests.json" >> "$GITHUB_STEP_SUMMARY" || echo "Runner summary unavailable (helper failed)" >> "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/qa-tests.json" "$out/qa-tests-$PART.json"
           [ -d build/qa.xcresult ] || { echo "No result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          while IFS= read -r testid; do
+            safe="$(printf '%s' "$testid" | sed -E 's/[^A-Za-z0-9]+/-/g; s/-$//')"
+            xcrun xcresulttool get test-results activities --test-id "$testid" --path build/qa.xcresult > "$out/$safe-activities.json" || rm -f "$out/$safe-activities.json"
+          done < <(jq -r '.. | objects | select(.nodeType == "Test Case" and .result == "Failed") | .nodeIdentifier // empty' "$RUNNER_TEMP/qa-tests.json")
           xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
           # Same manifest mapping as the visual job: <flow>-<step>.png, plus
           # a failed test's UI hierarchy (the first exported) as <Class>-<test>-hierarchy.txt
@@ -654,7 +661,7 @@ jobs:
               while IFS=$'\t' read -r file name test; do
                 name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
                 case "$name" in
-                  *.png|*.json) cp "$raw/$file" "$out/$name" ;;
+                  *.png|*.json|*.ips|*.mp4) cp "$raw/$file" "$out/$name" ;;
                   "App UI hierarchy"*) [ -e "$out/$test-hierarchy.txt" ] || cp "$raw/$file" "$out/$test-hierarchy.txt" ;;
                 esac
               done

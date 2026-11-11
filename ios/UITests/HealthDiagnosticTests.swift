@@ -6,21 +6,22 @@ final class HealthDiagnosticTests: XCTestCase {
         try Self.run(seed: false, in: self)
     }
 
-    static func run(seed: Bool, in test: XCTestCase) throws {
-        let json = try run(seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", in: test)
+    static func run(seed: Bool, labels: Bool = false, in test: XCTestCase) throws -> [String: Any] {
+        let json = try run(seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", labels: labels, in: test)
         if seed { XCTAssertGreaterThan(json["sampleCount"] as? Int ?? 0, 0, "Health store has no seeded Steps sample") }
+        return json
     }
 
     /// Launches HealthDiagnosticView in `mode`, accepts the Health sheet, and
     /// returns its JSON report after asserting `ok`.
     @discardableResult
-    static func run(_ mode: String, in test: XCTestCase) throws -> [String: Any] {
-        try runAttempt(mode, in: test, canRetry: true)
+    static func run(_ mode: String, labels: Bool = false, in test: XCTestCase) throws -> [String: Any] {
+        try runAttempt(mode, labels: labels, in: test, canRetry: true)
     }
 
-    private static func runAttempt(_ mode: String, in test: XCTestCase, canRetry: Bool) throws -> [String: Any] {
+    private static func runAttempt(_ mode: String, labels: Bool, in test: XCTestCase, canRetry: Bool) throws -> [String: Any] {
         let app = XCUIApplication()
-        app.launchArguments = [mode, "YES"]
+        app.launchArguments = [mode, "YES"] + (labels ? ["-wgQAHealthLabels", "YES"] : [])
         app.launch()
         defer { app.terminate() }
         let result = app.staticTexts["health-diagnostic-result"]
@@ -83,7 +84,7 @@ final class HealthDiagnosticTests: XCTestCase {
             retry.name = "health-code-100-retry.txt"; retry.lifetime = .keepAlways; test.add(retry)
             app.terminate()
             XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
-            return try runAttempt(mode, in: test, canRetry: false)
+            return try runAttempt(mode, labels: labels, in: test, canRetry: false)
         }
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
         return json

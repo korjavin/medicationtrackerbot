@@ -114,12 +114,14 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → ten `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → twelve `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
   CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; waits
-  for healthd, `QA_HEALTH_READY=1`), **data** (Backup,
+  for healthd, `QA_HEALTH_READY=1`), **health** and **health-denied**
+  (HealthImport and HealthDenied, separate first-authorization Simulators and
+  healthd waits), **data** (Backup,
   Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **eu**
   (EURegister), **held** (HeldRefresh; also waits for healthd), **reminders**
   (grant and cold notification tap), **reminders-denied** (refusal and iOS
@@ -145,12 +147,27 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   `webcontent-rss-<part>.log`, `qa-tests-<part>.json` (xcresult test data),
   `tlsfront-<part>.log`, `cloud-<part>.log` and `receipts-<part>.json` (fake
   server evidence, when available).
+  Failed tests also export crash `.ips`, screen recording `.mp4` and
+  `<Class>-<test>-activities.json` timelines when available.
+  A recording whose video track is shorter than the test stopped changing at
+  its last frame; inspect the track duration with `ffprobe`.
   The gate merges them into the one artifact
   `ios-qa` (full runs only; the newest attempt of each part):
   `gh run download <run> -n ios-qa -D /tmp/ios-qa`. After "Re-run failed
   jobs" each attempt keeps its own `ios-qa-<part>` (the failed attempt's
   shots stay), so `-n ios-qa-<part>` matches two: take the merged `ios-qa`,
   or the attempt's `ios-qa-<part>` from the run's artifact list.
+- **Health flows:** `testHealthImport` grants one union seed sheet and checks
+  Settings import plus BP, weight and sleep source labels; the subsequent
+  Settings authorization resolves without another sheet. A second authorization
+  ask on the Simulator can hang without presenting a sheet, so seed first.
+  `testDeniedHealthGuidance`
+  uses a separate first ask, verifies all read switches off, denies and checks
+  Settings guidance. The `health-qa-*` scenes are flow-only. Evidence includes
+  `health-import-denied-kinds.json`, `health-import-*.png` and, on failure,
+  `health-denied-hierarchy.json`. On iOS 27 the hosted HealthUI subtree is
+  omitted by `snapshot().children` but included by `debugDescription` and
+  element queries; iOS 27.2 also asks for OK after Don't Allow.
 - **Flows:** `testLocalFirstRun` — cold launch with no account and an empty
   store → straight into local mode's web W1 picker with its "Have an invite?"
   footer, no native screen (bd med-ta2n.17; shot `local-first-run-cold-launch`)

@@ -125,10 +125,9 @@ async function adoptLedgerCut(cutAt, epoch) {
     if (epochMoved(epoch)) return false;
     const existing = await getRecord(LEDGERCUT_RECORD_ID);
     if (existing && !existing.deleted && existing.at === cutAt) return false;
-    await putRecord({
+    return putRecordIfEpoch({
       ...(existing || {}), recordId: LEDGERCUT_RECORD_ID, recordType: LEDGERCUT_RECORD_TYPE, clientTs: 0, deleted: false, at: cutAt,
-    });
-    return true;
+    }, epoch);
   });
 }
 
@@ -166,14 +165,44 @@ function withRecordsLock(fn) {
 // wiping drop, and a tx created before reset's bump runs before its wipe.
 // Merges (applyIncoming, adoptLedgerCut) check it under the records lock,
 // which reset's bump holds.
+//
+// bd med-0vdh — syncEpoch is per tab, so resetLocalSync also writes a fresh
+// random generation (sync_meta 'syncGen') inside its wipe; another tab's flight
+// sees it moved. A captured epoch is { mem, gen }; guarded writes compare gen
+// inside their own transaction (inGen), so no other tab's wipe can slip between
+// check and write. An older bundle's reset clears sync_meta, so gen drops to 0
+// — a move too, unless it was 0 already (then unfenced, as before).
 let syncEpoch = 0;
-const epochMoved = (epoch) => epoch !== undefined && epoch !== syncEpoch;
+const SYNC_GEN_KEY = 'syncGen';
+// Fresh per import replace (no epoch), written with its records: a snapshot
+// clears importRejected only if it read the store under the current one.
+const IMPORT_GEN_KEY = 'importGen';
+const epochMoved = (epoch) => epoch !== undefined && epoch.mem !== syncEpoch;
+async function captureEpoch() {
+  const mem = syncEpoch;
+  const gen = await withStore('sync_meta', 'readonly', (store) => reqToPromise(store.get(SYNC_GEN_KEY)));
+  return { mem, gen: gen ?? 0 };
+}
+async function genMoved(epoch) {
+  return epochMoved(epoch) || (await captureEpoch()).gen !== epoch.gen;
+}
+// Runs fn inside the caller's transaction (which must span sync_meta) once
+// `epoch` still holds there; the returned holder's `ok` says whether it ran.
+function inGen(meta, epoch, fn) {
+  const held = { ok: !epochMoved(epoch) };
+  if (!held.ok) return held;
+  if (epoch === undefined) { fn(); return held; }
+  const req = meta.get(SYNC_GEN_KEY);
+  req.onsuccess = () => {
+    if ((req.result ?? 0) === epoch.gen) fn();
+    else held.ok = false;
+  };
+  return held;
+}
 function writeMetaIfEpoch(epoch, patch) {
-  return withStore('sync_meta', 'readwrite', (store) => {
-    if (epochMoved(epoch)) return false;
+  return withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
     for (const [key, value] of Object.entries(patch)) store.put(value, key);
-    return true;
-  });
+  })).then((held) => held.ok);
 }
 
 // The operational ctx is {accountId, kData, kMac}: non-extractable leaf keys
@@ -203,6 +232,17 @@ async function withDb(fn) {
   }
 }
 
+// One readwrite transaction over `names`; resolves fn(tx)'s result on commit.
+function withTx(names, fn) {
+  return withDb((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(names, 'readwrite');
+    const result = fn(tx);
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
+}
+
 async function withStore(storeName, mode, fn) {
   return withDb((db) => new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, mode);
@@ -225,7 +265,7 @@ async function readMeta() {
   return withDb(async (db) => {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt, importBumpSeq] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt, importBumpSeq, importRejected] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -239,6 +279,7 @@ async function readMeta() {
       reqToPromise(store.get('syncWedged')),
       reqToPromise(store.get('lastSnapshotAt')),
       reqToPromise(store.get('importBumpSeq')),
+      reqToPromise(store.get('importRejected')),
     ]);
     // A 426 error/streak/wedge in the shared sync_meta was written by a pre-v2
     // bundle's tab (this build never counts a 426: markUpdateRequired), which
@@ -261,6 +302,7 @@ async function readMeta() {
       syncWedged: gateWedge ? false : (syncWedged ?? false),
       lastSnapshotAt: lastSnapshotAt ?? null,
       importBumpSeq: importBumpSeq ?? null,
+      importRejected: importRejected ?? false,
     };
   });
 }
@@ -415,6 +457,18 @@ async function putRecord(record) {
   afterPut(record);
 }
 
+// putRecord unless `epoch` moved (bd med-0vdh): the check shares the put's tx,
+// and so does the pending row when `queue` (a repair).
+async function putRecordIfEpoch(record, epoch, queue = false) {
+  const stores = queue ? ['records', 'pending', 'sync_meta'] : ['records', 'sync_meta'];
+  const held = await withTx(stores, (tx) => inGen(tx.objectStore('sync_meta'), epoch, () => {
+    tx.objectStore('records').put(record);
+    if (queue) tx.objectStore('pending').put(pendingRow(record.recordId, record.recordType));
+  }));
+  if (held.ok) afterPut(record);
+  return held.ok;
+}
+
 // The in-memory side of a physical write (journal, memo, announce), for writes
 // that put inside their own transaction.
 function afterPut(record) {
@@ -499,6 +553,7 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
         }
       }
     }
+    const tokens = new Map(pending.map((p) => [p.recordId, p.token]));
     for (const { recordId, derived } of pending) {
       const r = await getRecord(recordId);
       if (!r) continue;
@@ -534,16 +589,22 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
       }
       overlay.push(merge ? merge(r, snap) : r);
     }
-    const wrote = await withStore('records', 'readwrite', (store) => {
-      if (epochMoved(epoch)) return false;
+    // Pending changes share the records tx and its generation check (bd
+    // med-0vdh); a losing row is cleared only if no newer write re-marked it.
+    const held = await withTx(['records', 'pending', 'sync_meta'], (tx) => inGen(tx.objectStore('sync_meta'), epoch, () => {
+      const store = tx.objectStore('records');
       store.clear();
       for (const record of records) store.put(record);
       for (const record of overlay) store.put(record);
-      return true;
-    });
-    if (!wrote) return false;
-    if (losingPending.length > 0) await clearPending(losingPending);
-    for (const r of repairs) await markPending(r.recordId, r.recordType);
+      const queue = tx.objectStore('pending');
+      for (const id of losingPending) {
+        const row = queue.get(id);
+        row.onsuccess = () => { if ((row.result || {}).token === tokens.get(id)) queue.delete(id); };
+      }
+      for (const r of repairs) queue.put(pendingRow(r.recordId, r.recordType));
+      if (epoch === undefined) tx.objectStore('sync_meta').put(crypto.randomUUID(), IMPORT_GEN_KEY);
+    }));
+    if (!held.ok) return false;
     return true;
   });
   if (!replaced) return false;
@@ -583,15 +644,15 @@ export async function dropPendingForTypes(types) {
 export async function resetLocalSync(ctx) {
   await withRecordsLock(async () => {
     syncEpoch++;
-    await withDb((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+    await withTx(['records', 'pending', 'sync_meta'], (tx) => {
       tx.objectStore('records').clear();
       tx.objectStore('pending').clear();
       tx.objectStore('sync_meta').clear();
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    }));
+      // Fences other tabs (bd med-0vdh). Random, not a counter: an older
+      // bundle's reset deletes the key, and a counter restarting from there
+      // could hand a pre-reset flight its captured value back (ABA).
+      tx.objectStore('sync_meta').put(crypto.randomUUID(), SYNC_GEN_KEY);
+    });
   });
   invalidateRecords();
   announce({ reset: true });
@@ -620,15 +681,19 @@ export async function resetLocalSync(ctx) {
 // entry that is already queued plain: the rewrite copies that unsent real edit
 // (a snooze, say) into its body, so dropping it would drop the edit too.
 // Local bookkeeping only, never on the wire.
+// `token` (bd med-0vdh) is fresh per write: the push ack clears a row only if
+// it still holds the token that push read, so another tab's same-millisecond
+// edit of the record (same clientTs) stays queued.
+const pendingRow = (recordId, recordType) => ({ recordId, recordType, token: crypto.randomUUID() });
 async function markPending(recordId, recordType, derived = false) {
   await withStore('pending', 'readwrite', (store) => {
     if (!derived) {
-      store.put({ recordId, recordType });
+      store.put(pendingRow(recordId, recordType));
       return;
     }
     const req = store.get(recordId);
     req.onsuccess = () => {
-      if (!req.result) store.put({ recordId, recordType, derived });
+      if (!req.result) store.put({ ...pendingRow(recordId, recordType), derived });
     };
   });
 }
@@ -676,28 +741,26 @@ async function deleteDeviceValue(key) {
 // flushPending's ack: clear the pushed pending rows and advance the cursor in
 // one transaction, unless syncEpoch moved since `epoch` (bd med-w4nq; the check
 // sits inside the tx for the same reason as writeMetaIfEpoch). `sent` maps
-// recordId → the clientTs pushed; a row edited during the POST (clientTs is
-// strictly monotone per record, nextClientTs) keeps its pending entry so the
-// newer version is pushed next, not dropped.
+// recordId → { clientTs, token } pushed; a row edited during the POST (clientTs
+// is strictly monotone per record, nextClientTs; a re-marked pending row has a
+// new token, bd med-0vdh) keeps its pending entry so the newer version is pushed
+// next, not dropped.
 function ackPushIfEpoch(epoch, sent, localLastSeq) {
-  return withDb((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
-    const ok = !epochMoved(epoch);
-    if (ok) {
+  return withTx(['records', 'pending', 'sync_meta'], (tx) => {
+    const meta = tx.objectStore('sync_meta');
+    return inGen(meta, epoch, () => {
       const records = tx.objectStore('records');
       const pending = tx.objectStore('pending');
-      for (const [id, clientTs] of sent) {
-        const req = records.get(id);
-        req.onsuccess = () => {
-          if (!req.result || req.result.clientTs === clientTs) pending.delete(id);
+      for (const [id, { clientTs, token }] of sent) {
+        const rec = records.get(id);
+        const row = pending.get(id); // answers after rec: same tx, in order
+        row.onsuccess = () => {
+          if ((row.result || {}).token === token && (!rec.result || rec.result.clientTs === clientTs)) pending.delete(id);
         };
       }
-      tx.objectStore('sync_meta').put(localLastSeq, 'localLastSeq');
-    }
-    tx.oncomplete = () => resolve(ok);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  }));
+      meta.put(localLastSeq, 'localLastSeq');
+    });
+  }).then((held) => held.ok);
 }
 
 async function clearPending(recordIds) {
@@ -953,9 +1016,8 @@ function repairStamp(a, b) {
 
 // Lays `winner` re-stamped above `a` and `b` and queues it, inside the
 // records lock (the caller holds it), without going through writeRecord.
-async function putRepair(recordType, winner, a, b) {
-  await putRecord({ ...winner, clientTs: repairStamp(a, b), recordType });
-  await markPending(winner.recordId, recordType);
+async function putRepair(recordType, winner, a, b, epoch) {
+  return putRecordIfEpoch({ ...winner, clientTs: repairStamp(a, b), recordType }, epoch, true);
 }
 
 // Returns EPOCH_MOVED, applying nothing, once `epoch` moved (bd med-7jgk).
@@ -969,12 +1031,10 @@ async function applyIncoming(recordType, record, epoch) {
       const merged = policy(existing, record);
       const lww = lwwWinner(existing, record);
       if (REPAIR_TYPES[recordType] && merged !== lww && !sameBody(merged, lww)) {
-        await putRepair(recordType, merged, existing, record);
-        return recordType;
+        return (await putRepair(recordType, merged, existing, record, epoch)) ? recordType : EPOCH_MOVED;
       }
       if (merged === existing) return null;
-      await putRecord({ ...merged, recordType });
-      return recordType;
+      return (await putRecordIfEpoch({ ...merged, recordType }, epoch)) ? recordType : EPOCH_MOVED;
     }
     const incomingWins = !existing || record.clientTs > existing.clientTs;
     const merge = APPLY_MERGE[recordType];
@@ -982,12 +1042,10 @@ async function applyIncoming(recordType, record, epoch) {
       const winner = incomingWins ? record : existing;
       const merged = merge(winner, incomingWins ? existing : record);
       if (!incomingWins && merged === existing) return null;
-      await putRecord({ ...merged, recordType });
-      return recordType;
+      return (await putRecordIfEpoch({ ...merged, recordType }, epoch)) ? recordType : EPOCH_MOVED;
     }
     if (incomingWins) {
-      await putRecord({ ...record, recordType });
-      return recordType;
+      return (await putRecordIfEpoch({ ...record, recordType }, epoch)) ? recordType : EPOCH_MOVED;
     }
     return null;
   });
@@ -1001,7 +1059,8 @@ async function applyIncoming(recordType, record, epoch) {
 // which replaces by intent.
 // `epoch`: the syncEpoch the caller started under (bd med-7jgk); a moved epoch
 // lands nothing and returns null.
-async function bootstrap(ctx, { reduceAcked = true, epoch = syncEpoch } = {}) {
+async function bootstrap(ctx, { reduceAcked = true, epoch } = {}) {
+  epoch ??= await captureEpoch();
   // A stranded full-vault import (forceSnapshotPending) means the LOCAL store is
   // authoritative and has not been pushed yet. Replacing it with the server's
   // stale snapshot would destroy the import. pullOnOpen also guards this, but
@@ -1110,7 +1169,7 @@ export async function bootstrapIfNeeded(ctx, { force = false } = {}) {
 }
 
 async function pullTail(ctx) {
-  const epoch = syncEpoch;
+  const epoch = await captureEpoch();
   const kData = await getKData(ctx);
   for (;;) {
     const meta = await readMeta();
@@ -1210,13 +1269,24 @@ async function pullTail(ctx) {
 // server) is only "offline" for the forced path, where it strands the import —
 // maybeSnapshot runs after a successful pull+flush, so failing it must not flip
 // a healthy app to offline for good.
-async function snapshotAt(ctx, snapshotSeq) {
+// Returns null, uploading nothing, when a reset or wipe moved `epoch` before
+// the POST (bd med-0vdh): the store may be emptied, and an empty
+// snapshot at a live seq would bury the account's data for every bootstrap.
+async function snapshotAt(ctx, snapshotSeq, epoch) {
   const kData = await getKData(ctx);
-  const records = await readAllRecords();
+  const { records, importGen } = await withDb((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(['records', 'sync_meta'], 'readonly');
+    const all = tx.objectStore('records').getAll();
+    const gen = tx.objectStore('sync_meta').get(IMPORT_GEN_KEY);
+    tx.oncomplete = () => resolve({ records: all.result, importGen: gen.result });
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
   // gzip the JSON before encryption so the ciphertext (POST body) shrinks ~10x;
   // bootstrap sniffs the gzip magic bytes on decrypt. AAD/nonce unchanged.
   const plaintext = await gzip(new TextEncoder().encode(JSON.stringify(records)));
   const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
+  if (await genMoved(epoch)) return null; // right before the POST
   let res;
   try {
     res = await timedFetch('/api/sync/snapshot', {
@@ -1245,7 +1315,13 @@ async function snapshotAt(ctx, snapshotSeq) {
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
   // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
   // snapshotErrorSeq goes with it, so the backoff floor drops back to lastSnapshotSeq.
-  await writeMeta({ lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null });
+  // importRejected clears only if no import replaced the store since the read
+  // (bd med-0vdh): a snapshot built before it does not carry it.
+  await withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
+    for (const [key, value] of Object.entries({ lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null })) store.put(value, key);
+    const cur = store.get(IMPORT_GEN_KEY);
+    cur.onsuccess = () => { if (cur.result === importGen) store.put(false, 'importRejected'); };
+  }));
   return { ok: true, status: res.status };
 }
 
@@ -1267,6 +1343,7 @@ async function snapshotAt(ctx, snapshotSeq) {
 // Transient failures (5xx, network) record nothing: snapshotAt has already set
 // `offline` where appropriate, the floor stays put, and the next flush retries.
 async function maybeSnapshot(ctx) {
+  const epoch = await captureEpoch();
   const meta = await readMeta();
   if (meta.localLastSeq === null) return;
   // A wedged device holds unsynced optimistic records in 'records' that the
@@ -1292,9 +1369,9 @@ async function maybeSnapshot(ctx) {
   const sinceLast = meta.lastSnapshotAt === null ? Infinity : Date.now() - meta.lastSnapshotAt;
   if (sinceLast >= 0 && sinceLast < MIN_SNAPSHOT_INTERVAL_MS
     && meta.localLastSeq - floor < SNAPSHOT_FORCE_OPS) return;
-  const snap = await snapshotAt(ctx, meta.localLastSeq);
-  if (!snap.ok && isPermanentSyncStatus(snap.status)) {
-    await writeMeta({
+  const snap = await snapshotAt(ctx, meta.localLastSeq, epoch);
+  if (snap && !snap.ok && isPermanentSyncStatus(snap.status)) {
+    await writeMetaIfEpoch(epoch, {
       snapshotError: { status: snap.status, at: Date.now() },
       snapshotErrorSeq: meta.localLastSeq,
     });
@@ -1351,7 +1428,7 @@ export async function markForceSnapshotPending() {
   // that a permanent write-error wedged on, and its snapshot bump bypasses the
   // wedge-guarded flushPending — so without clearing here the device lands the
   // import but leaves syncWedged set, silently blocking every later writeRecord.
-  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0 });
+  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false });
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
@@ -1390,7 +1467,7 @@ function isAuthExpiredStatus(status) {
 // compaction): it's a tombstone the snapshot below compacts away, never
 // decrypted by anyone.
 async function tryForceSnapshot(ctx) {
-  const epoch = syncEpoch; // bd med-w4nq: a reset/wipe mid-push fences the cursor write below
+  const epoch = await captureEpoch(); // bd med-w4nq: a reset/wipe mid-push fences the cursor write below
   const meta = await readMeta();
   if (!meta.forceSnapshotPending || meta.localLastSeq === null) return;
   // Writer gate hit this page load: pushes are paused, the marker waits for the
@@ -1442,7 +1519,7 @@ async function tryForceSnapshot(ctx) {
       return; // marker stays set — retried by the reloaded build
     }
     if (isPermanentSyncStatus(res.status)) {
-      await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
+      await writeMetaIfEpoch(epoch, { snapshotError: { status: res.status, at: Date.now() }, importRejected: true });
       offline = false;
       return;
     }
@@ -1466,19 +1543,20 @@ async function tryForceSnapshot(ctx) {
   // that pulled the op already holds it): a peer bootstrapping from it whose
   // store lacks this bump knows the snapshot carries an import it never saw,
   // and keeps replace semantics (replaceAllRecords reduceAcked, bd med-0xad.9).
-  await putRecord({ ...JSON.parse(new TextDecoder().decode(bumpBody)), recordType: 'importbump' });
+  if (!(await putRecordIfEpoch({ ...JSON.parse(new TextDecoder().decode(bumpBody)), recordType: 'importbump' }, epoch))) return;
   // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
   // pull/flush. A permanent 4xx means the snapshot is larger than the server cap
   // and will NEVER fit, so re-encrypting it every open wedges the app forever and
   // blocks all pulls. Record a durable error, clear the pending marker so the
   // pull/flush path proceeds, and surface it in the status line. A 5xx/offline
   // failure is transient: leave the marker set and retry next open.
-  const snap = await snapshotAt(ctx, snapshotSeq);
+  const snap = await snapshotAt(ctx, snapshotSeq, epoch);
+  if (!snap) return; // reset mid-snapshot (bd med-0vdh): it wiped the import and its marker
   if (!snap.ok) {
     if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isUpdateRequiredStatus(snap.status)) return; // snapshotAt flagged it; marker stays set
     if (isPermanentSyncStatus(snap.status)) {
-      await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
+      await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() }, importRejected: true });
       offline = false;
       return;
     }
@@ -1486,7 +1564,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMeta({ forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null });
+    await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null }); // importRejected: snapshotAt
   }
 }
 
@@ -1593,7 +1671,7 @@ async function flushPendingUnlocked(ctx) {
   let mispredicts = 0;
   for (;;) {
     // bd med-w4nq: per chunk, so a chunk read after a reset isn't fenced by it.
-    const epoch = syncEpoch;
+    const epoch = await captureEpoch();
     const pending = await readPending();
     if (pending.length === 0) {
       // Compact once the whole backlog has landed, not per chunk — a per-chunk
@@ -1610,9 +1688,9 @@ async function flushPendingUnlocked(ctx) {
     if (meta.localLastSeq === null) return false;
     let seq = meta.localLastSeq;
     const ops = [];
-    const sent = new Map(); // recordId → clientTs pushed
+    const sent = new Map(); // recordId → { clientTs, token } pushed
     let bodyBytes = 0;
-    for (const { recordId, recordType } of pending) {
+    for (const { recordId, recordType, token } of pending) {
       if (ops.length >= MAX_OPS_PER_BATCH) break;
       const record = await getRecord(recordId);
       if (!record) continue;
@@ -1637,7 +1715,7 @@ async function flushPendingUnlocked(ctx) {
       if (ops.length > 0 && bodyBytes + opBytes > FLUSH_MAX_BODY_BYTES) break;
       seq += 1;
       ops.push(op);
-      sent.set(recordId, record.clientTs);
+      sent.set(recordId, { clientTs: record.clientTs, token });
       bodyBytes += opBytes;
     }
     if (ops.length === 0) {
@@ -1683,7 +1761,7 @@ async function flushPendingUnlocked(ctx) {
         // on every open forever (med-0ol.7). Transient (5xx/offline) failures
         // fall through below and never touch the streak.
         const streak = (meta.writeErrorStreak ?? 0) + 1;
-        await writeMeta({
+        await writeMetaIfEpoch(epoch, {
           writeError: { status: res.status, at: Date.now() },
           writeErrorStreak: streak,
           // Explicit both ways: an old tab's 426 wedge may still be stored
@@ -2249,6 +2327,15 @@ export async function getSyncStatus(ctx) {
   return {
     lastSyncedAt: meta.lastSyncedAt,
     pendingCount,
+    // A full-vault import still stranded on this device (its records are not
+    // in 'pending'): the delete flow warns on it too (bd med-kraa).
+    importPending: meta.forceSnapshotPending,
+    // ...or one the server refused for good (the forced snapshot or its bump
+    // got a permanent 4xx): those records exist only here and never upload.
+    // Its own meta key, so a later maybeSnapshot error can't mask it; cleared
+    // when any snapshot lands or a new import starts. The seq-less
+    // snapshotError fallback catches a rejection from before the key existed.
+    importRejected: meta.importRejected || (!!meta.snapshotError && meta.snapshotErrorSeq == null),
     offline,
     authExpired,
     updateRequired,

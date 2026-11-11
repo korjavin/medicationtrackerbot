@@ -2281,6 +2281,11 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       return new Response('{}', { status: 413 });
     }));
     expect(await forceSnapshot(ctx)).toBe('rejected');
+    // bd med-kraa: the delete flow reads this; a later maybeSnapshot error
+    // (which stamps snapshotErrorSeq) must not mask the local-only import.
+    expect((await getSyncStatus(ctx)).importRejected).toBe(true);
+    await seedMeta({ snapshotError: { status: 413, at: 1 }, snapshotErrorSeq: 40 });
+    expect((await getSyncStatus(ctx)).importRejected).toBe(true);
   });
 
   // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op
@@ -4779,5 +4784,269 @@ describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)',
       expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
       expect(await cursor()).toBe(9);
     });
+  });
+});
+
+// bd med-0vdh — the other tab is a second connection to the same DB: its reset
+// is the new bundle's wipe (clear + bump sync_meta 'syncGen'), its write a raw put.
+describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
+  let ctx;
+  let other;
+
+  const deleteDb = () => new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('medtracker-cloud');
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
+  const txDone = (tx) => new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  // Creates its transaction synchronously, so it is ordered before any later
+  // one. `older`: an older bundle's reset, which knows no syncGen.
+  const otherTabReset = ({ older = false } = {}) => {
+    const tx = other.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+    tx.objectStore('records').clear();
+    tx.objectStore('pending').clear();
+    tx.objectStore('sync_meta').clear();
+    if (!older) tx.objectStore('sync_meta').put(crypto.randomUUID(), 'syncGen');
+    return txDone(tx);
+  };
+  const getAll = async (store) => {
+    const tx = other.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    await txDone(tx);
+    return req.result;
+  };
+  const cursor = async () => {
+    const tx = other.transaction('sync_meta', 'readonly');
+    const req = tx.objectStore('sync_meta').get('localLastSeq');
+    await txDone(tx);
+    return req.result ?? null;
+  };
+  const snapshot = async (seq, recordId) => {
+    const records = [{ recordId, recordType: 'bp', clientTs: 1, deleted: false, systolic: seq }];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: seq, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+    return new Response(JSON.stringify({ snapshot_seq: seq, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+  };
+  const gate = () => {
+    let release;
+    let entered;
+    const held = new Promise((r) => { release = r; });
+    const reached = new Promise((r) => { entered = r; });
+    return { release, reached, hold: async () => { entered(); await held; } };
+  };
+
+  beforeEach(async () => {
+    await deleteDb();
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    other = await openDb();
+  });
+
+  afterEach(() => {
+    other.close();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('a pull whose ops page answers after the reset applies nothing and writes no cursor', async () => {
+    const page = gate();
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    let opsGets = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        if (++opsGets === 1) {
+          await page.hold();
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const pull = pullOnOpen(ctx);
+    await page.reached;
+    await otherTabReset();
+    page.release();
+    await pull;
+    expect(await getAll('records')).toEqual([]);
+    expect(await cursor()).toBe(null);
+  });
+
+  it('an older bundle\'s reset between two current ones still fences a pull', async () => {
+    const page = gate();
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    let holdOps = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        if (holdOps) {
+          holdOps = false;
+          await page.hold();
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    // Tab B: the real resetLocalSync from a second module instance (its own
+    // syncEpoch and cached connection). Its first reset sets the generation.
+    vi.resetModules();
+    const tabB = await import('../sync.js');
+    await tabB.resetLocalSync(ctx);
+    holdOps = true;
+    const pull = pullOnOpen(ctx); // captures B's generation
+    await page.reached;
+    await otherTabReset({ older: true });
+    await tabB.resetLocalSync(ctx); // re-bootstraps to seq 7
+    page.release();
+    await pull;
+    expect((await getAll('records')).map((r) => r.recordId)).toEqual(['bp-old']);
+    expect(await cursor()).toBe(7);
+  });
+
+  it('a push acked after the reset writes no cursor', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        await post.hold();
+        return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+    await post.reached;
+    await otherTabReset();
+    post.release();
+    await flushConfirmed(ctx); // queues behind the held push
+    expect(await cursor()).toBe(null);
+  });
+
+  it('a push refused after the reset writes no error streak into the reset store', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        await post.hold();
+        return new Response('too big', { status: 400 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+    await post.reached;
+    await otherTabReset();
+    post.release();
+    await flushConfirmed(ctx);
+    const tx = other.transaction('sync_meta', 'readonly');
+    const streak = tx.objectStore('sync_meta').get('writeErrorStreak');
+    await txDone(tx);
+    expect(streak.result).toBe(undefined);
+  });
+
+  it('forceSnapshot: a reset landing before the records read uploads no snapshot', async () => {
+    let bumped = false;
+    let snapshotPosts = 0;
+    let reset = null;
+    const tab = {
+      accountId,
+      kMac: ctx.kMac,
+      // snapshotAt reads the key right before it reads the records.
+      get kData() {
+        if (bumped && !reset) reset = otherTabReset();
+        return ctx.kData;
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot') {
+        if (init?.method === 'POST') { snapshotPosts++; return new Response('{}', { status: 200 }); }
+        return snapshot(7, 'bp-old');
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        bumped = true;
+        return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(tab, 'bp');
+    await forceSnapshot(tab);
+    await reset;
+    expect(reset).not.toBe(null);
+    expect(snapshotPosts).toBe(0);
+  });
+
+  it('a snapshot read before another tab\'s import does not clear that import\'s rejection', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot') {
+        if (init?.method === 'POST') { await post.hold(); return new Response('{}', { status: 200 }); }
+        return snapshot(7, 'bp-old');
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    const forced = forceSnapshot(ctx);
+    await post.reached;
+    // Another tab imports (its replace writes a new importGen) and that import is rejected.
+    const tx = other.transaction('sync_meta', 'readwrite');
+    tx.objectStore('sync_meta').put('their-import', 'importGen');
+    tx.objectStore('sync_meta').put(true, 'importRejected');
+    await txDone(tx);
+    post.release();
+    await forced;
+    const rtx = other.transaction('sync_meta', 'readonly');
+    const rejected = rtx.objectStore('sync_meta').get('importRejected');
+    await txDone(rtx);
+    expect(rejected.result).toBe(true);
+  });
+
+  it('the push ack keeps another tab\'s same-millisecond edit queued', async () => {
+    const tx = other.transaction('sync_meta', 'readwrite');
+    tx.objectStore('sync_meta').put(0, 'localLastSeq');
+    tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+    await txDone(tx);
+    const post = gate();
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        if (++posts === 1) await post.hold();
+        return new Response(JSON.stringify({ assigned: [posts] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'tab A' });
+    await post.reached;
+    // Tab B stamped the same clientTs (same millisecond) and queued its own row.
+    const [mine] = await getAll('records');
+    const wtx = other.transaction(['records', 'pending'], 'readwrite');
+    wtx.objectStore('records').put({ ...mine, text: 'tab B' });
+    wtx.objectStore('pending').put({ recordId: 'note-1', recordType: 'note', token: 'tab-b' });
+    await txDone(wtx);
+    post.release();
+    await vi.waitFor(() => expect(posts).toBe(2));
+    await vi.waitFor(async () => expect(await getAll('pending')).toEqual([]));
   });
 });

@@ -413,8 +413,15 @@
         } else if (step.click) {
             // optional: tap it if it shows within 3 s (a sheet only some
             // devices open, e.g. the notification ask after a dose write).
+            // reveal: tap that element whenever it shows while waiting, e.g. a
+            // fold a later render puts back (the plans list paints its cache,
+            // then re-renders folded from the fresh read; med-zbka).
             try {
-                await until(() => firstVisible(step.click), step.optional ? 3000 : STEP_MS, `click ${step.click}`);
+                await until(() => {
+                    const el = firstVisible(step.click);
+                    if (!el && step.reveal) { const r = firstVisible(step.reveal); if (r) r.click(); }
+                    return el;
+                }, step.optional ? 3000 : STEP_MS, `click ${step.click}`);
             } catch (e) {
                 if (step.optional) return;
                 throw e;
@@ -871,7 +878,29 @@
             if (mode === 'running') {
                 await until(() => /^[1-9]\d* of /.test(document.querySelector('#health-copy-row .wg-setting__desc')?.textContent || ''), STEP_MS, 'health copy progress');
             }
-        } else if (step.healthNative) {
+        } else if (step.healthAuthTrace) {
+            // QA-only observation of the real bridge result. The page handles
+            // false and exceptions identically; preserve that distinction for
+            // Simulator failures without changing the authorization outcome.
+            const health = window.Health;
+            if (!health || typeof health.requestAuthorization !== 'function') throw new Error('no Health authorization port');
+            const request = health.requestAuthorization;
+            const trace = (state) => {
+                qa.memo.healthAuthorization = state;
+                if (qa.report?.flow) publish({ ...qa.report, flow: { ...qa.report.flow, memo: qa.memo } });
+            };
+            health.requestAuthorization = async function (...args) {
+                trace({ called: true });
+                try {
+                    const value = await request.apply(this, args);
+                    trace({ returned: value });
+                    return value;
+                } catch (error) {
+                    trace({ error: String(error && error.message || error) });
+                    throw error;
+                }
+            };
+        } else if (step.healthNative || step.healthNativeLabels) {
             // iOS Simulator scene: only the native seed writes Health samples.
             // Remove fixture vitals, then run the real native importer and assert its values.
             if (!document.documentElement.classList.contains('wg-local-vault') || !window.Health?.isSupported()) {
