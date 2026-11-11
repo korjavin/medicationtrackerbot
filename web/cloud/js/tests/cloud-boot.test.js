@@ -312,9 +312,9 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       expect(lines).toEqual([]);
       await settle({ resumed: true, arrived: true, failed: null });
       await settle({ resumed: true, arrived: false, failed: null });
-      await settle({ resumed: true, arrived: false, failed: 'SyntaxError' }); // a rejected pull with normal status
-      status = { offline: true };
-      await settle({ resumed: true, arrived: false, failed: 'TypeError' }); // the status class wins
+      await settle({ resumed: true, arrived: false, failed: 'SyntaxError' }); // a rejected pull
+      status = { offline: false }; // the shared status now is not what that drain saw
+      await settle({ resumed: true, arrived: false, failed: 'offline' }); // the drain's own snapshot is logged
       // A return while the device is offline starts no drain: logged at once.
       vi.stubGlobal('navigator', { onLine: false });
       state = 'visible';

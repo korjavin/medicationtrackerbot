@@ -1337,6 +1337,33 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(JSON.stringify(settled)).not.toMatch(/weight|kg|json/i);
   });
 
+  // The status class is this drain's: taken before its queued rerun can clear
+  // (or set) the shared offline flag.
+  it('a return\'s pull that went offline reports offline even when the next return\'s pull succeeds', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) { await gate; throw new TypeError('Failed to fetch'); }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await first;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    release();
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled.map((s) => s.failed)).toEqual(['offline', null]);
+  });
+
   it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {
     let release;
     const gate = new Promise((r) => { release = r; });

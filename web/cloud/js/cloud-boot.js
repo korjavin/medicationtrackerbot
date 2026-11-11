@@ -834,10 +834,7 @@ window.MedTrackerCloudReady = (async function boot() {
         const diagResume = (line) => import('/js/passkey-diag.js').then((m) => m.diagLine(line)).catch(() => {});
         const logResumePull = (info) => {
             if (!inAppShell || !info?.resumed) return;
-            getSyncStatus(ctx).then((st) => {
-                const failed = st.authExpired ? 'auth-expired' : st.updateRequired ? 'update-required' : st.offline ? 'offline' : info.failed;
-                diagResume(failed ? `sync pull failed ${failed}` : `sync pull arrived=${!!info.arrived}`);
-            }).catch(() => {});
+            diagResume(info.failed ? `sync pull failed ${info.failed}` : `sync pull arrived=${!!info.arrived}`);
         };
         if (inAppShell) {
             document.addEventListener('visibilitychange', () => {

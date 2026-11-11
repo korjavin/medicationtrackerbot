@@ -1935,20 +1935,24 @@ export function requestDrain(ctx, { wake = false, resume = false } = {}) {
     return drainInFlight;
   }
   // For onSettled (bd med-vjxz.1): whether records changed during this drain,
-  // and a rejected pull's error class (its name only, never its message).
+  // and how it failed — this drain's status class, else a rejected pull's
+  // error name (never its message). Taken before the queued rerun starts and
+  // can move the shared flags.
   const before = getRecordsChangeCount();
-  let failed = null;
+  let rejected = null;
   drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
-    .catch((e) => { failed = /^\w{1,40}$/.test(e && e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
+    .catch((e) => { rejected = /^\w{1,40}$/.test(e && e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
     .finally(() => {
       drainInFlight = null;
+      const failed = authExpired ? 'auth-expired' : updateRequired ? 'update-required' : offline ? 'offline' : rejected;
+      const arrived = getRecordsChangeCount() !== before;
       drainSettled(ctx);
       // A mid-session expiry (the common case for a non-sliding 30-day
       // cookie in a long-lived PWA tab) is only ever detected by these
       // event-driven drains — the boot-time check already ran. Hand it to
       // the caller so the UI can surface it instead of queueing silently.
       if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
-      if (onDrainSettled) onDrainSettled({ resumed: resume, arrived: getRecordsChangeCount() !== before, failed });
+      if (onDrainSettled) onDrainSettled({ resumed: resume, arrived, failed });
     });
   return drainInFlight;
 }
