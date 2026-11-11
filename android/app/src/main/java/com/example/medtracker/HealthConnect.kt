@@ -109,7 +109,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                diag("health $op ${args?.optString("type")} error ${e.javaClass.simpleName}: ${e.message}")
+                diag("health $op ${args?.optString("type")} error ${e.javaClass.simpleName}") // never e.message: SDK validation text can echo a record value
                 null to (e.message ?: e.javaClass.simpleName)
             }
             runCatching { answer(result, error) } // the WebView may be gone by now
