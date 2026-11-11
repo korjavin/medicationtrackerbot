@@ -70,10 +70,12 @@
     await wait(() => s.returnQueries > 0, 'foreground Health pass');
     s.held = { sameInput: held.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), sameExercise: held.exercise === document.querySelector('#workout-session-modal .wg-workouts-session-exercise'), connected: held.input.isConnected, open: !held.modal.classList.contains('hidden'), value: held.input.value, sameList: held.listNode === document.getElementById('bp-list') && held.list === held.listNode.innerHTML, removed: held.removed, notices: held.notices.filter(x => /new (reading|entr|data)|synced/i.test(x)) };
   }
-  async function after() {
+  async function afterBP() {
     await wait(() => !visible(document.getElementById('workout-session-modal')), 'session closed');
     await wait(() => { const t = document.getElementById('bp-list')?.innerText || ''; return t.includes('168') && t.includes('97'); }, 'peer BP rendered');
     s.bp = document.getElementById('bp-list').innerText;
+  }
+  async function after() {
     window.switchTab('health');
     const vitals = await wait(() => document.querySelector('[data-health-seg="health"]'), 'Vitals tab');
     vitals.click();
@@ -82,7 +84,7 @@
   }
   document.addEventListener('DOMContentLoaded', () => {
     const bar = document.createElement('div'); bar.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;font-size:8px';
-    for (const [name, fn] of Object.entries({ setup, peer, inspect, after })) { const b = document.createElement('button'); b.textContent = 'QA held ' + name; b.addEventListener('click', () => run(name, fn)); bar.appendChild(b); }
+    for (const [name, fn] of Object.entries({ setup, peer, inspect, afterBP, after })) { const b = document.createElement('button'); b.textContent = 'QA held ' + name; b.addEventListener('click', () => run(name, fn)); bar.appendChild(b); }
     out = document.createElement('button'); out.textContent = 'QA held state'; bar.appendChild(out); document.body.appendChild(bar); publish();
   }, { once: true });
 })();

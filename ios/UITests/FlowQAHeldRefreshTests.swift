@@ -74,6 +74,8 @@ final class FlowQAHeldRefreshTests: XCTestCase {
         shot("held-refresh-open")
         let close = app.webViews.buttons["Minimise"]
         XCTAssertTrue(close.waitForExistence(timeout: 10)); close.tap()
+        try action(app, "afterBP")
+        shot("held-refresh-bp")
         try action(app, "after")
         XCTAssertEqual(state(app)?["healthVisible"] as? Bool, true)
         try attachState(app, "held-refresh-closed")
