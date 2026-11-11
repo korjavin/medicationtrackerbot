@@ -123,7 +123,7 @@ final class FlowQAPullDeleteTests: XCTestCase {
         tree.name = "pull-delete-dialog-pretap-hierarchy.txt"; tree.lifetime = .keepAlways; add(tree)
         shot("pull-delete", "dialog-pretap")
         QA.hideKeyboard(app)
-        let dialog = app.webViews.otherElements["Delete your account?"]
+        let dialog = app.webViews.otherElements.matching(NSPredicate(format: "label BEGINSWITH 'Delete your account?'")).firstMatch
         XCTAssertTrue(dialog.waitForExistence(timeout: 10), "delete dialog missing; see pull-delete-dialog-pretap")
         var safe = false
         for attempt in 0..<4 {
