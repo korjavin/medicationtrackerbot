@@ -47,12 +47,16 @@ final class FlowQAHealthImportTests: XCTestCase {
                 let history = host.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'All Recorded Data'")).firstMatch
                 if HealthDiagnosticTests.tapIfSettled(history, within: screen) { acted = true; break pass }
             }
-            if QA.readyNode(app).exists && !hosts.contains(where: { allButton($0).exists }) { break }
+            let healthSwitch = app.webViews.switches.matching(NSPredicate(format: "label BEGINSWITH 'Import from' ")).firstMatch
+            if let state = try? healthSwitch.snapshot(), state.isEnabled, state.value as? String == "1" { break }
             if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 30), "Health sheet did not finish")
+        let healthSwitch = app.webViews.switches.matching(NSPredicate(format: "label BEGINSWITH 'Import from' ")).firstMatch
+        let finished = try? healthSwitch.snapshot()
+        XCTAssertTrue(finished?.isEnabled == true && finished?.value as? String == "1", "Health authorization did not finish")
         app.terminate()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 30), "the authorization instance did not exit")
 
         // This second, diagnostic-only ask grants write access for seeded data.
         let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
