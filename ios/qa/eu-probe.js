@@ -2,12 +2,14 @@
 // Uses the real account shim and encrypted sync protocol; no product code changes.
 (() => {
   if (location.pathname !== '/') return;
-  const state = { phase: 'boot', error: '', document: crypto.randomUUID(), pulls: 0, blocked: 0, nameEgress: 0, rxnav: 0 };
+  const state = { phase: 'boot', error: '', document: crypto.randomUUID(), pulls: 0, blocked: 0, nameEgress: 0, rxnav: 0, uninspected: 0 };
   const rawFetch = window.fetch.bind(window);
   let blockPull = false;
   window.fetch = (...args) => {
     const url = String(args[0]?.url || args[0]);
     let text = url + '\n' + (typeof args[1]?.body === 'string' ? args[1].body : '');
+    if ((args[0] instanceof Request && !['GET', 'HEAD'].includes(args[0].method)) ||
+        (args[1]?.body != null && typeof args[1].body !== 'string')) state.uninspected++;
     try { text = decodeURIComponent(text); } catch (_) { /* inspect raw */ }
     if (/candecor/i.test(text)) state.nameEgress++;
     if (/rxnav\.nlm\.nih\.gov|\/api\/rxnav\//i.test(url)) state.rxnav++;
@@ -105,6 +107,8 @@
     await wait(() => window.SettingsView.openSettingsPage('features'), 'features');
     await wait(() => document.querySelector('#med-register-value')?.textContent.trim() === 'EU register', 'EU setting');
     state.setting = document.querySelector('#med-register-value').textContent.trim();
+    const back = await wait(() => document.querySelector('.wg-page[aria-label="Features"] .wg-pagebar .wg-back'), 'features back');
+    back.click();
     await editor();
   }
   document.addEventListener('DOMContentLoaded', () => {
