@@ -7,11 +7,11 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as seven restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as eight restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
-# and eu (EU register), joined by the `qa` gate. Lists: env QA_PARTS.
+# eu (EU register), and reminders (permission + cold notification), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -56,7 +56,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,reminders,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -70,7 +70,8 @@ env:
      "data": ["FlowQABackupTests", "FlowQAStashTests"],
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"],
-     "eu": ["FlowQAEURegisterTests"]}
+     "eu": ["FlowQAEURegisterTests"],
+     "reminders": ["FlowQARemindersTests"]}
   # Fixed green references in seconds: core/data/update from 42923864088
   # (restore from attempt 2), degraded from 42921440898, and backup chain,
   # account/rest from 42915152895 attempt 1. Unknown tests remain n/a.
@@ -543,6 +544,7 @@ jobs:
           QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
           QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
           QA_EU_PROBE: ${{ matrix.part == 'eu' && '1' || '0' }}
+          QA_REMINDER_PROBE: ${{ matrix.part == 'reminders' && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
       - name: Generate Xcode project and build for testing
