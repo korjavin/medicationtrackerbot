@@ -5058,6 +5058,12 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
       post.release();
       await forced;
       expect(await marker()).toBe(true);
+      // B closed here: a later open (any tab) still reads the import as waiting...
+      expect((await getSyncStatus(ctx)).importPending).toBe(true);
+      // ...until that open's retry uploads it.
+      await pullOnOpen(ctx);
+      expect((await getSyncStatus(ctx)).importPending).toBe(false);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-imported']);
     });
 
     it('A\'s flight clearing between B\'s mark and replace is re-armed by the replace', async () => {
