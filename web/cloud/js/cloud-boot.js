@@ -824,29 +824,25 @@ window.MedTrackerCloudReady = (async function boot() {
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
         // The resume pull's outcome for the app shells' diagnostic log (bd
-        // med-vjxz.1): the drain sync.js ran for the return to the front
-        // (onSettled's resumed; a drain already in flight then is not it, its
-        // queued rerun is). Words only: whether records arrived since the
-        // return, or the failure class. Both bridges exist from document start;
-        // the web logs nothing.
+        // med-vjxz.1): each drain sync.js ran for a return to the front reports
+        // itself (onSettled's { resumed, arrived, failed }; a drain already in
+        // flight at the return is not it, its queued rerun is). Words only:
+        // whether records arrived during that drain, or the failure class.
+        // Both bridges exist from document start; the web logs nothing.
         // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does.
-        let resumeBefore = null;
+        const inAppShell = !!(window.webkit?.messageHandlers?.wgNative || window.wgNative);
+        const diagResume = (line) => import('/js/passkey-diag.js').then((m) => m.diagLine(line)).catch(() => {});
         const logResumePull = (info) => {
-            if (!info?.resumed || resumeBefore === null) return;
-            const arrived = getRecordsChangeCount() !== resumeBefore;
-            resumeBefore = null;
+            if (!inAppShell || !info?.resumed) return;
             getSyncStatus(ctx).then((st) => {
-                const failed = st.authExpired ? 'auth-expired' : st.updateRequired ? 'update-required' : st.offline ? 'offline' : '';
-                diagResume(failed ? `sync pull failed ${failed}` : `sync pull arrived=${arrived}`);
+                const failed = st.authExpired ? 'auth-expired' : st.updateRequired ? 'update-required' : st.offline ? 'offline' : info.failed;
+                diagResume(failed ? `sync pull failed ${failed}` : `sync pull arrived=${!!info.arrived}`);
             }).catch(() => {});
         };
-        const diagResume = (line) => import('/js/passkey-diag.js').then((m) => m.diagLine(line)).catch(() => {});
-        if (window.webkit?.messageHandlers?.wgNative || window.wgNative) {
+        if (inAppShell) {
             document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState !== 'visible') return;
                 // sync.js starts no drain on a return while offline: say so now.
-                if (navigator.onLine === false) { resumeBefore = null; diagResume('sync pull skipped offline'); return; }
-                resumeBefore = getRecordsChangeCount();
+                if (document.visibilityState === 'visible' && navigator.onLine === false) diagResume('sync pull skipped offline');
             });
         }
         startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: (info) => { logResumePull(info); unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });

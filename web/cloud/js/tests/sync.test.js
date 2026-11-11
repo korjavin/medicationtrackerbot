@@ -1297,13 +1297,44 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     release();
     await rerun;
     await vi.waitFor(() => expect(settled).toHaveLength(2));
-    expect(settled).toEqual([{ resumed: false }, { resumed: true }]);
+    expect(settled.map((s) => s.resumed)).toEqual([false, true]);
 
     // A return with no drain in flight: its own drain is marked.
     document.dispatchEvent(new Event('visibilitychange'));
     await fireDebounce();
     await vi.waitFor(() => expect(settled).toHaveLength(3));
-    expect(settled[2]).toEqual({ resumed: true });
+    expect(settled[2]).toEqual({ resumed: true, arrived: false, failed: null });
+  });
+
+  // Two returns overlapping (return, Home, return while the first pull runs):
+  // each pull reports its own outcome, and a rejected pull its error class
+  // (never its message), even when the sync status reads normal.
+  it('each return\'s drain reports its own arrived / failure class', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) { await gate; return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 }); }
+        return new Response('not json: weight 80 kg', { status: 200 }); // the second pull rejects after a 200
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await first; // the first return's pull is in flight
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce(); // the second return queues its own rerun
+    release();
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled[0]).toEqual({ resumed: true, arrived: false, failed: null });
+    expect(settled[1].resumed).toBe(true);
+    expect(settled[1].failed).toMatch(/^\w+$/);
+    expect(JSON.stringify(settled)).not.toMatch(/weight|kg|json/i);
   });
 
   it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {

@@ -1923,7 +1923,7 @@ function drainSettled(ctx) {
 // and a burst of wakes mid-drain coalesces into one follow-up run. Pass
 // { wake: true } from the SSE path: it pulls but never retries a stranded
 // import (see pullOnOpen). { resume: true } marks the pull of a return to the
-// front; onSettled gets { resumed } so its outcome is logged for that drain only.
+// front; onSettled gets { resumed, arrived, failed } for that drain alone.
 export function requestDrain(ctx, { wake = false, resume = false } = {}) {
   // An event landing mid-drain coalesces into a run that may already have
   // missed it (a drain stuck on a dying fetch when connectivity returned, or a
@@ -1934,8 +1934,12 @@ export function requestDrain(ctx, { wake = false, resume = false } = {}) {
     if (resume) rerunResume = true;
     return drainInFlight;
   }
+  // For onSettled (bd med-vjxz.1): whether records changed during this drain,
+  // and a rejected pull's error class (its name only, never its message).
+  const before = getRecordsChangeCount();
+  let failed = null;
   drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
-    .catch(() => {}) // failures already land in sync status; retried on the next event
+    .catch((e) => { failed = /^\w{1,40}$/.test(e && e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
     .finally(() => {
       drainInFlight = null;
       drainSettled(ctx);
@@ -1944,7 +1948,7 @@ export function requestDrain(ctx, { wake = false, resume = false } = {}) {
       // event-driven drains — the boot-time check already ran. Hand it to
       // the caller so the UI can surface it instead of queueing silently.
       if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
-      if (onDrainSettled) onDrainSettled({ resumed: resume });
+      if (onDrainSettled) onDrainSettled({ resumed: resume, arrived: getRecordsChangeCount() !== before, failed });
     });
   return drainInFlight;
 }

@@ -285,7 +285,6 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     vi.stubGlobal('navigator', { onLine: true });
     try {
       let drainOpts;
-      let changes = 0;
       let status = {};
       const lines = [];
       await runBoot({
@@ -299,7 +298,6 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
             hasCaughtUp: async () => true,
             startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
             getSyncStatus: async () => status,
-            getRecordsChangeCount: () => changes,
           },
           'passkey-diag.js': { diagLine: (l) => lines.push(l) },
           'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
@@ -307,33 +305,28 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
         },
       });
       const flush = () => new Promise((r) => setTimeout(r, 0));
-      // sync.js settles the drain that was in flight at the return first
-      // ({ resumed: false }), then the return's own pull ({ resumed: true }).
-      const resume = async (between) => {
-        state = 'visible';
-        doc.dispatchEvent(new dom.window.Event('visibilitychange'));
-        await drainOpts.onSettled({ resumed: false }); // the older drain: not reported
-        await flush();
-        between?.();
-        await drainOpts.onSettled({ resumed: true });
-        await flush();
-      };
-      await drainOpts.onSettled({ resumed: false }); // not a resume: nothing logged
-      await flush();
+      // sync.js reports each drain itself: only a return's own drain
+      // ({ resumed: true }) is logged, with its own arrived / failure class.
+      const settle = async (info) => { await drainOpts.onSettled(info); await flush(); };
+      await settle({ resumed: false, arrived: true, failed: null }); // not a return's pull: nothing logged
       expect(lines).toEqual([]);
-      await resume(() => { changes++; });
-      await resume();
-      await resume(() => { status = { offline: true }; });
-      await drainOpts.onSettled({ resumed: false }); // a later SSE-style drain: not logged
-      await flush();
-      // A return while the device is offline starts no drain: logged at once,
-      // and the next unrelated drain is not taken for it.
+      await settle({ resumed: true, arrived: true, failed: null });
+      await settle({ resumed: true, arrived: false, failed: null });
+      await settle({ resumed: true, arrived: false, failed: 'SyntaxError' }); // a rejected pull with normal status
+      status = { offline: true };
+      await settle({ resumed: true, arrived: false, failed: 'TypeError' }); // the status class wins
+      // A return while the device is offline starts no drain: logged at once.
       vi.stubGlobal('navigator', { onLine: false });
       state = 'visible';
       doc.dispatchEvent(new dom.window.Event('visibilitychange'));
-      await drainOpts.onSettled({ resumed: false });
       await flush();
-      expect(lines).toEqual(['sync pull arrived=true', 'sync pull arrived=false', 'sync pull failed offline', 'sync pull skipped offline']);
+      expect(lines).toEqual([
+        'sync pull arrived=true',
+        'sync pull arrived=false',
+        'sync pull failed SyntaxError',
+        'sync pull failed offline',
+        'sync pull skipped offline',
+      ]);
     } finally {
       vi.unstubAllGlobals();
       dom.window.close();
