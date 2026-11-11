@@ -789,6 +789,28 @@ async function bindOperatorVisibility() {
 // ponytail: no memoization — import() caches by specifier.
 function loadAccountDeleteModule() { return import('/js/account-delete.js'); }
 
+const UNSYNCED_DELETE_MSG = "Some entries haven't synced yet. Connect and try again, or export a backup first.";
+const DELETE_DRAIN_TIMEOUT_MS = 15000;
+
+// Drain the outbound queue, then report whether writes are still pending.
+// A drain that throws, hangs (offline) or a status that can't be read counts
+// as pending: the delete flow must never guess that the server has it all.
+async function unsyncedEntries() {
+    try {
+        const sync = await loadCloudSyncModule();
+        const ctx = cloudCtx();
+        let timer;
+        const drained = await Promise.race([
+            Promise.resolve(sync.requestDrain(ctx)).then(() => true),
+            new Promise((resolve) => { timer = setTimeout(() => resolve(false), DELETE_DRAIN_TIMEOUT_MS); }),
+        ]).finally(() => clearTimeout(timer));
+        if (!drained) return true;
+        return (await sync.getSyncStatus(ctx)).pendingCount !== 0;
+    } catch {
+        return true;
+    }
+}
+
 let _deleteAccountBound = false; // module-state: bind the delete modal's listeners once across repeated loadSettings() calls
 
 function bindDeleteAccount() {
@@ -803,6 +825,10 @@ function bindDeleteAccount() {
     if (!openBtn) return;
     // Kit .wg-error (danger text); empty, it takes no space (.wg-page .wg-error:empty).
     const showError = (text) => { if (errorEl) errorEl.textContent = text; };
+    // Shown only beside the unsynced-entries refusal (bd med-kraa).
+    const exportLink = document.getElementById('delete-account-export');
+    exportLink?.addEventListener('click', () => openSettingsPage('backup'));
+    const showExport = (on) => exportLink?.classList.toggle('wg-settings-hidden', !on);
 
     // Hoisted across clicks: once the server delete succeeds, the account (and
     // its session) is gone — a retry after a blocked local wipe must skip the
@@ -810,6 +836,7 @@ function bindDeleteAccount() {
     let serverDeleted = false;
     openBtn.addEventListener('click', async () => {
         showError('');
+        showExport(false);
         let mod;
         try {
             mod = await loadAccountDeleteModule();
@@ -852,7 +879,15 @@ function bindDeleteAccount() {
                 // IndexedDB data with no code left to erase it. Failing
                 // pre-delete is always safe — the account is intact and the
                 // cloud copy is authoritative, so an erased mirror re-syncs if
-                // the user aborts at the passkey prompt.
+                // the user aborts at the passkey prompt. That holds only for
+                // what the server has: refuse while the outbound queue (inside
+                // the mirror the wipe deletes) is not empty (bd med-kraa).
+                if (await unsyncedEntries()) {
+                    showError(UNSYNCED_DELETE_MSG);
+                    showExport(true);
+                    openBtn.disabled = false;
+                    return;
+                }
                 await mod.clearLocalVault();
                 await mod.reauthAndDelete();
                 serverDeleted = true;

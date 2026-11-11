@@ -968,7 +968,13 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
     // reveal, typed-confirm gate, export-first, and that confirm drives the
     // cloud module's reauthAndDelete + redirect.
     describe('delete account flow', () => {
-        const mountCloudWithDeleteModule = async (window, overrides = {}) => {
+        const mountCloudWithDeleteModule = async (window, overrides = {}, sync = {}) => {
+            // The sync engine the pre-wipe drain asks (bd med-kraa): drained, nothing pending.
+            window.loadCloudSyncModule = () => Promise.resolve({
+                requestDrain: vi.fn(async () => {}),
+                getSyncStatus: vi.fn(async () => ({ pendingCount: 0 })),
+                ...sync,
+            });
             const mod = {
                 DELETE_CONFIRM_PHRASE: 'DELETE',
                 reauthAndDelete: vi.fn(async () => {}),
@@ -1198,6 +1204,80 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
 
                 await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
                 expect(leaveAccount).toHaveBeenCalledTimes(1);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // bd med-kraa: the pre-wipe deletes the outbound queue, so a cancelled
+        // passkey would lose unsynced entries. Drain first; refuse while any remain.
+        it('drains before the pre-wipe and refuses the delete while entries are unsynced', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const requestDrain = vi.fn(async () => {});
+                const mod = await mountCloudWithDeleteModule(window, {}, {
+                    requestDrain,
+                    getSyncStatus: vi.fn(async () => ({ pendingCount: 2 })),
+                });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent)
+                    .toBe("Some entries haven't synced yet. Connect and try again, or export a backup first."));
+                expect(requestDrain).toHaveBeenCalledTimes(1);
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+                const exportLink = document.getElementById('delete-account-export');
+                expect(exportLink.classList.contains('wg-settings-hidden')).toBe(false);
+                expect(document.getElementById('delete-account-open').disabled).toBe(false);
+
+                exportLink.click();
+                await vi.waitFor(() => expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
+                    ?.querySelector('.wg-pagebar__title').textContent).toBe('Backup & import'));
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('a drain that throws counts as unsynced: nothing is wiped or deleted', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const mod = await mountCloudWithDeleteModule(window, {}, {
+                    requestDrain: vi.fn(async () => { throw new Error('offline'); }),
+                });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent).toMatch(/haven't synced yet/));
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('with nothing pending, the drain runs before the pre-wipe and the order is unchanged', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const order = [];
+                const mod = await mountCloudWithDeleteModule(window, {
+                    clearLocalVault: vi.fn(async () => { order.push('wipe'); }),
+                    reauthAndDelete: vi.fn(async () => { order.push('reauthAndDelete'); }),
+                }, {
+                    requestDrain: vi.fn(async () => { order.push('drain'); }),
+                    getSyncStatus: vi.fn(async () => { order.push('status'); return { pendingCount: 0 }; }),
+                });
+                await vi.waitFor(() => expect(order).toContain('status')); // the vault card's read on open
+                order.length = 0;
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(order).toEqual(['drain', 'status', 'wipe', 'reauthAndDelete', 'wipe']));
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(document.getElementById('delete-account-error').textContent).toBe('');
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
