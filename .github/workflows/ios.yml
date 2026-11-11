@@ -628,6 +628,11 @@ jobs:
           raw="$RUNNER_TEMP/raw"
           mkdir -p "$out"
           echo "## iOS flow QA: part $PART" >> "$GITHUB_STEP_SUMMARY"
+          # Keep the fake server's perspective even when the test or boot failed.
+          cp "$RUNNER_TEMP/tlsfront.log" "$out/tlsfront-$PART.log" || true
+          cp "$RUNNER_TEMP/cloud.log" "$out/cloud-$PART.log" || true
+          curl -fsS --max-time 5 --cacert "$RUNNER_TEMP/ca.pem" https://qa.test:8768/receipts -o "$out/receipts-$PART.json" || rm -f "$out/receipts-$PART.json"
+          echo "Server evidence when available: \`tlsfront-$PART.log\`, \`cloud-$PART.log\`, \`receipts-$PART.json\`; failed tests may include \`<Class>-<test>-hierarchy.txt\`." >> "$GITHUB_STEP_SUMMARY"
           xcrun xcresulttool get test-results tests --path build/qa.xcresult > "$RUNNER_TEMP/qa-tests.json" || true
           python3 qa/runner-summary.py "$RUNNER_TEMP/qa-boot.log" "$RUNNER_TEMP/qa-tests.json" >> "$GITHUB_STEP_SUMMARY" || echo "Runner summary unavailable (helper failed)" >> "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/qa-tests.json" "$out/qa-tests-$PART.json"
