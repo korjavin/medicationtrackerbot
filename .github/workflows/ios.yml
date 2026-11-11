@@ -7,10 +7,10 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as five restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as six restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
-# today Lock + EURegister), and update (A/B banner), joined by the `qa` gate. Lists: env QA_PARTS.
+# today Lock + EURegister), update (A/B banner), and degraded (boot recovery), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -55,7 +55,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -67,7 +67,8 @@ env:
     {"account": ["FlowQAOfflineAccountTests", "FlowQAAccountGoneTests", "FlowQACeremonyExitTests"],
      "core": ["FlowQACoreLocalTests", "FlowQATests", "HealthWriteBackTests"],
      "data": ["FlowQABackupTests", "FlowQAStashTests"],
-     "update": ["FlowQAUpdateBannerTests"]}
+     "update": ["FlowQAUpdateBannerTests"],
+     "degraded": ["FlowQADegradedBootTests"]}
 
 permissions:
   contents: read
@@ -526,6 +527,7 @@ jobs:
       - name: Bundle the web app with the QA driver
         env:
           QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
+          QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
       - name: Generate Xcode project and build for testing
@@ -559,7 +561,7 @@ jobs:
 
       - name: Start the fake account server (tlsfront) and trust its CA
         env:
-          QA_BUNDLES: ${{ matrix.part == 'update' && '1' || '0' }}
+          QA_BUNDLES: ${{ (matrix.part == 'update' || matrix.part == 'degraded') && '1' || '0' }}
         run: ios/qa/fake-server.sh
 
       - name: Run the flows
