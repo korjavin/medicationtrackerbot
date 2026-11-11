@@ -127,6 +127,7 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         var sawSheet = false
         let kinds = ["Steps", "Sleep", "Blood Oxygen", "Heart Rate", "Blood Pressure", "Weight", "Workouts"]
         var denied = Set<String>()
+        var allReadSwitchesOff = false
         while Date() < deadline {
             var acted = false
             pass: for host in hosts {
@@ -136,12 +137,18 @@ final class FlowQAHealthDeniedTests: XCTestCase {
                     let item = host.switches.matching(NSPredicate(format: "label CONTAINS[c] %@", kind)).firstMatch
                     if let snap = HealthDiagnosticTests.live(item, within: screen), snap.value as? String == "0" { denied.insert(kind) }
                 }
+                // Workout read access expands to additional Health types. Check
+                // every read switch, not just the seven named categories above.
+                let reads = host.switches.allElementsBoundByIndex.compactMap { try? $0.snapshot() }
+                    .filter { $0.identifier.hasPrefix("UIA.Health.Read.") }
+                if reads.count >= kinds.count && reads.allSatisfy({ $0.value as? String == "0" }) { allReadSwitchesOff = true }
                 let on = host.switches.allElementsBoundByIndex.filter { HealthDiagnosticTests.live($0, within: screen)?.value as? String == "1" }
                 if !on.isEmpty {
+                    allReadSwitchesOff = false
                     for item in on { _ = HealthDiagnosticTests.tapIfSettled(item, within: screen) }
                     acted = true; break pass
                 }
-                if denied.count < kinds.count { continue }
+                if denied.count < kinds.count || !allReadSwitchesOff { continue }
                 if ["Don’t Allow", "Don't Allow", "Continue", "Allow", "Done"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
                     acted = true; break pass
                 }
@@ -153,6 +160,7 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         }
         XCTAssertTrue(sawSheet, "did not observe the first Health permission sheet")
         XCTAssertEqual(denied, Set(kinds), "did not verify all requested read switches were off: \(denied)")
+        XCTAssertTrue(allReadSwitchesOff, "not all Health read switches were verified off")
         let switches = XCTAttachment(string: denied.sorted().joined(separator: ", "))
         switches.name = "health-import-denied-kinds.txt"; switches.lifetime = .keepAlways; add(switches)
         let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Checked' AND label CONTAINS 'nothing yet' AND label CONTAINS 'Settings → Health → Data Access & Devices' AND NOT (label BEGINSWITH '{')")).firstMatch
