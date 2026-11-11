@@ -1423,14 +1423,18 @@ export function startHealthImport(ctx, {
             return true;
         }
         let available = false;
+        let failed = false;
         try {
             available = await health.requestAuthorization(HEALTH_KINDS);
         } catch (e) {
+            failed = true;
             console.error('[health] authorization failed', e);
         }
         if (!available) {
             const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
-            if (desc) desc.textContent = `${healthLabel(health)} is not available on this device.`;
+            if (desc) desc.textContent = failed
+                ? `Couldn't reach ${healthLabel(health)}. Try again.`
+                : `${healthLabel(health)} is not available on this device.`;
             return false;
         }
         writeJSON(storage, ENABLED_KEY, true);

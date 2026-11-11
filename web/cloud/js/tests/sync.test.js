@@ -2281,6 +2281,11 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       return new Response('{}', { status: 413 });
     }));
     expect(await forceSnapshot(ctx)).toBe('rejected');
+    // bd med-kraa: the delete flow reads this; a later maybeSnapshot error
+    // (which stamps snapshotErrorSeq) must not mask the local-only import.
+    expect((await getSyncStatus(ctx)).importRejected).toBe(true);
+    await seedMeta({ snapshotError: { status: 413, at: 1 }, snapshotErrorSeq: 40 });
+    expect((await getSyncStatus(ctx)).importRejected).toBe(true);
   });
 
   // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op
