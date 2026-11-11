@@ -617,9 +617,11 @@ jobs:
             > "$GITHUB_WORKSPACE/shots/webcontent-rss-$PART.log" 2>/dev/null &
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
-          # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests
-          # and FlowQARemindersDeniedTests also consume the offline invite. Keep
-          # these consumers in separate parts (TEST_RUNNER_ → the runner's env).
+          # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests,
+          # FlowQARemindersDeniedTests and FlowQAMoveAccountTests also consume the
+          # offline invite, and the move part's own QA_MOVE_FAIL_CLAIM_URL is
+          # one-shot too. Keep these consumers in separate parts (TEST_RUNNER_ →
+          # the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_MOVE_FAIL_CLAIM_URL="$QA_MOVE_FAIL_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \

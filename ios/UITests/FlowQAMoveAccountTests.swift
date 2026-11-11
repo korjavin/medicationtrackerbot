@@ -114,9 +114,7 @@ final class FlowQAMoveAccountTests: XCTestCase {
         let notNow = app.webViews.buttons["Not now"]
         XCTAssertTrue(notNow.waitForExistence(timeout: 10)); notNow.tap()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60))
-        let meds = button(app, "Meds")
-        XCTAssertTrue(meds.waitForExistence(timeout: 20)); meds.tap()
-        XCTAssertTrue(text(app, "Lisinopril").waitForExistence(timeout: 20), "local records disappeared")
+        localRecordsShow(app, "after the move")
     }
 
     func testMoveFailure() throws {
@@ -142,6 +140,9 @@ final class FlowQAMoveAccountTests: XCTestCase {
         create.tap()
         let error = text(app, "Records not moved yet")
         let choiceDialog = text(app, "Records already in your account")
+        // A failed pull makes hasUserContent unknown, so the pickup fails
+        // closed and may ask Merge/Replace even on this empty account
+        // (as Android's local-to-cloud-seamless.mjs).
         let deadline = Date().addingTimeInterval(180)
         while Date() < deadline && !error.exists && !choiceDialog.exists {
             for label in ["Continue in browser anyway", "Skip all", "Unlock with passkey"] {
@@ -155,6 +156,9 @@ final class FlowQAMoveAccountTests: XCTestCase {
             button(app, "Continue").tap()
         }
         XCTAssertTrue(error.waitForExistence(timeout: 120), "failed import did not show an error")
+        // The bootstrap fault's own cause (cloud-boot.js importAll), not another import error.
+        XCTAssertTrue(text(app, "Sync not ready").exists, "the import failed for another reason")
+        XCTAssertTrue(text(app, "stay on this").exists, "the error does not say the local records stay")
         let status = try fault("/status")
         XCTAssertEqual(status["armed"] as? Bool, true)
         XCTAssertGreaterThan(status["hits"] as? Int ?? 0, 0)
@@ -165,9 +169,24 @@ final class FlowQAMoveAccountTests: XCTestCase {
         XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60))
         app.webViews.buttons["Not now"].tap()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60))
-        let meds = button(app, "Meds")
-        XCTAssertTrue(meds.waitForExistence(timeout: 20)); meds.tap()
-        XCTAssertTrue(text(app, "Lisinopril").waitForExistence(timeout: 20), "failed import lost local records")
+        localRecordsShow(app, "after the failed import")
+    }
+
+    /// One golden-seed record per kind in local mode (the probe is not
+    /// injected on the local origin, so no count here: what the user sees).
+    private func localRecordsShow(_ app: XCUIApplication, _ phase: String) {
+        for (tab, subs, value) in [("Meds", ["Timeline"], "Lisinopril"), ("Health", ["BP"], "135"),
+                                   ("Health", ["Weight"], "82.1"), ("Health", ["Vitals", "Notes"], "Felt good after the run today"),
+                                   ("Train", ["Plans"], "Push/Pull")] {
+            let want = text(app, value)
+            for _ in 0..<3 where !want.exists {
+                let t = app.webViews.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", tab, tab + " ")).firstMatch
+                if t.waitForExistence(timeout: 5) { t.tap() }
+                for sub in subs { let b = QA.control(app, sub); if b.waitForExistence(timeout: 5) { b.tap() } }
+                _ = want.waitForExistence(timeout: 10)
+            }
+            XCTAssertTrue(want.exists, "\(phase): local \(tab)/\(subs.joined(separator: "/")) lost \"\(value)\"")
+        }
     }
 
     private func launch(_ app: XCUIApplication, _ extra: [String]) {

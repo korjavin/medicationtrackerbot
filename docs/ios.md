@@ -114,7 +114,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → eleven `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → twelve `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
@@ -123,7 +123,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (HealthImport and HealthDenied, separate first-authorization Simulators and
   healthd waits), **data** (Backup,
   Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **eu**
-  (EURegister), **reminders** (grant and cold notification tap), **reminders-denied** (refusal and iOS Settings handoff), **rest** (every other class in the bundle; today Lock and
+  (EURegister), **move** (MoveAccount), **reminders** (grant and cold notification tap), **reminders-denied** (refusal and iOS Settings handoff), **rest** (every other class in the bundle; today Lock and
   Navigation). The class lists live once, in the workflow env `QA_PARTS`;
   rest is the bundle minus every listed class, so **a new class runs in rest
   by default; move it into a named part when rest passes ~8 min of flows.**
@@ -221,6 +221,26 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   simulates an encrypted peer setting and observes a real pull-to-refresh;
   the server receipts record only a boolean for the synthetic name, never
   request bodies or queries.
+- **Move account flows** ([`FlowQAMoveAccountTests.swift`](../ios/UITests/FlowQAMoveAccountTests.swift),
+  bd med-sz4k.6.4.1, twin of Android's `local-to-cloud-seamless`): the account
+  half of local-to-cloud, signed with the soft authenticator. `testMoveAccount`
+  — the golden seed in local mode with "Check names in" set to EU → "Turn on
+  sync" with the offline invite → the empty account takes the stash with no
+  Merge/Replace question and clears it, every moved kind's count is there and a
+  relaunch adds none, the account's Settings shows EU register and the first
+  medication save sends no name and no RxNav request (page probe and
+  tlsfront receipts) → the same stash re-presented to the populated account
+  asks Merge/Replace; Replace's confirm enables only on typed REPLACE; Cancel
+  keeps the stash → Switch account: local mode still shows a record of each
+  kind. `testMoveFailure` claims the part's own third invite
+  (`QA_MOVE_FAIL_CLAIM_URL`) with a bootstrap fault armed for its host:
+  "Records not moved yet" ("Sync not ready … stay on this iPhone"), the stash
+  byte-identical, and local mode keeps its records. The Debug-only
+  [`ios/qa/move-probe.js`](../ios/qa/move-probe.js) (`QA_MOVE_PROBE=1`)
+  adds `inspect` (record counts and register via `CloudVault.exportAll`) and
+  `save` on account pages; the fault control is tlsfront's `-move-fault`
+  (`QA_MOVE_FAULT=1`) on `127.0.0.1:8767`: `POST /arm {host}`, `GET /status`
+  (`armed`, `hits`), `POST /release`.
 - **Core local flows** ([`FlowQACoreLocalTests.swift`](../ios/UITests/FlowQACoreLocalTests.swift),
   bd med-sz4k.6.1, twin of Android's `core-local`): `testCoreLocal` on the
   golden seed, one launch per `flowOnly` + `flow` scene `core-local-*`
@@ -329,9 +349,9 @@ with `QA_REMINDER_PROBE=1` to create a real medication and observe native schedu
 
 Not covered by flow QA; check on a TestFlight build before release:
 
-1. **Move local → cloud end to end:** in local mode with records, move to a
-   new account. The account shows the stash pickup toast, the records are in
-   the account, and the local stash is gone (relaunch: no "pending move").
+1. **Move local → cloud with a real passkey:** flow QA covers the move with
+   the soft authenticator (`FlowQAMoveAccountTests`); on device, move to a new
+   account with the platform passkey and check the records arrive.
 2. **Leave cloud → local:** in an account, Settings → "Use this iPhone without
    an account". Local mode opens with the account's records on the device.
 3. **Delete account:** Settings → delete account. The app lands in local mode
