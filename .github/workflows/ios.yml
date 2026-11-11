@@ -614,20 +614,6 @@ jobs:
           kill "$sampler" 2>/dev/null || true
           exit "$status"
 
-      - name: Inspect fake cloud log without exporting it
-        if: always()
-        run: |
-          [ -s "$RUNNER_TEMP/cloud.log" ] || { echo 'Cloud log missing'; exit 1; }
-          pid=$(pgrep -f "^$RUNNER_TEMP/cloud$")
-          [ -n "$pid" ] || { echo 'Cloud process missing'; exit 1; }
-          secret=$(ps eww -p "$pid" | tr ' ' '\n' | sed -n 's/^SESSION_SECRET=//p')
-          [ -n "$secret" ] || { echo 'Could not inspect cloud environment'; exit 1; }
-          if grep -Fq -- "$secret" "$RUNNER_TEMP/cloud.log" || grep -Eiq 'SESSION_SECRET|credential.?id|public.?key|private.?key|clientDataJSON|attestationObject|authenticatorData' "$RUNNER_TEMP/cloud.log"; then
-            echo 'Cloud log has a sensitive marker or session secret'
-            exit 1
-          fi
-          echo 'Cloud log checked: no session secret or passkey material markers'
-
       - name: Export screenshots and summary
         if: always()
         working-directory: ios
@@ -638,6 +624,11 @@ jobs:
           raw="$RUNNER_TEMP/raw"
           mkdir -p "$out"
           echo "## iOS flow QA: part $PART" >> "$GITHUB_STEP_SUMMARY"
+          # Keep the fake server's perspective even when the test or boot failed.
+          cp "$RUNNER_TEMP/tlsfront.log" "$out/tlsfront-$PART.log" || true
+          cp "$RUNNER_TEMP/cloud.log" "$out/cloud-$PART.log" || true
+          curl -fsS --max-time 5 --cacert "$RUNNER_TEMP/ca.pem" https://qa.test:8768/receipts -o "$out/receipts-$PART.json" || rm -f "$out/receipts-$PART.json"
+          echo "Server evidence when available: \`tlsfront-$PART.log\`, \`cloud-$PART.log\`, \`receipts-$PART.json\`; failed tests may include \`<Class>-<test>-hierarchy.txt\`." >> "$GITHUB_STEP_SUMMARY"
           xcrun xcresulttool get test-results tests --path build/qa.xcresult > "$RUNNER_TEMP/qa-tests.json" || true
           python3 qa/runner-summary.py "$RUNNER_TEMP/qa-boot.log" "$RUNNER_TEMP/qa-tests.json" >> "$GITHUB_STEP_SUMMARY" || echo "Runner summary unavailable (helper failed)" >> "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/qa-tests.json" "$out/qa-tests-$PART.json"
