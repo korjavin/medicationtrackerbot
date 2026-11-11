@@ -130,6 +130,9 @@ final class FlowQAEURegisterTests: XCTestCase {
         XCTAssertEqual(observed["nameEgress"] as? Int, 0, "name sent by page fetch: \(QA.json(observed))")
         XCTAssertEqual(observed["rxnav"] as? Int, 0, "RxNav sent by page fetch: \(QA.json(observed))")
         XCTAssertEqual(observed["uninspected"] as? Int, 0, "page fetch body could not be inspected: \(QA.json(observed))")
+        let stateAttachment = XCTAttachment(data: try JSONSerialization.data(withJSONObject: observed, options: [.prettyPrinted, .sortedKeys]), uniformTypeIdentifier: "public.json")
+        stateAttachment.name = "eu-account-pulled-state.json"; stateAttachment.lifetime = .keepAlways; add(stateAttachment)
+        Thread.sleep(forTimeInterval: 2) // allow WebKit to paint the observed text before the evidence capture
         shot("eu-account", "pulled-chip")
         let all = try QA.receipts()
         XCTAssertFalse(all.dropFirst(before).contains { $0["nameEgress"] as? Bool == true }, "synthetic medication name reached fake server")
