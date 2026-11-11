@@ -5021,6 +5021,57 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     expect(rejected.result).toBe(true);
   });
 
+  // bd med-yrq1 — tab B is a second module instance running the real import
+  // calls (cloud-boot importAll: mark, then replace).
+  describe('a forced snapshot read before another tab\'s import keeps that import pending (med-yrq1)', () => {
+    const marker = async () => {
+      const tx = other.transaction('sync_meta', 'readonly');
+      const req = tx.objectStore('sync_meta').get('forceSnapshotPending');
+      await txDone(tx);
+      return req.result;
+    };
+    const imported = [{ recordId: 'bp-imported', recordType: 'bp', clientTs: 3, deleted: false, systolic: 140 }];
+    let post;
+    let tabB;
+    beforeEach(async () => {
+      post = gate();
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        const u = String(url);
+        if (u === '/api/sync/snapshot') {
+          if (init?.method === 'POST') { await post.hold(); return new Response('{}', { status: 200 }); }
+          return snapshot(7, 'bp-old');
+        }
+        if (u === '/api/sync/ops' && init?.method === 'POST') return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+        if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+        return new Response('{}', { status: 200 });
+      }));
+      await listRecords(ctx, 'bp');
+      vi.resetModules();
+      tabB = await import('../sync.js');
+    });
+
+    it('A\'s held flight landing after B\'s mark and replace leaves B\'s marker set', async () => {
+      const forced = forceSnapshot(ctx);
+      await post.reached;
+      await tabB.markForceSnapshotPending();
+      await tabB.replaceAllRecords(imported);
+      post.release();
+      await forced;
+      expect(await marker()).toBe(true);
+    });
+
+    it('A\'s flight clearing between B\'s mark and replace is re-armed by the replace', async () => {
+      await tabB.markForceSnapshotPending();
+      const forced = forceSnapshot(ctx); // reads the store B has marked but not yet replaced
+      await post.reached;
+      post.release();
+      expect(await forced).toBe('synced');
+      expect(await marker()).toBe(false);
+      await tabB.replaceAllRecords(imported);
+      expect(await marker()).toBe(true);
+    });
+  });
+
   it('the push ack keeps another tab\'s same-millisecond edit queued', async () => {
     const tx = other.transaction('sync_meta', 'readwrite');
     tx.objectStore('sync_meta').put(0, 'localLastSeq');

@@ -177,6 +177,13 @@ const SYNC_GEN_KEY = 'syncGen';
 // Fresh per import replace (no epoch), written with its records: a snapshot
 // clears importRejected only if it read the store under the current one.
 const IMPORT_GEN_KEY = 'importGen';
+// bd med-yrq1 — the forceSnapshotPending marker's import identity is importGen
+// too: markForceSnapshotPending writes a 'mark:' one, the import's replace
+// swaps it for a plain one and re-arms the marker in the same tx (a flight that
+// cleared it between mark and replace snapshotted the pre-import store). A
+// flight clears the marker only if importGen still equals what its snapshot read.
+const MARK_GEN_PREFIX = 'mark:';
+const IMPORT_MARK = { forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false };
 const epochMoved = (epoch) => epoch !== undefined && epoch.mem !== syncEpoch;
 async function captureEpoch() {
   const mem = syncEpoch;
@@ -203,6 +210,16 @@ function writeMetaIfEpoch(epoch, patch) {
   return withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
     for (const [key, value] of Object.entries(patch)) store.put(value, key);
   })).then((held) => held.ok);
+}
+// writeMetaIfEpoch that also skips the patch when an import marked or replaced
+// the store since `importGen` was read with it (bd med-yrq1).
+function writeMetaIfImport(epoch, importGen, patch) {
+  return withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
+    const cur = store.get(IMPORT_GEN_KEY);
+    cur.onsuccess = () => {
+      if (cur.result === importGen) for (const [key, value] of Object.entries(patch)) store.put(value, key);
+    };
+  }));
 }
 
 // The operational ctx is {accountId, kData, kMac}: non-extractable leaf keys
@@ -602,7 +619,16 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
         row.onsuccess = () => { if ((row.result || {}).token === tokens.get(id)) queue.delete(id); };
       }
       for (const r of repairs) queue.put(pendingRow(r.recordId, r.recordType));
-      if (epoch === undefined) tx.objectStore('sync_meta').put(crypto.randomUUID(), IMPORT_GEN_KEY);
+      if (epoch === undefined) {
+        const meta = tx.objectStore('sync_meta');
+        const prev = meta.get(IMPORT_GEN_KEY);
+        prev.onsuccess = () => {
+          if (String(prev.result ?? '').startsWith(MARK_GEN_PREFIX)) {
+            for (const [key, value] of Object.entries(IMPORT_MARK)) meta.put(value, key);
+          }
+          meta.put(crypto.randomUUID(), IMPORT_GEN_KEY);
+        };
+      }
     }));
     if (!held.ok) return false;
     return true;
@@ -1307,7 +1333,7 @@ async function snapshotAt(ctx, snapshotSeq, epoch) {
     markUpdateRequired();
     return { ok: false, status: res.status };
   }
-  if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
+  if (!res.ok) return { ok: false, status: res.status, importGen }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
   authExpired = false;
   // A successful snapshot means the store now fits the server cap, so clear any
@@ -1322,7 +1348,7 @@ async function snapshotAt(ctx, snapshotSeq, epoch) {
     const cur = store.get(IMPORT_GEN_KEY);
     cur.onsuccess = () => { if (cur.result === importGen) store.put(false, 'importRejected'); };
   }));
-  return { ok: true, status: res.status };
+  return { ok: true, status: res.status, importGen };
 }
 
 // maybeSnapshot compacts the oplog once it has grown SNAPSHOT_THRESHOLD ops past
@@ -1408,7 +1434,8 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 //   'auth'      the session expired: it lands after a passkey re-auth;
 //   'retrying'  offline or a transient error: the next open retries.
 export async function forceSnapshot(ctx) {
-  await markForceSnapshotPending();
+  // Re-arm without a new importGen: the replace already wrote this import's.
+  await writeMeta(IMPORT_MARK);
   await tryForceSnapshot(ctx);
   const meta = await readMeta();
   if (meta.snapshotError) return 'rejected';
@@ -1428,7 +1455,8 @@ export async function markForceSnapshotPending() {
   // that a permanent write-error wedged on, and its snapshot bump bypasses the
   // wedge-guarded flushPending — so without clearing here the device lands the
   // import but leaves syncWedged set, silently blocking every later writeRecord.
-  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false });
+  // The 'mark:' importGen fences every flight that read the store before it.
+  await writeMeta({ ...IMPORT_MARK, [IMPORT_GEN_KEY]: MARK_GEN_PREFIX + crypto.randomUUID() });
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
@@ -1556,7 +1584,8 @@ async function tryForceSnapshot(ctx) {
     if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isUpdateRequiredStatus(snap.status)) return; // snapshotAt flagged it; marker stays set
     if (isPermanentSyncStatus(snap.status)) {
-      await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() }, importRejected: true });
+      // Another tab's import since the read (bd med-yrq1): its own flight decides.
+      await writeMetaIfImport(epoch, snap.importGen, { forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() }, importRejected: true });
       offline = false;
       return;
     }
@@ -1564,7 +1593,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null }); // importRejected: snapshotAt
+    await writeMetaIfImport(epoch, snap.importGen, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null }); // importRejected: snapshotAt
   }
 }
 
