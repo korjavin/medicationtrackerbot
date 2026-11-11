@@ -102,6 +102,159 @@ final class FlowQABackupTests: XCTestCase {
         app.terminate()
     }
 
+    /// The same provider-saved file makes the whole trip through the native
+    /// export and import pickers. The audit scene reads the live vault; unlike
+    /// the visual seed it never imports when the store is empty.
+    func testBackupExportRestoreChain() throws {
+        continueAfterFailure = false
+        let flow = "backup-chain"
+        let app = XCUIApplication()
+        launch(app, scene: "settings-backup")
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90))
+        app.terminate()
+        launch(app, scene: "backup-audit")
+        let before = try audit(app)
+        let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../tests/fixtures/vault-v1.json").standardized
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
+        let data = try XCTUnwrap(fixture["data"] as? [String: Any])
+        let beforeCounts = try XCTUnwrap(before["counts"] as? [String: Int])
+        // The visual seed adds records; every fixture collection named here
+        // must still be represented, then the restore must match the baseline.
+        for (section, list) in [("medications", "items"), ("medications", "intakes"),
+                                ("bp", "readings"), ("weight", "logs"), ("food", "logs"),
+                                ("workouts", "sessions"), ("vitals", "sleep")] {
+            let expected = ((data[section] as? [String: Any])?[list] as? [Any])?.count ?? 0
+            XCTAssertGreaterThan(expected, 0, "fixture has no \(section).\(list)")
+            XCTAssertGreaterThanOrEqual(beforeCounts["\(section).\(list)"] ?? 0, expected)
+        }
+        let downloads = try XCTUnwrap(QA.appContainer()).appendingPathComponent("tmp/wg-downloads")
+        let export = app.webViews.buttons["Save a backup"]
+        let plain = app.webViews.buttons["Export without encryption"]
+        XCTAssertTrue(QA.tapUntil(export, shows: plain))
+        QA.dismissKeyboardTip(app)
+        tapUntilGone(plain)
+        let confirm = app.webViews.buttons["Confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        tapUntilGone(confirm)
+        let save = app.webViews.buttons["Save to device"]
+        XCTAssertTrue(save.waitForExistence(timeout: 60))
+        tapUntilGone(save)
+        let nativeSave = app.buttons["Save"].firstMatch
+        XCTAssertTrue(nativeSave.waitForExistence(timeout: 60), "no native Files Save")
+        let name = try XCTUnwrap(filesIn(downloads).first, "no offered backup")
+        XCTAssertTrue(name.hasSuffix(".json.gz"))
+        let offered = try XCTUnwrap(FileManager.default.enumerator(at: downloads, includingPropertiesForKeys: nil)?.allObjects
+            .compactMap { $0 as? URL }.first { $0.lastPathComponent == name })
+        let offeredBytes = try Data(contentsOf: offered)
+        XCTAssertFalse(offeredBytes.isEmpty)
+        shot(flow, "native-save")
+        nativeSave.tap()
+        XCTAssertTrue(waitUntil(30) { filesIn(downloads).isEmpty }, "export picker did not complete")
+
+        // Locate the provider-backed copy, not the temporary export. This also
+        // gives a sibling location for the corrupt file used by the picker.
+        let container = try XCTUnwrap(QA.appContainer())
+        let device = container.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let files = FileManager.default.enumerator(at: device, includingPropertiesForKeys: [.isRegularFileKey])
+        var saved: URL?
+        while let url = files?.nextObject() as? URL {
+            if url.lastPathComponent == name && !url.path.contains("/tmp/wg-downloads/") { saved = url; break }
+        }
+        let savedURL = try XCTUnwrap(saved, "native Save produced no provider-backed copy")
+        XCTAssertEqual(try Data(contentsOf: savedURL), offeredBytes, "provider-saved file differs from the export")
+        let corrupt = savedURL.deletingLastPathComponent().appendingPathComponent("qa-corrupt.json.gz")
+        try Data([0x1f, 0x8b, 0x08]).write(to: corrupt)
+        defer { try? FileManager.default.removeItem(at: corrupt); try? FileManager.default.removeItem(at: savedURL) }
+
+        let eraseRow = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Erase data on this'")).firstMatch
+        let eraseField = app.webViews.textFields.firstMatch
+        XCTAssertTrue(QA.tapUntil(eraseRow, shows: eraseField))
+        eraseField.tap()
+        QA.dismissKeyboardTip(app)
+        // WebKit can insert a keyboard suggestion on first focus (the
+        // simulator exposed "THE " before the phrase). Clear it before
+        // typing, then require the real destructive gate to enable.
+        eraseField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
+        eraseField.typeText("erase")
+        QA.dismissKeyboardTip(app)
+        XCTAssertTrue(app.webViews.buttons["Erase"].isEnabled, "typed erase did not enable confirmation")
+        hideKeyboard(app)
+        app.webViews.buttons["Erase"].tap()
+        XCTAssertTrue(waitUntil(30) { !QA.readyNode(app).exists }, "erase did not reload")
+        _ = QA.skipW1(app, timeout: 30)
+        app.terminate()
+        launch(app, scene: "backup-audit")
+        let empty = try audit(app)
+        let emptyCounts = try XCTUnwrap(empty["counts"] as? [String: Int])
+        XCTAssertEqual(emptyCounts["medications.items"] ?? 0, 0)
+        XCTAssertEqual(emptyCounts["bp.readings"] ?? 0, 0)
+
+        // A receiver-only record makes the typed Replace meaningful and its
+        // removal observable; the exported file predates this record.
+        app.terminate()
+        launch(app, scene: "backup-sentinel")
+        let receiver = try audit(app)
+        let receiverCounts = try XCTUnwrap(receiver["counts"] as? [String: Int])
+        XCTAssertEqual(receiverCounts["bp.readings"], 1)
+        app.terminate()
+        launch(app, scene: "backup-audit")
+        _ = try audit(app)
+
+        try pickBackup(app, name: name, flow: flow)
+        app.webViews.buttons["Replace my data with this backup"].tap()
+        let field = app.webViews.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "no typed Replace confirmation")
+        XCTAssertFalse(webText(app, containing: "Merge").exists, "file restore offered Merge")
+        let replace = app.webViews.buttons["Replace"].firstMatch
+        XCTAssertTrue(replace.exists)
+        XCTAssertFalse(replace.isEnabled, "Replace enabled without confirmation")
+        field.tap()
+        QA.dismissKeyboardTip(app)
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
+        field.typeText("replace")
+        QA.dismissKeyboardTip(app)
+        hideKeyboard(app)
+        shot(flow, "typed-replace")
+        XCTAssertTrue(replace.isEnabled)
+        replace.tap()
+        XCTAssertTrue(waitUntil(60) { !QA.readyNode(app).exists }, "restore did not reload")
+        app.terminate()
+        launch(app, scene: "backup-audit")
+        let restored = try audit(app)
+        XCTAssertEqual(restored as NSDictionary, before as NSDictionary, "restored vault differs from exported baseline")
+        shot(flow, "restored")
+
+        try pickBackup(app, name: corrupt.lastPathComponent, flow: flow)
+        app.webViews.buttons["Replace my data with this backup"].tap()
+        XCTAssertTrue(webText(app, containing: "Could not read backup").waitForExistence(timeout: 30), "corrupt file was not refused")
+        XCTAssertFalse(app.webViews.buttons["Replace"].exists, "corrupt file reached confirmation")
+        app.terminate()
+        launch(app, scene: "backup-audit")
+        XCTAssertEqual(try audit(app) as NSDictionary, restored as NSDictionary, "corrupt restore changed the vault")
+        app.terminate()
+    }
+
+    private func audit(_ app: XCUIApplication) throws -> [String: Any] {
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "backup audit not ready")
+        let report = try XCTUnwrap(QA.report(app), "unreadable backup audit")
+        XCTAssertEqual(report["ok"] as? Bool, true, "backup audit failed: \(QA.json(report))")
+        return try XCTUnwrap(report["vaultAudit"] as? [String: Any], "no vault audit")
+    }
+
+    private func pickBackup(_ app: XCUIApplication, name: String, flow: String) throws {
+        let choose = app.webViews.buttons["Choose"].firstMatch
+        XCTAssertTrue(choose.waitForExistence(timeout: 15), "no backup file chooser")
+        choose.tap()
+        // Files exposes both an inner filename text and the actual tappable
+        // document cell. The text itself can be tapped without selecting it.
+        let file = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@ OR label BEGINSWITH %@", name, name)).firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 30), "native picker lacks \(name): \(tree(app, tail: true))")
+        shot(flow, "picker-\(name)")
+        file.tap()
+        XCTAssertTrue(webText(app, containing: name).waitForExistence(timeout: 30), "picker did not return \(name)")
+    }
+
     /// Settings → Backup → Erase data on this device → type "erase" → Erase:
     /// the page wipes its storage, the shell clears both stashes, and the app
     /// relaunches empty, still in local mode.
