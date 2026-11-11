@@ -69,6 +69,18 @@ env:
      "data": ["FlowQABackupTests", "FlowQAStashTests"],
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"]}
+  # Fixed green references in seconds: core/data/update from 42923864088
+  # (restore from attempt 2), degraded from 42921440898, and backup chain,
+  # account/rest from 42915152895 attempt 1. Unknown tests remain n/a.
+  QA_GREEN_SECONDS: >-
+    {"testCoreLocal": 294, "testLocalFirstRun": 63,
+     "testWriteReplaceFilterDelete": 110, "testDegradedBootReload": 211,
+     "testAccountUpdateBanner": 211.2,
+     "testBackupExport": 160, "testBackupExportRestoreChain": 297.423,
+     "testErase": 98, "testRestoreFromFile": 145.574,
+     "testLeaveStashPickup": 92, "testMoveLocalSide": 68,
+     "testAccountGone": 66.470, "testWebExitBarLeaves": 183.059,
+     "testOfflineColdOpen": 337.535, "testEURegister": 161.940, "testLocalLock": 180.954}
 
 permissions:
   contents: read
@@ -548,7 +560,9 @@ jobs:
         env:
           # Only core runs HealthWriteBackTests; the others skip the healthd wait.
           QA_HEALTH_READY: ${{ matrix.part == 'core' && '1' || '0' }}
-        run: ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt
+        run: |
+          ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt | tee "$RUNNER_TEMP/qa-boot.log"
+          exit "${PIPESTATUS[0]}"
 
       # The account-gone flows' fake server (bd med-w6gx.23.5): tlsfront on
       # :443 for *.qa.test, the base the build above was given. This job's
@@ -609,7 +623,11 @@ jobs:
           out="$GITHUB_WORKSPACE/shots"
           raw="$RUNNER_TEMP/raw"
           mkdir -p "$out"
-          [ -d build/qa.xcresult ] || { echo "## iOS flow QA ($PART): no result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          echo "## iOS flow QA: part $PART" >> "$GITHUB_STEP_SUMMARY"
+          xcrun xcresulttool get test-results tests --path build/qa.xcresult > "$RUNNER_TEMP/qa-tests.json" || true
+          python3 qa/runner-summary.py "$RUNNER_TEMP/qa-boot.log" "$RUNNER_TEMP/qa-tests.json" >> "$GITHUB_STEP_SUMMARY" || echo "Runner summary unavailable (helper failed)" >> "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP/qa-tests.json" "$out/qa-tests-$PART.json"
+          [ -d build/qa.xcresult ] || { echo "No result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
           # Same manifest mapping as the visual job: <flow>-<step>.png, plus
           # a failed test's UI hierarchy (the first exported) as <Class>-<test>-hierarchy.txt
@@ -626,15 +644,8 @@ jobs:
           fi
           ls -l "$out"
           {
-            echo "## iOS flow QA: part $PART"
-            echo
             echo "Artifact \`ios-qa-$PART\` (merged into \`ios-qa\` by the qa gate on a full run): \`<flow>-<step>.png\`, \`webcontent-rss-$PART.log\`."
             echo
-            echo "| test | result | message |"
-            echo "|---|---|---|"
-            xcrun xcresulttool get test-results tests --path build/qa.xcresult |
-              jq -r '.. | objects | select(.nodeType == "Test Case")
-                | "| \(.name) | \(.result) | \([.children[]? | select(.nodeType == "Failure Message") | .name] | join("; ") | gsub("\\|"; "/")) |"'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

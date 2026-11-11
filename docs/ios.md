@@ -133,10 +133,14 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (comma list, implies `qa`; unknown names fail). `qa_parts` runs parts by hand and never
   produces the gate (`qa` shows skipped); the exact-head gate is a run with
   every part.
-- **Output:** each part's step summary has one row per test (result plus
-  failure message) and uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
+- **Output:** each part's step summary reports simulator settle and healthd
+  readiness times, per-test result, duration, factor vs a fixed green reference
+  and failure message, plus the test with the highest factor vs its green
+  reference. Missing references are `n/a`.
+  It uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
   a failed test's UI hierarchy (`<Class>-<test>-hierarchy.txt`) and
-  `webcontent-rss-<part>.log`. The gate merges them into the one artifact
+  `webcontent-rss-<part>.log` and `qa-tests-<part>.json` (xcresult test data).
+  The gate merges them into the one artifact
   `ios-qa` (full runs only; the newest attempt of each part):
   `gh run download <run> -n ios-qa -D /tmp/ios-qa`. After "Re-run failed
   jobs" each attempt keeps its own `ios-qa-<part>` (the failed attempt's
