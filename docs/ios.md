@@ -145,6 +145,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   `webcontent-rss-<part>.log`, `qa-tests-<part>.json` (xcresult test data),
   `tlsfront-<part>.log`, `cloud-<part>.log` and `receipts-<part>.json` (fake
   server evidence, when available).
+  Failed tests also export crash `.ips`, screen recording `.mp4` and
+  `<Class>-<test>-activities.json` timelines when available.
   A recording whose video track is shorter than the test stopped changing at
   its last frame; inspect the track duration with `ffprobe`.
   The gate merges them into the one artifact
@@ -153,6 +155,15 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   jobs" each attempt keeps its own `ios-qa-<part>` (the failed attempt's
   shots stay), so `-n ios-qa-<part>` matches two: take the merged `ios-qa`,
   or the attempt's `ios-qa-<part>` from the run's artifact list.
+- **Health flows:** `testHealthImport` grants one union seed sheet and checks
+  Settings import plus BP, weight and sleep source labels; the subsequent
+  Settings authorization resolves without another sheet. `testDeniedHealthGuidance`
+  uses a separate first ask, verifies all read switches off, denies and checks
+  Settings guidance. The `health-qa-*` scenes are flow-only. Evidence includes
+  `health-import-denied-kinds.json`, `health-import-*.png` and, on failure,
+  `health-denied-hierarchy.json`. On iOS 27 the hosted HealthUI subtree is
+  omitted by `snapshot().children` but included by `debugDescription` and
+  element queries; iOS 27.2 also asks for OK after Don't Allow.
 - **Flows:** `testLocalFirstRun` — cold launch with no account and an empty
   store → straight into local mode's web W1 picker with its "Have an invite?"
   footer, no native screen (bd med-ta2n.17; shot `local-first-run-cold-launch`)

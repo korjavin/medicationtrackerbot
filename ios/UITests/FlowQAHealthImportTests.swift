@@ -89,7 +89,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         XCTAssertTrue(bp.contains { $0.contains("123/79") && $0.contains("Health import") }, "imported BP source absent: \(bp)")
         let notNow = app.buttons["Not now"].firstMatch
         if notNow.waitForExistence(timeout: 3) { notNow.tap() }
-        reveal(app, "123/79")
+        reveal(app, "Health import")
         shot("health-import-bp")
         launch(app, "health-qa-weight")
         let (weightOK, weightState) = QA.waitFlow(app, timeout: 30) { rows($0, "weight").contains { $0.contains("73.4") && $0.contains("Health import") } }
@@ -121,7 +121,7 @@ final class FlowQAHealthImportTests: XCTestCase {
     private func reveal(_ app: XCUIApplication, _ text: String) {
         let element = webText(app, text)
         for _ in 0..<6 {
-            if element.isHittable { return }
+            if element.isHittable && element.frame.maxY < app.frame.maxY - 80 { return }
             app.swipeUp()
         }
     }
