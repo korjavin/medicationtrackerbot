@@ -151,15 +151,24 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         var denied = [String: String]()
         var submitted = false, finished = false
         var confirmed = false
+        var swipes = 0
+        var scrollCapReached = false
         var hierarchy = ""
         while Date() < deadline {
             hierarchy = app.debugDescription
             let reads = HealthSheet.readValues(hierarchy)
             if !reads.isEmpty { denied = reads }
-            if !submitted, hierarchy.contains("identifier: '\(HealthSheet.deny)'"),
-               Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
-                submitted = HealthSheet.tap(HealthSheet.deny, host: app, screen: screen)
-                if !submitted { app.swipeUp() }
+            if !submitted, Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
+                // HealthUI virtualizes the button while it is below the fold;
+                // only scroll after the exact read set proves the sheet is up.
+                if hierarchy.contains("identifier: '\(HealthSheet.deny)'") {
+                    submitted = HealthSheet.tap(HealthSheet.deny, host: app, screen: screen)
+                } else if swipes < 3 {
+                    app.swipeUp(); swipes += 1
+                } else {
+                    scrollCapReached = true
+                    break
+                }
             } else if submitted && !confirmed && hierarchy.contains("later in the Health app") {
                 for host in [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")] {
                     if HealthDiagnosticTests.tapIfSettled(host.alerts.buttons["OK"].firstMatch, within: screen) {
@@ -179,7 +188,8 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         }
         XCTAssertEqual(Set(denied.keys), HealthSheet.expected, "wrong Health read switches: \(denied); bridge: \(QA.json(QA.flow(app)?["memo"]))")
         XCTAssertTrue(denied.values.allSatisfy { $0 == "0" }, "a Health read switch was enabled: \(denied)")
-        XCTAssertTrue(submitted && finished, "no denied-read guidance after the native denial")
+        let failure = scrollCapReached ? "deny button never realized after \(swipes) swipes" : "no denied-read guidance after the native denial"
+        XCTAssertTrue(submitted && finished, failure)
         let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
         shot.name = "health-import-denied-guidance.png"; shot.lifetime = .keepAlways; add(shot)
     }
