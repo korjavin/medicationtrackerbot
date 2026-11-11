@@ -413,8 +413,15 @@
         } else if (step.click) {
             // optional: tap it if it shows within 3 s (a sheet only some
             // devices open, e.g. the notification ask after a dose write).
+            // reveal: tap that element whenever it shows while waiting, e.g. a
+            // fold a later render puts back (the plans list paints its cache,
+            // then re-renders folded from the fresh read; med-zbka).
             try {
-                await until(() => firstVisible(step.click), step.optional ? 3000 : STEP_MS, `click ${step.click}`);
+                await until(() => {
+                    const el = firstVisible(step.click);
+                    if (!el && step.reveal) { const r = firstVisible(step.reveal); if (r) r.click(); }
+                    return el;
+                }, step.optional ? 3000 : STEP_MS, `click ${step.click}`);
             } catch (e) {
                 if (step.optional) return;
                 throw e;
