@@ -125,7 +125,7 @@ function openFeedbackModal() {
             row.append(logBox, doc.createTextNode('Attach the app log'));
             const caption = doc.createElement('p');
             caption.className = 'wg-feedback-modal__chip';
-            caption.textContent = 'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your phone model, system version and password-manager app. No entries, no names, no account address.';
+            caption.textContent = 'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your app version, phone model, system version and password-manager app (Android). No entries, no names, no account address.';
             capture.after(row, caption);
         }, () => { /* no shell answer — no checkbox */ });
     }

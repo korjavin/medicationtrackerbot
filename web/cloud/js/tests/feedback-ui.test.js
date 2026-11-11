@@ -343,7 +343,7 @@ describe('feedback-ui', () => {
             const row = box.closest('label');
             expect(row.textContent).toBe('Attach the app log');
             expect(row.nextElementSibling.textContent).toBe(
-                'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your phone model, system version and password-manager app. No entries, no names, no account address.');
+                'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your app version, phone model, system version and password-manager app (Android). No entries, no names, no account address.');
         });
 
         it('ticked: Send adds one text/plain log attachment carrying the diag.read reply', async () => {

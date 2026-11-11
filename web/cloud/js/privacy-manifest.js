@@ -760,7 +760,7 @@ export const PRIVACY_MANIFEST = [
     id: 'feedback',
     feature: 'In-app feedback',
     boundary: 'not-a-carve-out',
-    data: 'What you type, plus any screenshot or voice note you attach and, only if you tick it, the app\'s diagnostic log (app events, timings, error codes, Health import record counts, device header: maker and model, OS and WebView version, autofill/credential provider package names; no health values, no account name) — age-encrypted in your browser to the developer\'s public key',
+    data: 'What you type, plus any screenshot or voice note you attach and, only if you tick it, the app\'s diagnostic log (app events, timings, error codes, Health import record counts, device header: app version and build, maker and model, OS and WebView version, autofill/credential provider package names; no health values, no account name) — age-encrypted in your browser to the developer\'s public key',
     destination: 'The operator stores the ciphertext blindly; the developer decrypts it offline',
     operatorVisibility: 'ciphertext',
     retention: 'Queued until the developer drains it; the app version and feedback kind travel as plaintext metadata',
