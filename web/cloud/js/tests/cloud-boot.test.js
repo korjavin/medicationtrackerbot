@@ -1005,8 +1005,9 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
         bootstrapIfNeeded: async () => {},
         // A merge passes a function of the current rows (read inside the
         // records lock); readAllRawRecords stands in for those rows here.
-        replaceAllRecords: async (input) => {
+        replaceAllRecords: async (input, opts) => {
           calls.replaceAllRecords += 1;
+          calls.replaceOpts = opts;
           if (typeof input === 'function') {
             calls.computed = await input(await mod.readAllRawRecords());
             calls.replaced = calls.computed.records;
@@ -1060,6 +1061,8 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     // in between would otherwise let the next open re-bootstrap the stale server
     // snapshot over the freshly imported records.
     expect(sync.calls.order.indexOf('mark')).toBeLessThan(sync.calls.order.indexOf('replace'));
+    // ...and the replace re-arms it in its own tx (bd med-yrq1).
+    expect(sync.calls.replaceOpts).toEqual({ armImport: true });
   });
 
   it('a corrupt backup aborts inside the real vaultToRecords, wiping nothing (med-deq.3)', async () => {

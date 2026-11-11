@@ -178,11 +178,10 @@ const SYNC_GEN_KEY = 'syncGen';
 // clears importRejected only if it read the store under the current one.
 const IMPORT_GEN_KEY = 'importGen';
 // bd med-yrq1 — the forceSnapshotPending marker's import identity is importGen
-// too: markForceSnapshotPending writes a 'mark:' one, the import's replace
-// swaps it for a plain one and re-arms the marker in the same tx (a flight that
-// cleared it between mark and replace snapshotted the pre-import store). A
-// flight clears the marker only if importGen still equals what its snapshot read.
-const MARK_GEN_PREFIX = 'mark:';
+// too: a cloud import's replace (armImport) re-arms the marker in the tx that
+// writes its importGen (a flight that cleared it between mark and replace
+// snapshotted the pre-import store), and a flight clears the marker only if
+// importGen still equals what its snapshot read.
 const IMPORT_MARK = { forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false };
 const epochMoved = (epoch) => epoch !== undefined && epoch.mem !== syncEpoch;
 async function captureEpoch() {
@@ -516,7 +515,9 @@ const FLOOR_MAX_CLIENT_TS = 1;
 // queued as a repair. An import replace never sets it.
 // `epoch` (bootstrap only): replace nothing and return false when syncEpoch
 // moved on since the caller captured it (bd med-7jgk).
-export async function replaceAllRecords(input, { reduceAcked = false, epoch } = {}) {
+// `armImport` (cloud import only, bd med-yrq1): set forceSnapshotPending in the
+// replace's own tx, whatever cleared it since markForceSnapshotPending.
+export async function replaceAllRecords(input, { reduceAcked = false, epoch, armImport = false } = {}) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -619,16 +620,8 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
         row.onsuccess = () => { if ((row.result || {}).token === tokens.get(id)) queue.delete(id); };
       }
       for (const r of repairs) queue.put(pendingRow(r.recordId, r.recordType));
-      if (epoch === undefined) {
-        const meta = tx.objectStore('sync_meta');
-        const prev = meta.get(IMPORT_GEN_KEY);
-        prev.onsuccess = () => {
-          if (String(prev.result ?? '').startsWith(MARK_GEN_PREFIX)) {
-            for (const [key, value] of Object.entries(IMPORT_MARK)) meta.put(value, key);
-          }
-          meta.put(crypto.randomUUID(), IMPORT_GEN_KEY);
-        };
-      }
+      if (epoch === undefined) tx.objectStore('sync_meta').put(crypto.randomUUID(), IMPORT_GEN_KEY);
+      if (armImport) for (const [key, value] of Object.entries(IMPORT_MARK)) tx.objectStore('sync_meta').put(value, key);
     }));
     if (!held.ok) return false;
     return true;
@@ -1434,8 +1427,7 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 //   'auth'      the session expired: it lands after a passkey re-auth;
 //   'retrying'  offline or a transient error: the next open retries.
 export async function forceSnapshot(ctx) {
-  // Re-arm without a new importGen: the replace already wrote this import's.
-  await writeMeta(IMPORT_MARK);
+  await markForceSnapshotPending();
   await tryForceSnapshot(ctx);
   const meta = await readMeta();
   if (meta.snapshotError) return 'rejected';
@@ -1455,8 +1447,7 @@ export async function markForceSnapshotPending() {
   // that a permanent write-error wedged on, and its snapshot bump bypasses the
   // wedge-guarded flushPending — so without clearing here the device lands the
   // import but leaves syncWedged set, silently blocking every later writeRecord.
-  // The 'mark:' importGen fences every flight that read the store before it.
-  await writeMeta({ ...IMPORT_MARK, [IMPORT_GEN_KEY]: MARK_GEN_PREFIX + crypto.randomUUID() });
+  await writeMeta(IMPORT_MARK);
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
