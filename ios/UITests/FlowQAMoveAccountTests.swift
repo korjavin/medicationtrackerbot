@@ -91,12 +91,40 @@ final class FlowQAMoveAccountTests: XCTestCase {
         app.webViews.buttons["Cancel"].tap()
         XCTAssertEqual(try Data(contentsOf: stashURL), stash)
 
-        // Fail the account bootstrap reads at tlsfront. The move must report
-        // the error and retain the identical stash for a later retry.
         app.terminate()
+
+        // Settings' Switch account returns to the unchanged local origin.
+        launch(app, ["-wgForgetAccount", "YES"])
+        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60))
+        let notNow = app.webViews.buttons["Not now"]
+        XCTAssertTrue(notNow.waitForExistence(timeout: 10)); notNow.tap()
+        XCTAssertTrue(QA.tabBarShows(app, timeout: 60))
+        let meds = button(app, "Meds")
+        XCTAssertTrue(meds.waitForExistence(timeout: 20)); meds.tap()
+        XCTAssertTrue(text(app, "Lisinopril").waitForExistence(timeout: 20), "local records disappeared")
+    }
+
+    func testMoveFailure() throws {
+        continueAfterFailure = false
+        let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_MOVE_FAIL_CLAIM_URL"].flatMap(URL.init(string:)))
+        let host = try XCTUnwrap(claim.host)
+        let sub = try XCTUnwrap(host.split(separator: ".").first)
+        let token = try XCTUnwrap(claim.fragment?.split(separator: "=").last)
+        let link = try XCTUnwrap(URL(string: "medtracker://i/\(sub)#\(token)"))
+        let app = XCUIApplication()
+        launch(app, ["-wgAccountHost", "", "-wgQAScene", "today"])
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 120))
+        app.open(link)
+        let offer = button(app, "Turn on sync")
+        XCTAssertTrue(offer.waitForExistence(timeout: 60)); offer.tap()
+        let create = button(app, "Continue with")
+        XCTAssertTrue(create.waitForExistence(timeout: 60))
+        let stashURL = try XCTUnwrap(QA.appContainer()?.appendingPathComponent("Library/Application Support/move/vault.json"))
+        let stash = try Data(contentsOf: stashURL)
+        // Arm before claiming so the new account cannot acquire a cursor.
         _ = try fault("/arm", ["host": host])
         defer { _ = try? fault("/release", [:]) }
-        launch(app, [])
+        create.tap()
         let error = text(app, "Records not moved yet")
         let choice = text(app, "Records already in your account")
         let deadline = Date().addingTimeInterval(180)
@@ -118,16 +146,13 @@ final class FlowQAMoveAccountTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: stashURL), stash, "failed import changed the local copy")
         _ = try fault("/release", [:])
         app.terminate()
-
-        // Settings' Switch account returns to the unchanged local origin.
         launch(app, ["-wgForgetAccount", "YES"])
         XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60))
-        let notNow = app.webViews.buttons["Not now"]
-        XCTAssertTrue(notNow.waitForExistence(timeout: 10)); notNow.tap()
+        app.webViews.buttons["Not now"].tap()
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60))
         let meds = button(app, "Meds")
         XCTAssertTrue(meds.waitForExistence(timeout: 20)); meds.tap()
-        XCTAssertTrue(text(app, "Lisinopril").waitForExistence(timeout: 20), "local records disappeared")
+        XCTAssertTrue(text(app, "Lisinopril").waitForExistence(timeout: 20), "failed import lost local records")
     }
 
     private func launch(_ app: XCUIApplication, _ extra: [String]) {

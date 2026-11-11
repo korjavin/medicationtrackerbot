@@ -46,6 +46,11 @@ mint() {
 # invite; do not run these consumers together in one Simulator job.
 mint QA_CLAIM_URL; hosts="$host"
 mint QA_OFFLINE_CLAIM_URL; hosts="$hosts $host"
+if [ "${QA_MOVE_FAULT:-0}" = 1 ]; then
+  mint QA_MOVE_FAIL_CLAIM_URL; hosts="$hosts $host"
+else
+  echo 'QA_MOVE_FAIL_CLAIM_URL=' >> "$GITHUB_ENV"
+fi
 if [ "${QA_BUNDLES:-0}" = 1 ]; then
   mint QA_UPDATE_CLAIM_URL; hosts="$hosts $host"
 else
