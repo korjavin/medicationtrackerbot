@@ -52,10 +52,14 @@ final class FlowQAMoveAccountTests: XCTestCase {
         app.terminate(); launch(app, [])
         XCTAssertTrue(openAccount(app, timeout: 120))
         let second = try command(app, "inspect")
-        XCTAssertEqual(second["counts"] as? [String: Int], counts, "relaunch duplicated records")
+        let reopened = try XCTUnwrap(second["counts"] as? [String: Int])
+        // Today can lazily materialize a planned workout session on reopen.
+        for key in ["medications.items", "medications.intakes", "bp.readings", "weight.logs", "food.logs", "diary.notes", "trackers.items", "trackers.logs", "vitals.heart"] {
+            XCTAssertEqual(reopened[key], counts[key], "relaunch duplicated \(key)")
+        }
         let settings = app.webViews.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10)); settings.tap()
-        let features = app.webViews.buttons["Features"]
+        let features = button(app, "Features")
         XCTAssertTrue(features.waitForExistence(timeout: 10)); features.tap()
         XCTAssertTrue(text(app, "EU register").waitForExistence(timeout: 10), "account Settings lost the EU choice")
         let before = try QA.receipts().count

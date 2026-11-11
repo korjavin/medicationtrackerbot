@@ -36,6 +36,7 @@
     state.register = data.settings.med_register;
   }
   async function save() {
+    document.querySelector('.wg-page[aria-label="Features"] .wg-pagebar .wg-back')?.click();
     window.switchTab('meds'); window.showAddModal();
     const input = await wait(() => document.querySelector('#med-name'), 'editor');
     input.value = 'Candecor';
