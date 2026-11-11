@@ -13,4 +13,4 @@ covered_by:
   web: web/static/js/tests/cloud.shim-contract.food-log.test.js#the Food day header and the Today Fuel tile include the meal right after saving
   android: android/qa/scenarios/core-local.mjs#meal
   ios: ios/UITests/FlowQACoreLocalTests.swift#testCoreLocal
-source: [Zulip 11272]
+source: [Zulip 11272, med-mc9l]

@@ -174,16 +174,19 @@ export function clickRowAction(row, label) {
 // Pull to refresh (features/app-refresh.js): one finger drags down dy px from
 // the top of the page and lets go. jsdom has no Touch constructor, so the
 // events carry plain { clientY } touches. Pass { release: false } to stop
-// before touchend (the pill is showing, nothing ran yet).
-export function pullToRefresh(window, dy = 100, { release = true } = {}) {
+// before touchend (the pill is showing, nothing ran yet). Like a browser, every
+// event goes to the element the finger started on ({ target }, default body);
+// returns it so a test can release on it later.
+export function pullToRefresh(window, dy = 100, { release = true, target = window.document.body } = {}) {
   const fire = (type, y) => {
     const e = new window.Event(type, { bubbles: true });
     Object.defineProperty(e, 'touches', { value: y === undefined ? [] : [{ clientY: y }] });
-    window.document.dispatchEvent(e);
+    target.dispatchEvent(e);
   };
   fire('touchstart', 10);
   fire('touchmove', 10 + dy);
   if (release) fire('touchend');
+  return target;
 }
 
 // withSync loads sync.js, i.e. the real SyncManager toast surface (safeToast

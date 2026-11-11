@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: tests/visual/playwright/flows.mjs#app-update-banner
   android: android/qa/scenarios/update-banner.mjs#updateBanner  # account A/B cold open, dedupe and Reload; update-resume.mjs checks real Home/return; physical-device Home/resume remains to be checked under med-jyxy; local bundled mode N/A; Play-installed update is manual release residue
-  ios: manual  # no iOS run yet: the account-mode cold open across two served bundles (one banner, none on a matching build, Reload lands on the new build) is med-sz4k.6.2; local mode loads the bundled app; a TestFlight-installed update is ios/ios-testflight-update
+  ios: ios/UITests/FlowQAUpdateBannerTests.swift#testAccountUpdateBanner  # account-mode A/B cold open, trusted Home/return visibility with no duplicate, synthetic rechecks and Reload; local mode is bundled and not applicable; TestFlight-installed update remains ios/ios-testflight-update
 source: [med-kk1q.6]

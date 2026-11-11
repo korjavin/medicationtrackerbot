@@ -962,6 +962,31 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
     await pullOnOpen(ctx);
     expect(await hasCaughtUp()).toBe(true);
   });
+
+  it('an edit made while its push is in flight stays queued and is pushed next (med-w4nq)', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let releasePush;
+    const pushGate = new Promise((r) => { releasePush = r; });
+    let entered;
+    const pushEntered = new Promise((r) => { entered = r; });
+    const pushed = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        pushed.push(ops.length);
+        if (pushed.length === 1) { entered(); await pushGate; }
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => pushed.length + i) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'first' });
+    await pushEntered;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'second' }); // its flush queues behind the held one
+    releasePush();
+    await vi.waitFor(() => expect(pushed).toHaveLength(2));
+    await vi.waitFor(async () => expect((await getSyncStatus(ctx)).pendingCount).toBe(0));
+  });
 });
 
 // med-gvk.2 — a half-open connection (captive portal / hung TCP) leaves a bare
@@ -2256,6 +2281,11 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       return new Response('{}', { status: 413 });
     }));
     expect(await forceSnapshot(ctx)).toBe('rejected');
+    // bd med-kraa: the delete flow reads this; a later maybeSnapshot error
+    // (which stamps snapshotErrorSeq) must not mask the local-only import.
+    expect((await getSyncStatus(ctx)).importRejected).toBe(true);
+    await seedMeta({ snapshotError: { status: 413, at: 1 }, snapshotErrorSeq: 40 });
+    expect((await getSyncStatus(ctx)).importRejected).toBe(true);
   });
 
   // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op
@@ -2480,7 +2510,7 @@ describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
     const unsub = onCachedDbDropped(() => { fired += 1; });
     // The orphan still closes itself on versionchange (never blocks
     // deleteDatabase) but must not touch the cache.
-    orphan.onversionchange();
+    orphan.onversionchange({ newVersion: null });
     expect(orphan.close).toHaveBeenCalled();
     orphan.onclose();
     expect(fired).toBe(0);
@@ -4384,5 +4414,639 @@ describe('records.update: locked compare-and-merge on the raw row (med-yzag)', (
     expect(JSON.stringify(res)).not.toContain('fixture-');
     expect(await readStore('records', ID)).toEqual(rowB);
     expect((await settings.readIntegrationsUnmasked()).openai).toMatchObject({ api_key: 'fixture-key-b', url: 'https://b.example/v1' });
+  });
+});
+
+// bd med-nqgd — every read calls bootstrapIfNeeded; with no cursor and a failing
+// snapshot GET, each read used to refetch (hundreds of GETs per render on a 5xx).
+describe('an un-bootstrapped device backs off a failing snapshot read (med-nqgd)', () => {
+  let ctx;
+  let snapGets;
+  let snapStatus;
+  let now;
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    snapGets = 0;
+    snapStatus = 503;
+    now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snapGets++;
+        if (snapStatus === 200) {
+          const records = [{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 121 }];
+          const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: 7, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+          return new Response(JSON.stringify({ snapshot_seq: 7, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+        }
+        return new Response(null, { status: snapStatus });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const burst = (n = 20) => Promise.all(Array.from({ length: n }, () => listRecords(ctx, 'bp')));
+
+  it('single-flights concurrent reads, skips inside the window, retries after it, and clears on success', async () => {
+    await burst();
+    expect(snapGets).toBe(1);
+    await burst();
+    expect(snapGets).toBe(1); // inside the 5 s window: no fetch
+    now += 5_000;
+    await burst();
+    expect(snapGets).toBe(2); // window elapsed: one retry, window doubles to 10 s
+    now += 5_000;
+    await burst();
+    expect(snapGets).toBe(2);
+    now += 5_000;
+    snapStatus = 200; // the server is back with the account's data
+    const [bp] = await burst();
+    expect(snapGets).toBe(3);
+    expect(bp.map((r) => r.systolic)).toEqual([121]);
+    expect((await getSyncStatus(ctx)).offline).toBe(false);
+    await burst();
+    expect(snapGets).toBe(3); // bootstrapped: no further snapshot GETs
+  });
+
+  it('pullOnOpen and a reconnect drain retry at once inside the window', async () => {
+    await burst();
+    expect(snapGets).toBe(1);
+    await pullOnOpen(ctx);
+    expect(snapGets).toBe(2);
+    await requestDrain(ctx);
+    expect(snapGets).toBe(3);
+    snapStatus = 204;
+    await requestDrain(ctx);
+    expect(snapGets).toBe(4);
+    await burst();
+    expect(snapGets).toBe(4);
+  });
+
+  it('a forced open that joins a failing read-started bootstrap still makes its own attempt', async () => {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const fetchEntered = new Promise((r) => { entered = r; });
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/snapshot' && snapGets === 0) { snapGets++; entered(); await held; return new Response(null, { status: 503 }); }
+      return base(url, init);
+    }));
+    const read = listRecords(ctx, 'bp');
+    await fetchEntered;
+    const open = pullOnOpen(ctx);
+    snapStatus = 204; // the server recovered while the read's GET hung
+    release();
+    await Promise.all([read, open]);
+    expect(snapGets).toBe(2);
+    await burst();
+    expect(snapGets).toBe(2); // the forced retry bootstrapped
+  });
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        for (const [k, v] of Object.entries(meta)) tx.objectStore('sync_meta').put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  it('a write inside the window bootstraps first once the server is back', async () => {
+    await burst();
+    expect(snapGets).toBe(1);
+    snapStatus = 200;
+    await writeRecord(ctx, 'bp', { recordId: 'bp-2', clientTs: 2, deleted: false, systolic: 130 }, ORIGIN_UI, { flush: false });
+    expect(snapGets).toBe(2);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+  });
+
+  it('a forced open that joins a rejected read-started bootstrap still makes its own attempt', async () => {
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const fetchEntered = new Promise((r) => { entered = r; });
+    const base = fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/snapshot' && snapGets === 0) {
+        snapGets++; entered(); await held;
+        return new Response('not json', { status: 200 }); // bootstrap's body parse rejects
+      }
+      return base(url, init);
+    }));
+    const read = listRecords(ctx, 'bp');
+    await fetchEntered;
+    const open = pullOnOpen(ctx);
+    snapStatus = 204;
+    release();
+    await expect(read).rejects.toThrow();
+    await open;
+    expect(snapGets).toBe(2);
+    await burst();
+    expect(snapGets).toBe(2);
+  });
+
+  it('a stranded-import refusal does not extend the window, even with a stale offline flag', async () => {
+    await burst(); // 503: offline set, 5 s window
+    expect(snapGets).toBe(1);
+    now += 5_000;
+    await seedMeta({ forceSnapshotPending: true });
+    await burst(); // refused without a fetch; offline still set from the 503
+    expect(snapGets).toBe(1);
+    await seedMeta({ forceSnapshotPending: false });
+    now += 1;
+    await burst(); // the window was not doubled to 10 s by the refusal
+    expect(snapGets).toBe(2);
+  });
+});
+
+describe('a bootstrap begun before a reset or DB drop lands nothing (med-7jgk)', () => {
+  let ctx;
+  let snapGets;
+  let releaseOld;
+  let oldEntered;
+
+  const snapshot = async (seq, recordId) => {
+    const records = [{ recordId, recordType: 'bp', clientTs: 1, deleted: false, systolic: seq }];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: seq, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+    return new Response(JSON.stringify({ snapshot_seq: seq, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+  };
+
+  const deleteDb = () => new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('medtracker-cloud');
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
+
+  const cursor = async () => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction('sync_meta', 'readonly').objectStore('sync_meta').get('localLastSeq');
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await deleteDb();
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    snapGets = 0;
+    const held = new Promise((r) => { releaseOld = r; });
+    let entered;
+    oldEntered = new Promise((r) => { entered = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snapGets++;
+        // The first GET is the pre-wipe one: it hangs, then answers the older snapshot.
+        if (snapGets === 1) { entered(); await held; return snapshot(7, 'bp-old'); }
+        return snapshot(9, 'bp-new');
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('resetLocalSync: the re-bootstrap snapshot and cursor win over the old GET resolved last', async () => {
+    const oldRead = listRecords(ctx, 'bp');
+    await oldEntered;
+    await resetLocalSync(ctx);
+    expect(snapGets).toBe(2);
+    releaseOld();
+    await oldRead;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('a dropped DB: the next bootstrap wins over the old GET resolved last', async () => {
+    const oldRead = listRecords(ctx, 'bp');
+    await oldEntered;
+    await deleteDb(); // versionchange drops the cached handle (e.g. another tab's account delete)
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    releaseOld();
+    await oldRead;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('resetLocalSync: an ops page fetched before the wipe applies nothing after it', async () => {
+    let snaps = 0;
+    let opsGets = 0;
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const opsEntered = new Promise((r) => { entered = r; });
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+        snaps++;
+        return snaps === 1 ? snapshot(7, 'bp-old') : snapshot(9, 'bp-new');
+      }
+      if (u.startsWith('/api/sync/ops')) {
+        opsGets++;
+        if (opsGets === 1) {
+          entered(); await held;
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const oldPull = pullOnOpen(ctx);
+    await opsEntered;
+    await resetLocalSync(ctx); // the new snapshot (seq 9) has no bp-ghost
+    release();
+    await oldPull;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+    expect(await cursor()).toBe(9);
+  });
+
+  it('a benign close and reopen during a pull keeps the page and the cursor', async () => {
+    let opsGets = 0;
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let entered;
+    const opsEntered = new Promise((r) => { entered = r; });
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-tail', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-tail', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        opsGets++;
+        if (opsGets === 1) {
+          entered(); await held;
+          const op = { seq: 8, record_type_tag: 'bp:bp-tail', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const pull = pullOnOpen(ctx);
+    await opsEntered;
+    (await cachedDb()).close(); // no event: the next write hits InvalidStateError and withDb reopens
+    release();
+    await pull;
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId).sort()).toEqual(['bp-old', 'bp-tail']);
+    expect(await cursor()).toBe(8);
+  });
+
+  describe('a push begun before a reset lands no cursor (med-w4nq)', () => {
+    // Snapshot GETs: the initial bootstrap (seq 7), reset's re-bootstrap fails
+    // (503, cursor stays null), then the next read gets seq 9. The first ops
+    // POST hangs until released, then reports the seq it would have assigned.
+    let releasePost;
+    let postEntered;
+    let snaps;
+    beforeEach(() => {
+      snaps = 0;
+      const held = new Promise((r) => { releasePost = r; });
+      let entered;
+      postEntered = new Promise((r) => { entered = r; });
+      let posts = 0;
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        const u = String(url);
+        if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) {
+          snaps++;
+          if (snaps === 1) return snapshot(7, 'bp-old');
+          if (snaps === 2) return new Response('busy', { status: 503 });
+          return snapshot(9, 'bp-new');
+        }
+        if (u === '/api/sync/ops' && init?.method === 'POST') {
+          posts++;
+          if (posts === 1) { entered(); await held; }
+          return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+        }
+        if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+        return new Response('{}', { status: 200 });
+      }));
+    });
+
+    const resetThenRelease = async () => {
+      await postEntered;
+      const reset = resetLocalSync(ctx).catch((e) => e);
+      // reset's own flush queues behind the hung one, so release it before awaiting reset.
+      await vi.waitFor(() => expect(snaps).toBe(2));
+      releasePost();
+      expect(await reset).toBeInstanceOf(Error); // re-bootstrap failed: cursor null
+    };
+
+    it('flushPending: the ack after the wipe writes no cursor; the next read bootstraps', async () => {
+      await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+      await resetThenRelease();
+      expect(await cursor()).toBe(null);
+      await pullOnOpen(ctx);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+      expect(await cursor()).toBe(9);
+    });
+
+    it('forceSnapshot: the bump answered after the wipe writes no cursor; the next read bootstraps', async () => {
+      await listRecords(ctx, 'bp');
+      const forced = forceSnapshot(ctx);
+      await resetThenRelease();
+      await forced;
+      expect(await cursor()).toBe(null);
+      await pullOnOpen(ctx);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-new']);
+      expect(await cursor()).toBe(9);
+    });
+  });
+});
+
+// bd med-0vdh — the other tab is a second connection to the same DB: its reset
+// is the new bundle's wipe (clear + bump sync_meta 'syncGen'), its write a raw put.
+describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
+  let ctx;
+  let other;
+
+  const deleteDb = () => new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase('medtracker-cloud');
+    req.onsuccess = resolve;
+    req.onerror = () => reject(req.error);
+  });
+  const txDone = (tx) => new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  // Creates its transaction synchronously, so it is ordered before any later
+  // one. `older`: an older bundle's reset, which knows no syncGen.
+  const otherTabReset = ({ older = false } = {}) => {
+    const tx = other.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+    tx.objectStore('records').clear();
+    tx.objectStore('pending').clear();
+    tx.objectStore('sync_meta').clear();
+    if (!older) tx.objectStore('sync_meta').put(crypto.randomUUID(), 'syncGen');
+    return txDone(tx);
+  };
+  const getAll = async (store) => {
+    const tx = other.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    await txDone(tx);
+    return req.result;
+  };
+  const cursor = async () => {
+    const tx = other.transaction('sync_meta', 'readonly');
+    const req = tx.objectStore('sync_meta').get('localLastSeq');
+    await txDone(tx);
+    return req.result ?? null;
+  };
+  const snapshot = async (seq, recordId) => {
+    const records = [{ recordId, recordType: 'bp', clientTs: 1, deleted: false, systolic: seq }];
+    const { nonce, ct } = await encryptSnapshot({ kData: ctx.kData, accountId, snapshotSeq: seq, plaintext: new TextEncoder().encode(JSON.stringify(records)) });
+    return new Response(JSON.stringify({ snapshot_seq: seq, nonce: toBase64(nonce), ct: toBase64(ct) }), { status: 200 });
+  };
+  const gate = () => {
+    let release;
+    let entered;
+    const held = new Promise((r) => { release = r; });
+    const reached = new Promise((r) => { entered = r; });
+    return { release, reached, hold: async () => { entered(); await held; } };
+  };
+
+  beforeEach(async () => {
+    await deleteDb();
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    other = await openDb();
+  });
+
+  afterEach(() => {
+    other.close();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('a pull whose ops page answers after the reset applies nothing and writes no cursor', async () => {
+    const page = gate();
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    let opsGets = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        if (++opsGets === 1) {
+          await page.hold();
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    const pull = pullOnOpen(ctx);
+    await page.reached;
+    await otherTabReset();
+    page.release();
+    await pull;
+    expect(await getAll('records')).toEqual([]);
+    expect(await cursor()).toBe(null);
+  });
+
+  it('an older bundle\'s reset between two current ones still fences a pull', async () => {
+    const page = gate();
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    let holdOps = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        if (holdOps) {
+          holdOps = false;
+          await page.hold();
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    // Tab B: the real resetLocalSync from a second module instance (its own
+    // syncEpoch and cached connection). Its first reset sets the generation.
+    vi.resetModules();
+    const tabB = await import('../sync.js');
+    await tabB.resetLocalSync(ctx);
+    holdOps = true;
+    const pull = pullOnOpen(ctx); // captures B's generation
+    await page.reached;
+    await otherTabReset({ older: true });
+    await tabB.resetLocalSync(ctx); // re-bootstraps to seq 7
+    page.release();
+    await pull;
+    expect((await getAll('records')).map((r) => r.recordId)).toEqual(['bp-old']);
+    expect(await cursor()).toBe(7);
+  });
+
+  it('a push acked after the reset writes no cursor', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        await post.hold();
+        return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+    await post.reached;
+    await otherTabReset();
+    post.release();
+    await flushConfirmed(ctx); // queues behind the held push
+    expect(await cursor()).toBe(null);
+  });
+
+  it('a push refused after the reset writes no error streak into the reset store', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        await post.hold();
+        return new Response('too big', { status: 400 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+    await post.reached;
+    await otherTabReset();
+    post.release();
+    await flushConfirmed(ctx);
+    const tx = other.transaction('sync_meta', 'readonly');
+    const streak = tx.objectStore('sync_meta').get('writeErrorStreak');
+    await txDone(tx);
+    expect(streak.result).toBe(undefined);
+  });
+
+  it('forceSnapshot: a reset landing before the records read uploads no snapshot', async () => {
+    let bumped = false;
+    let snapshotPosts = 0;
+    let reset = null;
+    const tab = {
+      accountId,
+      kMac: ctx.kMac,
+      // snapshotAt reads the key right before it reads the records.
+      get kData() {
+        if (bumped && !reset) reset = otherTabReset();
+        return ctx.kData;
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot') {
+        if (init?.method === 'POST') { snapshotPosts++; return new Response('{}', { status: 200 }); }
+        return snapshot(7, 'bp-old');
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        bumped = true;
+        return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(tab, 'bp');
+    await forceSnapshot(tab);
+    await reset;
+    expect(reset).not.toBe(null);
+    expect(snapshotPosts).toBe(0);
+  });
+
+  it('a snapshot read before another tab\'s import does not clear that import\'s rejection', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot') {
+        if (init?.method === 'POST') { await post.hold(); return new Response('{}', { status: 200 }); }
+        return snapshot(7, 'bp-old');
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    const forced = forceSnapshot(ctx);
+    await post.reached;
+    // Another tab imports (its replace writes a new importGen) and that import is rejected.
+    const tx = other.transaction('sync_meta', 'readwrite');
+    tx.objectStore('sync_meta').put('their-import', 'importGen');
+    tx.objectStore('sync_meta').put(true, 'importRejected');
+    await txDone(tx);
+    post.release();
+    await forced;
+    const rtx = other.transaction('sync_meta', 'readonly');
+    const rejected = rtx.objectStore('sync_meta').get('importRejected');
+    await txDone(rtx);
+    expect(rejected.result).toBe(true);
+  });
+
+  it('the push ack keeps another tab\'s same-millisecond edit queued', async () => {
+    const tx = other.transaction('sync_meta', 'readwrite');
+    tx.objectStore('sync_meta').put(0, 'localLastSeq');
+    tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+    await txDone(tx);
+    const post = gate();
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        if (++posts === 1) await post.hold();
+        return new Response(JSON.stringify({ assigned: [posts] }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'tab A' });
+    await post.reached;
+    // Tab B stamped the same clientTs (same millisecond) and queued its own row.
+    const [mine] = await getAll('records');
+    const wtx = other.transaction(['records', 'pending'], 'readwrite');
+    wtx.objectStore('records').put({ ...mine, text: 'tab B' });
+    wtx.objectStore('pending').put({ recordId: 'note-1', recordType: 'note', token: 'tab-b' });
+    await txDone(wtx);
+    post.release();
+    await vi.waitFor(() => expect(posts).toBe(2));
+    await vi.waitFor(async () => expect(await getAll('pending')).toEqual([]));
   });
 });

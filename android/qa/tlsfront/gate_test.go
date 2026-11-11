@@ -23,4 +23,29 @@ func TestListenGateReceiveTagsSyncPush(t *testing.T) {
 	if rest, _ := io.ReadAll(r.Body); string(rest) != body {
 		t.Fatalf("proxied body = %q", rest)
 	}
+	large := strings.Repeat("x", (4<<20)+2)
+	big := httptest.NewRequest("POST", "/large", strings.NewReader(large))
+	g.receive(big)
+	if !g.receipts[2].InspectionTruncated {
+		t.Fatal("oversized request was not marked as incompletely inspected")
+	}
+	if rest, _ := io.ReadAll(big.Body); string(rest) != large {
+		t.Fatal("oversized request body changed")
+	}
+}
+
+// The EU scenario records a boolean only, keeping the proxied body intact.
+func TestListenGateSyntheticNameEgress(t *testing.T) {
+	g := &listenGate{}
+	g.receive(httptest.NewRequest("GET", "/lookup?name=Can%64ecor", nil))
+	body := `{"name":"Candecor"}`
+	r := httptest.NewRequest("POST", "/lookup", strings.NewReader(body))
+	g.receive(r)
+	g.receive(httptest.NewRequest("GET", "/lookup?name=other", nil))
+	if !g.receipts[0].NameEgress || !g.receipts[1].NameEgress || g.receipts[2].NameEgress {
+		t.Fatalf("name flags: %+v", g.receipts)
+	}
+	if rest, _ := io.ReadAll(r.Body); string(rest) != body {
+		t.Fatalf("proxied body = %q", rest)
+	}
 }

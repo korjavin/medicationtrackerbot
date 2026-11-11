@@ -968,7 +968,13 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
     // reveal, typed-confirm gate, export-first, and that confirm drives the
     // cloud module's reauthAndDelete + redirect.
     describe('delete account flow', () => {
-        const mountCloudWithDeleteModule = async (window, overrides = {}) => {
+        const mountCloudWithDeleteModule = async (window, overrides = {}, sync = {}) => {
+            // The sync engine the pre-wipe drain asks (bd med-kraa): drained, nothing pending.
+            window.loadCloudSyncModule = () => Promise.resolve({
+                requestDrain: vi.fn(async () => {}),
+                getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: false })),
+                ...sync,
+            });
             const mod = {
                 DELETE_CONFIRM_PHRASE: 'DELETE',
                 reauthAndDelete: vi.fn(async () => {}),
@@ -1198,6 +1204,158 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
 
                 await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
                 expect(leaveAccount).toHaveBeenCalledTimes(1);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // bd med-kraa: the pre-wipe deletes the outbound queue, so a cancelled
+        // passkey would lose entries the server lacks. Drain first; if any
+        // remain, one in-page choice (Miles, Zulip 22739/22767): Export backup /
+        // Continue / Cancel — a warning, never a refusal, and only Continue wipes.
+        const UNSYNCED_COPY = "Some entries haven't synced yet. Connect and try again, or export a backup first. If you continue and then cancel the passkey step, they're gone.";
+        const LOCAL_ONLY_COPY = "Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?";
+        const status = (s) => ({ getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: false, importRejected: false, ...s })) });
+        const lossChoice = async (window, document, sync) => {
+            const mod = await mountCloudWithDeleteModule(window, {}, sync);
+            await confirmDelete(window, document);
+            const dialog = await vi.waitFor(() => {
+                const d = document.querySelector('mt-modal.mt-confirm-modal');
+                if (!d?.querySelector('.mt-confirm-modal__choice')) throw new Error('no choice dialog');
+                return d;
+            });
+            expect(mod.clearLocalVault).not.toHaveBeenCalled();
+            expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+            const pick = (label) => [...dialog.querySelectorAll('.mt-confirm-modal__choice')].find((b) => b.textContent === label).click();
+            return { mod, dialog, pick };
+        };
+
+        it.each([
+            ['entries waiting to sync', status({ pendingCount: 2 }), UNSYNCED_COPY],
+            ['an import the server refused for good', status({ importRejected: true }), LOCAL_ONLY_COPY],
+        ])('%s: the choice offers Export backup / Continue / Cancel; Continue proceeds in the current order', async (_name, sync, copy) => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { mod, dialog, pick } = await lossChoice(window, document, sync);
+                expect(dialog.textContent).toContain(copy);
+                expect([...dialog.querySelectorAll('.mt-confirm-modal__choice')].map((b) => b.textContent)).toEqual(['Export backup', 'Continue']);
+                expect(dialog.querySelector('.mt-confirm-modal__cancel').textContent).toBe('Cancel');
+                pick('Continue');
+                await vi.waitFor(() => expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1));
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(mod.clearLocalVault.mock.invocationCallOrder[0]).toBeLessThan(mod.reauthAndDelete.mock.invocationCallOrder[0]);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it.each([
+            ['entries waiting to sync', status({ pendingCount: 2 })],
+            ['an import the server refused for good', status({ importRejected: true })],
+        ])('%s: Export backup opens Backup & import and wipes nothing', async (_name, sync) => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { mod, pick } = await lossChoice(window, document, sync);
+                pick('Export backup');
+                await vi.waitFor(() => expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
+                    ?.querySelector('.wg-pagebar__title').textContent).toBe('Backup & import'));
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+                expect(document.getElementById('delete-account-open').disabled).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it.each([
+            ['entries waiting to sync', status({ pendingCount: 2 })],
+            ['an import the server refused for good', status({ importRejected: true })],
+        ])('%s: Cancel wipes and deletes nothing', async (_name, sync) => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { mod, dialog } = await lossChoice(window, document, sync);
+                dialog.querySelector('.mt-confirm-modal__cancel').click();
+                await vi.waitFor(() => expect(document.getElementById('delete-account-open').disabled).toBe(false));
+                expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+                expect(document.getElementById('delete-account-error').textContent).toBe('');
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // Every state the server may lack, or that can't be checked, gets the
+        // unsynced warning — never a silent wipe, never a dead end.
+        it.each([
+            ['a drain that throws', { requestDrain: vi.fn(async () => { throw new Error('offline'); }) }],
+            ['an unreadable sync status', { getSyncStatus: vi.fn(async () => { throw new Error('idb'); }) }],
+            ['a full-vault import still waiting to upload', status({ importPending: true })],
+            ['a queued edit beside a rejected import', status({ pendingCount: 1, importRejected: true })],
+            // Precedence: an older tab never clears importRejected, so a stale
+            // flag must not relabel an import that is still waiting to upload.
+            ['an import waiting beside a (stale) rejected flag', status({ importPending: true, importRejected: true })],
+        ])('%s shows the unsynced warning first', async (_name, sync) => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { dialog } = await lossChoice(window, document, sync);
+                expect(dialog.textContent).toContain(UNSYNCED_COPY);
+                expect(dialog.textContent).not.toContain('exist only on this device');
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it.each([
+            ['a drain', { requestDrain: vi.fn(() => new Promise(() => {})) }], // offline: never settles
+            ['a status read', { getSyncStatus: vi.fn(() => new Promise(() => {})) }], // blocked IndexedDB
+        ])('%s still running after 15 s shows the unsynced warning', async (_name, sync) => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const mod = await mountCloudWithDeleteModule(window, {}, sync);
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                await confirmDelete(window, document);
+                await vi.advanceTimersByTimeAsync(15000);
+                vi.useRealTimers();
+                await vi.waitFor(() => expect(document.querySelector('mt-modal.mt-confirm-modal')?.textContent).toContain(UNSYNCED_COPY));
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('with nothing pending, the drain runs before the pre-wipe and the order is unchanged', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const order = [];
+                const mod = await mountCloudWithDeleteModule(window, {
+                    clearLocalVault: vi.fn(async () => { order.push('wipe'); }),
+                    reauthAndDelete: vi.fn(async () => { order.push('reauthAndDelete'); }),
+                }, {
+                    requestDrain: vi.fn(async () => { order.push('drain'); }),
+                    getSyncStatus: vi.fn(async () => { order.push('status'); return { pendingCount: 0, importPending: false }; }),
+                });
+                await vi.waitFor(() => expect(order).toContain('status')); // the vault card's read on open
+                order.length = 0;
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(order).toEqual(['drain', 'status', 'wipe', 'reauthAndDelete', 'wipe']));
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(document.getElementById('delete-account-error').textContent).toBe('');
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();

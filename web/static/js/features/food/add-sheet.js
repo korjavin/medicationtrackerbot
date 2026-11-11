@@ -795,8 +795,13 @@
             await settle('commit');
             const saved = Array.isArray(res && res.items) ? res.items : [];
             const failed = Math.max(0, Math.trunc(Number(res && res.failed) || 0));
-            await ds.invalidateTags(['food', 'gamification']);
-            if (typeof todayFoodKey === 'function' && ds.clearCached) await ds.clearCached(todayFoodKey(new Date()));
+            // Today's day key keeps the optimistic total until the fresh read
+            // (bd med-mc9l) — only when every item landed; v2 rows hold local_ ids.
+            const keep = failed === 0 && saved.length === items.length ? [dayKey] : [];
+            await ds.invalidateTags(['food', 'gamification'], { keep });
+            if (typeof todayFoodKey === 'function' && ds.clearCached && !keep.includes(todayFoodKey(new Date()))) {
+                await ds.clearCached(todayFoodKey(new Date()));
+            }
             close();
             loadFoodLogs();
             if (typeof loadToday === 'function') loadToday();

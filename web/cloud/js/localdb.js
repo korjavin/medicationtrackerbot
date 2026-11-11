@@ -55,16 +55,21 @@ const dropListeners = new Set();
 // and spuriously fire the drop listeners (blowing sync.js's records memo and
 // resetting `bootstrapped`). Explicit dropCachedDb() passes no owner and always
 // drops. Mirrors the p.catch identity guard on the reject side.
-function dropCache(owner) {
+// `wiped` (bd med-7jgk): the store's contents may be gone — a deleteDatabase
+// (versionchange with newVersion null) or a forced close (the browser fires
+// onclose only for abnormal closes, e.g. site data cleared). A version upgrade,
+// our own close() or a withDb reopen keeps the data.
+function dropCache(owner, wiped = false) {
   if (owner && dbPromise !== owner) return;
   dbPromise = null;
   for (const cb of dropListeners) {
-    try { cb(); } catch { /* one bad listener can't break the rest */ }
+    try { cb({ wiped }); } catch { /* one bad listener can't break the rest */ }
   }
 }
 
 // Register a callback fired whenever the cached connection is dropped
-// (versionchange, onclose, or explicit dropCachedDb). Returns an unsubscribe.
+// (versionchange, onclose, or explicit dropCachedDb) with { wiped } (see
+// dropCache). Returns an unsubscribe.
 export function onCachedDbDropped(cb) {
   dropListeners.add(cb);
   return () => dropListeners.delete(cb);
@@ -84,8 +89,8 @@ export function cachedDb() {
       const db = req.result;
       // An orphaned handle still closes on versionchange (so it can never block
       // deleteDatabase), it just no longer touches the cache — see dropCache.
-      db.onversionchange = () => { db.close(); dropCache(p); };
-      db.onclose = () => dropCache(p);
+      db.onversionchange = (e) => { db.close(); dropCache(p, e.newVersion === null); };
+      db.onclose = () => dropCache(p, true);
       resolve(db);
     };
     req.onerror = () => reject(req.error);

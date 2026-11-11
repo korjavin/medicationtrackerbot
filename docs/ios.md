@@ -114,14 +114,15 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → four `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → nine `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
   CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; the
   only part that waits for healthd, `QA_HEALTH_READY=1`), **data** (Backup,
-  Stash), **rest** (every other class in the bundle; today Lock and
-  EURegister). The class lists live once, in the workflow env `QA_PARTS`;
+  Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **eu**
+  (EURegister), **reminders** (grant and cold notification tap), **reminders-denied** (refusal and iOS Settings handoff), **rest** (every other class in the bundle; today Lock and
+  Navigation). The class lists live once, in the workflow env `QA_PARTS`;
   rest is the bundle minus every listed class, so **a new class runs in rest
   by default; move it into a named part when rest passes ~8 min of flows.**
   Then the **`qa` gate** (ubuntu): green only when every part passed — "qa
@@ -133,10 +134,16 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (comma list, implies `qa`; unknown names fail). `qa_parts` runs parts by hand and never
   produces the gate (`qa` shows skipped); the exact-head gate is a run with
   every part.
-- **Output:** each part's step summary has one row per test (result plus
-  failure message) and uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
+- **Output:** each part's step summary reports simulator settle and healthd
+  readiness times, per-test result, duration, factor vs a fixed green reference
+  and failure message, plus the test with the highest factor vs its green
+  reference. Missing references are `n/a`.
+  It uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
   a failed test's UI hierarchy (`<Class>-<test>-hierarchy.txt`) and
-  `webcontent-rss-<part>.log`. The gate merges them into the one artifact
+  `webcontent-rss-<part>.log`, `qa-tests-<part>.json` (xcresult test data),
+  `tlsfront-<part>.log`, `cloud-<part>.log` and `receipts-<part>.json` (fake
+  server evidence, when available).
+  The gate merges them into the one artifact
   `ios-qa` (full runs only; the newest attempt of each part):
   `gh run download <run> -n ios-qa -D /tmp/ios-qa`. After "Re-run failed
   jobs" each attempt keeps its own `ios-qa-<part>` (the failed attempt's
@@ -164,7 +171,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   export picker shows and is gone once it is swiped away (med-o7zq.43). `testRestoreFromFile` — restore via
   the Settings import input (driver seed) into an erased store, records survive
   a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
-  Meds empty after relaunch, local mode kept.
+  Meds empty after relaunch, local mode kept. `testBackupExportRestoreChain`
+  saves and restores the same file through Files, checks typed Replace and
+  corrupt-file refusal, and audits the vault through the `backup-audit` and
+  `backup-sentinel` flow-only scenes.
 - **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
   bd med-w6gx.23.3): the shell's stashes from the local
   side, as files in the container's `Application Support/{move,leave}/vault.json`:
@@ -187,8 +197,13 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   relaunch: cache-first when WebKit stored it. The driver's `euRegister`
   step puts the numbers in the report; the test attaches them as
   `eu-register-<step>.json`, and the `qa-part` job writes the Simulator's
-  WebContent RSS each second to `webcontent-rss-rest.log` (rest's part; both in `ios-qa`;
-  match the RSS to the JSON's epoch-ms windows).
+  WebContent RSS each second to `webcontent-rss-eu.log` (both in `ios-qa`;
+  match the RSS to the JSON's epoch-ms windows). `testAccountEURegister`
+  claims its own account, caches and saves Candecor, stops the fake listener,
+  and checks the saved chip after relaunch. Its Debug-only `eu-probe.js`
+  simulates an encrypted peer setting and observes a real pull-to-refresh;
+  the server receipts record only a boolean for the synthetic name, never
+  request bodies or queries.
 - **Core local flows** ([`FlowQACoreLocalTests.swift`](../ios/UITests/FlowQACoreLocalTests.swift),
   bd med-sz4k.6.1, twin of Android's `core-local`): `testCoreLocal` on the
   golden seed, one launch per `flowOnly` + `flow` scene `core-local-*`
@@ -275,8 +290,23 @@ tlsfront with `-control 127.0.0.1:8768`: from the Simulator,
 `https://qa.test:8768` (same CA) answers `GET /receipts` (every request it
 received, host/method/path/status), `POST /stop` (close the listener and its
 connections) and `POST /start` (`QA.fakeServer` / `QA.receipts`). The `qa` job runs every
-`MedTrackerUITests` class but `VisualQATests`, so a flow class in its own file
-needs no workflow edit.
+`MedTrackerUITests` class but `VisualQATests` and `HealthDiagnosticTests`;
+classes absent from `QA_PARTS` run in `rest`.
+
+The update and degraded parts set `QA_BUNDLES=1`: `build-bundles.mjs` makes two stamped
+cloud binaries and tlsfront supervises their serial swap (`-cloud-a`,
+`-cloud-b`, `-cloud-log`; POST `/switch-b` on `127.0.0.1:8766`). The server
+also mints `QA_UPDATE_CLAIM_URL`. Its Debug-only page probe
+[`ios/qa/update-probe.js`](../ios/qa/update-probe.js) is appended to the
+soft authenticator only for this part (`QA_UPDATE_PROBE=1`), to observe the
+worker and document and issue synthetic rechecks. The real Home/return event
+is recorded separately. The degraded part instead appends
+[`ios/qa/degraded-probe.js`](../ios/qa/degraded-probe.js) with
+`QA_DEGRADED_PROBE=1`: it saves and evicts the good A/B module responses,
+observes banner replacement, and restores those responses for host-stopped
+recovery. The fixture's `/arm` and `/release` controls inject one held 503.
+Both reminder parts append [`ios/qa/reminder-probe.js`](../ios/qa/reminder-probe.js)
+with `QA_REMINDER_PROBE=1` to create a real medication and observe native scheduling.
 
 ### Owner device checklist (account flows, need a passkey)
 

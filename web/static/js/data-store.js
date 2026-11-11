@@ -224,6 +224,7 @@
             const self = this;
             let settled = false;
             return {
+                key,
                 async commit(serverPayload) {
                     if (settled) return;
                     settled = true;
@@ -517,7 +518,9 @@
             }
         },
 
-        async invalidateByTag(tag) {
+        // `keep`: keys the caller just committed — still superseded (generation
+        // bump), but their cache stays painted until the fresh read lands.
+        async invalidateByTag(tag, keep = []) {
             const registered = tagToKeys.get(tag);
             const prefixes = tagFamilies.get(tag);
 
@@ -572,15 +575,16 @@
             // deferred to the last settle (flushDeferredEvict) instead.
             const evict = [];
             for (const key of toEvict) {
+                if (keep.includes(key)) continue;
                 if ((pendingOptimistic.get(key) || 0) > 0) deferredEvict.add(key);
                 else evict.push(key);
             }
             await Promise.all(evict.map((key) => this.clearCached(key)));
         },
 
-        async invalidateTags(tags = []) {
+        async invalidateTags(tags = [], { keep = [] } = {}) {
             for (const tag of tags) {
-                await this.invalidateByTag(tag);
+                await this.invalidateByTag(tag, keep);
             }
         },
 

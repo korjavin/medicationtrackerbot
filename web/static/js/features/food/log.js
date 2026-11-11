@@ -590,11 +590,16 @@ async function writeFoodLog(payload, id) {
 
     // The write answers with the log, not the day payload: commit the
     // optimistic rows, then invalidate `food` so the next read is authoritative.
+    // Today's day key (totals only) stays painted until that read lands —
+    // evicting it read the Fuel tile as 0 in between (bd med-mc9l). The v2 key
+    // goes: its rows carry the local_ id behind Edit/Delete.
     for (const h of handles) {
         try { await h.commit(null); } catch (_) { /* best-effort */ }
     }
-    await window.DataStore.invalidateTags(['food', 'gamification']);
-    if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+    const keep = [dayKey];
+    await window.DataStore.invalidateTags(['food', 'gamification'], { keep });
+    if (typeof todayFoodKey === 'function' && window.DataStore.clearCached
+        && !keep.includes(todayFoodKey(new Date()))) {
         await window.DataStore.clearCached(todayFoodKey(new Date()));
     }
     loadFoodLogs();
@@ -1155,7 +1160,7 @@ async function _deleteFoodLogApi(id) {
     }
 
     for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-    await window.DataStore.invalidateTags(['food', 'gamification']);
+    await window.DataStore.invalidateTags(['food', 'gamification'], { keep: handles.map((h) => h.key) });
     loadFoodLogs();
     return true;
 }

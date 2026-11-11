@@ -406,8 +406,8 @@ if (setupOk) await flow('boot-degraded-reload', async () => {
 // The visual scene meds-timeline-focus-in-view (06:00: Next today 09:00, Later
 // today 21:00, an overdue Pending dose), run here as a gate: its inView probe
 // must find the focus card's Take and Skip inside the viewport, above the tab
-// bar, on Pixel 7 and at the iPhone 390pt width (the ios-visual and Android
-// local-visual runs only report it).
+// bar, on Pixel 7 and at the iPhone 390pt width. The iOS strict visual_scenes
+// dispatch and Android local-visual gate it too.
 if (setupOk) await flow('meds-timeline-focus-in-view', async () => {
   const sizes = { 'pixel-7': DEVICE.viewport, 'iphone-390': { width: 390, height: 844 } };
   const notes = [];
