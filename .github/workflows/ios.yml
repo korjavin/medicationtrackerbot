@@ -428,7 +428,7 @@ jobs:
             exit 0
           fi
           list="$(jq -r --argjson k "$SHARD" --argjson n "$SHARDS" '
-            [.scenes[] | select(.cloudOnly != true and .flowOnly != true and (.platform // "ios") == "ios") | .name]
+            [.scenes[] | select(.cloudOnly != true and .flowOnly != true and ((.platform | type) != "string" or .platform == "ios")) | .name]
             | ((length + $n - 1) / $n | floor) as $size
             | .[($k - 1) * $size : $k * $size] | join(",")' tests/visual/scenes.json)"
           echo "part $SHARD/$SHARDS: $(tr ',' '\n' <<< "$list" | wc -l | tr -d ' ') scenes"

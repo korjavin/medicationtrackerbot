@@ -192,8 +192,8 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    out), so a device never boots alongside another or the build.
 
    **One device per job** (bd med-y5xx.12): `visual` is a two-entry matrix
-   (`width` 390 / 440, `fail-fast: false`, a concurrency group per width so
-   the two never cancel each other), each building, booting and shooting its
+   (`width` 390 / 440, `fail-fast: false`, a concurrency group per job so
+   the jobs never cancel each other), each building, booting and shooting its
    own device and uploading `ios-visual-<width>-<shard>` (1-day retention;
    each width later split into two contiguous halves of the catalog, bd
    med-05az). The
