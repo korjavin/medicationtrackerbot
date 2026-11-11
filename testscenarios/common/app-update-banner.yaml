@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: tests/visual/playwright/flows.mjs#app-update-banner
   android: android/qa/scenarios/update-banner.mjs#updateBanner  # real account A/B cold open, dedupe and Reload; Home/resume visibility-delivery gap med-jyxy is non-gating; local bundled mode N/A; Play-installed update is manual release residue, not an invariant here
-  ios: manual  # no iOS run yet: the account-mode cold open across two served bundles (one banner, none on a matching build, Reload lands on the new build) is med-sz4k.6.2; local mode loads the bundled app; a TestFlight-installed update is ios/ios-testflight-update
+  ios: ios/UITests/FlowQAUpdateBannerTests.swift#testAccountUpdateBanner  # account-mode A/B cold open, trusted Home/return visibility with no duplicate, synthetic rechecks and Reload; local mode is bundled and not applicable; TestFlight-installed update remains ios/ios-testflight-update
 source: [med-kk1q.6]

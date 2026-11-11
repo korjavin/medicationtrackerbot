@@ -85,7 +85,7 @@
         // Never import over a real vault: the QA bundle is local mode only; the
         // cloud pass opts in for its fresh test account.
         if (!document.documentElement.classList.contains('wg-local-vault') && !window.__wgQACloud) throw new Error('not local mode');
-        if (!(await window.CloudVault.hasUserContent())) {
+        if (!def.allowEmpty && !(await window.CloudVault.hasUserContent())) {
             await seed();
             return; // the import reloads the page; the next load runs the scene
         }
@@ -103,6 +103,32 @@
         if (typeof document.getAnimations === 'function') {
             await Promise.race([Promise.all(document.getAnimations()
                 .filter((a) => !(a.effect && a.effect.getTiming().iterations === Infinity)).map((a) => a.finished.catch(() => {}))), sleep(3000)]);
+        }
+        if (def.vaultAudit) {
+            const vault = JSON.parse(await window.CloudVault.exportAll());
+            const counts = {};
+            for (const [key, value] of Object.entries(vault.data || {})) {
+                if (Array.isArray(value)) counts[key] = value.length;
+                else if (value && typeof value === 'object') {
+                    for (const [child, rows] of Object.entries(value)) {
+                        if (Array.isArray(rows)) counts[`${key}.${child}`] = rows.length;
+                    }
+                }
+            }
+            // Hash the vault without publishing synthetic API keys into the
+            // accessibility tree or CI artifacts. The two backup clock fields
+            // change on each export; all records and settings remain covered.
+            delete vault.exported_at;
+            if (vault.data.protection) vault.data.protection.last_backup_at = '<export time>';
+            const canonical = (value) => {
+                if (Array.isArray(value)) return value.map(canonical);
+                if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+                return value;
+            };
+            const bytes = new TextEncoder().encode(JSON.stringify(canonical(vault)));
+            const digest = await window.crypto.subtle.digest('SHA-256', bytes);
+            const vaultHash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+            qa.vaultAudit = { counts, vaultHash };
         }
         publish(report(def));
         watch(def);
@@ -387,8 +413,15 @@
         } else if (step.click) {
             // optional: tap it if it shows within 3 s (a sheet only some
             // devices open, e.g. the notification ask after a dose write).
+            // reveal: tap that element whenever it shows while waiting, e.g. a
+            // fold a later render puts back (the plans list paints its cache,
+            // then re-renders folded from the fresh read; med-zbka).
             try {
-                await until(() => firstVisible(step.click), step.optional ? 3000 : STEP_MS, `click ${step.click}`);
+                await until(() => {
+                    const el = firstVisible(step.click);
+                    if (!el && step.reveal) { const r = firstVisible(step.reveal); if (r) r.click(); }
+                    return el;
+                }, step.optional ? 3000 : STEP_MS, `click ${step.click}`);
             } catch (e) {
                 if (step.optional) return;
                 throw e;
@@ -1249,7 +1282,7 @@
             if (probes.inView.some((v) => !v.ok)) failed.push('inView');
         }
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), reminderSlot: qa.reminderSlot, euRegister: qa.euRegister,
-            flow: def.flow ? flowState(def) : undefined };
+            flow: def.flow ? flowState(def) : undefined, vaultAudit: qa.vaultAudit };
     }
 
     // The EU register check on this shell (bd med-3u28.4, twin of Android's

@@ -6,6 +6,7 @@
 // publish the accessible ready node with the probe report.
 import 'fake-indexeddb/auto';
 import fs from 'node:fs';
+import { webcrypto } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
@@ -51,6 +52,8 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         });
         vi.stubGlobal('fetch', fetchImpl);
         env = loadFrontendEnv({ withWorkout: true, url: 'https://example.test/?qa=today' });
+        env.window.TextEncoder = TextEncoder;
+        Object.defineProperty(env.window.crypto, 'subtle', { value: webcrypto.subtle, configurable: true });
         env.window.fetch = fetchImpl;
         // Track every Today load so teardown can await them: a load resolving
         // after env.cleanup() hit the removed `document` (med-i7v5).
@@ -141,6 +144,25 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         // Idempotent: the later loads found content and never imported again.
         expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
         expect(window.document.querySelectorAll('#wg-qa-ready')).toHaveLength(1);
+    });
+
+    it('audits an empty vault without seeding it', async () => {
+        const { window } = env;
+        const empty = await load('backup-audit');
+        expect(empty.error).toBeUndefined();
+        expect(empty).toMatchObject({ scene: 'backup-audit', ok: true });
+        expect(empty.vaultAudit.counts['medications.items']).toBe(0);
+        expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+        expect(empty.vaultAudit.vaultHash).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('audits the seeded collections', async () => {
+        expect(await load('today')).toBeNull();
+        const seeded = await load('backup-audit');
+        expect(seeded).toMatchObject({ scene: 'backup-audit', ok: true });
+        expect(seeded.vaultAudit.counts['medications.items']).toBeGreaterThan(0);
+        expect(seeded.vaultAudit.counts['bp.readings']).toBeGreaterThan(0);
+        expect(seeded.vaultAudit.vaultHash).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('reports a flow scene\'s page state and native tap targets (med-sz4k.6.1)', async () => {
@@ -255,7 +277,17 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         window.eval(DRIVER_SRC);
         await vi.waitFor(() => expect(window.sessionStorage.getItem('wg-qa-two-plans')).toBe('1'), { timeout: 10000 });
 
+        // med-zbka: the fresh read re-renders the list folded right after the
+        // first "All 7 days" tap; the click on day 7 re-taps the fold.
+        let refolds = 0;
+        window.document.addEventListener('click', (e) => {
+            if (refolds === 0 && e.target.closest('#workout-groups-list .wg-tl-more')) {
+                refolds += 1;
+                window.setTimeout(() => window.loadWorkoutGroups(), 0);
+            }
+        }, true); // capture: the fold removes itself in its own handler
         expect(await load('workouts-plan-day')).toMatchObject({ ok: true, failed: [] });
+        expect(refolds).toBe(1);
         const page = window.document.querySelector('.wg-page[data-plan-day-page="29"]');
         expect(page.querySelector('.wg-pagebar__crumb').textContent).toBe('Push/Pull · day 7 of 7');
         expect(page.querySelector('.wg-pl__desc').textContent).toBe('Quad-focused leg day with strength emphasis, plus calves.');

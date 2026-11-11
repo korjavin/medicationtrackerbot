@@ -125,6 +125,21 @@ describe('createEmptyState / createOfflineEmptyState / createErrorState / create
         }
     });
 
+    it('a degraded page says Reload while navigator.onLine is true and no reason is passed (med-bdts)', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            Object.defineProperty(window.navigator, 'onLine', { value: true, configurable: true });
+            window.MedTrackerCloud = { degraded: { error: new Error('boom'), at: 1 } };
+            const el = window.createOfflineEmptyState({ tag: 'li' });
+            expect(el.tagName).toBe('LI');
+            expect(el.querySelector('.wg-empty__title').textContent).toBe('Some saved data did not load');
+            expect(el.querySelector('.wg-empty__body').textContent).toBe('Reload to fix.');
+            expect(el.querySelector('button')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('createErrorState renders .wg-error with an optional Retry', () => {
         const { window, cleanup } = loadComponents();
         try {
