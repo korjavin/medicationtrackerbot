@@ -425,6 +425,21 @@ describe('Apple Health import', () => {
             expect(storage.getItem('wg.health.enabled')).toBe('false');
         });
 
+        // bd med-iou1: a throw (HealthKit timeout) is a failed request, not a missing store.
+        it.each([
+            [{}, 'Apple Health'],
+            [{ label: 'Health Connect' }, 'Health Connect'],
+        ])('flips back with a retry message when the authorization request throws (%#)', async (extra, label) => {
+            const health = { ...fakeHealth({}), ...extra };
+            health.requestAuthorization = vi.fn(async () => { throw new Error('Authorization session timed out'); });
+            vi.spyOn(console, 'error').mockImplementation(() => {});
+            await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
+            await flip(true);
+            expect(toggle().checked).toBe(false);
+            expect(desc()).toBe(`Couldn't reach ${label}. Try again.`);
+            expect(storage.getItem('wg.health.enabled')).toBe('false');
+        });
+
         it('says where to look when access was denied (Health returns nothing)', async () => {
             const health = fakeHealth({});
             await startHealthImport({}, { health, storage, doc: document, run: (o) => runHealthImport({}, { ...o, records, flush }) });
