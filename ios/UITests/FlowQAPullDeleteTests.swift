@@ -30,7 +30,7 @@ final class FlowQAPullDeleteTests: XCTestCase {
 
     func testPullAndDelete() throws {
         continueAfterFailure = false
-        let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_OFFLINE_CLAIM_URL"].flatMap(URL.init(string:)))
+        let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_PULL_DELETE_CLAIM_URL"].flatMap(URL.init(string:)))
         let host = try XCTUnwrap(claim.host)
         let sub = try XCTUnwrap(host.split(separator: ".").first)
         let token = try XCTUnwrap(claim.fragment?.split(separator: "=").last)
@@ -78,8 +78,9 @@ final class FlowQAPullDeleteTests: XCTestCase {
         let cancelled = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Passkey verification was cancelled'")).firstMatch
         XCTAssertTrue(cancelled.waitForExistence(timeout: 60), "cancel error missing")
         let cancelReceipts = try QA.receipts(host: host).dropFirst(beforeCancel)
-        XCTAssertTrue(cancelReceipts.contains { $0["path"] as? String == "/api/account/reauth" && $0["method"] as? String == "POST" })
+        XCTAssertEqual(cancelReceipts.filter { $0["path"] as? String == "/api/account/reauth" && $0["method"] as? String == "POST" }.count, 1)
         XCTAssertFalse(cancelReceipts.contains { $0["path"] as? String == "/api/account" && $0["method"] as? String == "DELETE" })
+        XCTAssertTrue(app.webViews.buttons["Delete account"].firstMatch.isEnabled, "delete button was not re-enabled")
         shot("pull-delete", "cancelled")
         app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
         app.launchArguments = ["-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQASoftAuthn", "YES"]

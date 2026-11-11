@@ -134,6 +134,10 @@
   }
 
   async function get(pk) {
+    if (localStorage.getItem('qa-softauthn:cancel') === '1') {
+      localStorage.removeItem('qa-softauthn:cancel');
+      throw new DOMException('qa soft authenticator: cancelled', 'NotAllowedError');
+    }
     const rpId = pk.rpId || location.hostname;
     const list = load(rpId);
     const allow = (pk.allowCredentials || []).map((c) => bytes(c.id));

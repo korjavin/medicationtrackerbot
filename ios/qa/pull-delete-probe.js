@@ -5,17 +5,6 @@
   const rawFetch = window.fetch.bind(window);
   const state = { phase: 'boot', document: crypto.randomUUID(), pulls: 0, blocked: 0, pill: [], toasts: [], touch: [] };
   let blockPull = false, output;
-  let cancelNext = false;
-  const credentials = navigator.credentials;
-  Object.defineProperty(Navigator.prototype, 'credentials', { configurable: true, get: () => ({
-    create: (...args) => credentials.create(...args),
-    get: (...args) => {
-      if (cancelNext) { cancelNext = false; state.cancelledAssertion = true; throw new DOMException('QA cancellation', 'NotAllowedError'); }
-      return credentials.get(...args);
-    },
-    store: (...args) => credentials.store(...args),
-    preventSilentAccess: (...args) => credentials.preventSilentAccess(...args),
-  }) });
   window.fetch = (...args) => {
     if (String(args[0]).startsWith('/api/sync/ops?')) {
       if (blockPull) { state.blocked++; return Promise.resolve(new Response('', { status: 503 })); }
@@ -69,7 +58,7 @@
     state.online = navigator.onLine;
     state.banner = visible(document.getElementById('offline-banner'));
   }
-  async function cancel() { cancelNext = true; state.cancelledAssertion = false; }
+  async function cancel() { localStorage.setItem('qa-softauthn:cancel', '1'); }
   async function verify() {
     const rows = await wait(async () => {
       const bp = await window.apiCall('/api/bp?days=2');
