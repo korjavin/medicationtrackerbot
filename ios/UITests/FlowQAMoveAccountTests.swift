@@ -20,8 +20,18 @@ final class FlowQAMoveAccountTests: XCTestCase {
         launch(app, ["-wgAccountHost", "", "-wgQAScene", "eu-register-pick"])
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 120))
         let eu = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'EU register'")).firstMatch
-        XCTAssertTrue(eu.waitForExistence(timeout: 10)); eu.tap()
-        XCTAssertTrue(text(app, "EU register").waitForExistence(timeout: 10))
+        let dialog = text(app, "Needs an account. Without one, no name check runs.")
+        XCTAssertTrue(eu.waitForExistence(timeout: 10))
+        for _ in 0..<3 where dialog.exists {
+            eu.tap()
+            let end = Date().addingTimeInterval(5)
+            while dialog.exists && Date() < end { Thread.sleep(forTimeInterval: 0.5) }
+        }
+        XCTAssertFalse(dialog.exists, "EU choice did not close")
+        // The visual scene opens the picker on each page load. Relaunch
+        // without it before the invite reloads the local document.
+        app.terminate(); launch(app, ["-wgAccountHost", ""])
+        XCTAssertTrue(QA.tabBarShows(app, timeout: 60))
         app.open(link)
         let offer = button(app, "Turn on sync")
         XCTAssertTrue(offer.waitForExistence(timeout: 60)); offer.tap()

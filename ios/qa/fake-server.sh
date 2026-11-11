@@ -62,9 +62,11 @@ fi
 # (https://qa.test:8768, same CA): the flows read what it received and stop /
 # restart its listener (bd med-sz4k.6.1; the Simulator has no airplane mode).
 if [ "${QA_BUNDLES:-0}" != 1 ]; then
-  move_fault=()
-  if [ "${QA_MOVE_FAULT:-0}" = 1 ]; then move_fault=(-move-fault); fi
-  sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 "${move_fault[@]}" > "$RUNNER_TEMP/tlsfront.log" 2>&1
+  if [ "${QA_MOVE_FAULT:-0}" = 1 ]; then
+    sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 -move-fault > "$RUNNER_TEMP/tlsfront.log" 2>&1
+  else
+    sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 > "$RUNNER_TEMP/tlsfront.log" 2>&1
+  fi
 fi
 for _ in $(seq 1 30); do [ -s "$ca" ] && break; sleep 1; done
 [ -s "$ca" ] || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront wrote no CA"; exit 1; }
