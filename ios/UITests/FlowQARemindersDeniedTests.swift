@@ -8,7 +8,7 @@ final class FlowQARemindersDeniedTests: XCTestCase {
         MainActor.assumeIsolated { QA.reset() }
     }
 
-    func testDeniedAndRepeatEnable() throws {
+    func testDeniedSettingsPath() throws {
         continueAfterFailure = false
         let claim = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_QA_OFFLINE_CLAIM_URL"].flatMap(URL.init(string:)))
         let sub = try XCTUnwrap(claim.host?.split(separator: ".").first)

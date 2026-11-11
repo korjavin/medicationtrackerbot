@@ -21,5 +21,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/settings.cloud-notifications.test.js
   android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (first Enable/both grants/settings fallback) and android/app/src/test/java/com/example/medtracker/NotificationsTest.kt (denied/no-rationale/resume); no full refusal/second-Enable flow or allowed-without-token Wake-ups assertion
-  ios: ios/UITests/FlowQARemindersTests.swift#testNotificationAndOfflineReminder  # FlowQARemindersDeniedTests#testDeniedAndRepeatEnable covers refusal: hidden card, warn note and Open iOS Settings → Preferences foreground (med-ckm5.4/.15); Android-only invariants 5–7 n/a; Disable points to iOS Settings, with no in-app revoke
+  ios: ios/UITests/FlowQARemindersTests.swift#testNotificationAndOfflineReminder  # FlowQARemindersDeniedTests#testDeniedSettingsPath covers refusal: hidden card, warn note and Open iOS Settings → Preferences foreground (med-ckm5.4/.15); Android-only invariants 5–7 n/a; Disable points to iOS Settings, with no in-app revoke
 source: [med-nt9p.65, med-hh0e]
