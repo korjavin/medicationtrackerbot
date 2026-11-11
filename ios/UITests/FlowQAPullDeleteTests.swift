@@ -111,7 +111,7 @@ final class FlowQAPullDeleteTests: XCTestCase {
 
     private func openDelete(_ app: XCUIApplication) throws {
         let vault = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS 'Your vault'")).firstMatch
-        if !vault.exists {
+        if !vault.waitForExistence(timeout: 5) {
             let settings = QA.control(app, "Settings")
             XCTAssertTrue(settings.waitForExistence(timeout: 30)); settings.tap()
         }
