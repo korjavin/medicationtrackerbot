@@ -110,9 +110,11 @@ final class FlowQAPullDeleteTests: XCTestCase {
     }
 
     private func openDelete(_ app: XCUIApplication) throws {
-        let settings = QA.control(app, "Settings")
-        XCTAssertTrue(settings.waitForExistence(timeout: 30)); settings.tap()
-        let vault = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Your vault'")).firstMatch
+        let vault = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS 'Your vault'")).firstMatch
+        if !vault.exists {
+            let settings = QA.control(app, "Settings")
+            XCTAssertTrue(settings.waitForExistence(timeout: 30)); settings.tap()
+        }
         XCTAssertTrue(vault.waitForExistence(timeout: 30)); vault.tap()
         let delete = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Delete account'")).firstMatch
         for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
