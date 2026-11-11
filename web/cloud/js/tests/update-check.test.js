@@ -557,7 +557,7 @@ describe('shell diagnostic lines', () => {
         state = 'visible';
         doc.dispatchEvent(new doc.defaultView.Event('visibilitychange'));
         expect(lines()).toEqual(['boot /d/<sub> build 20260710-1000', 'hidden', 'visible']);
-        expect(entries().every((e) => e.path === '/d/<sub>' && Number.isFinite(e.ms))).toBe(true);
+        expect(entries().every((e) => e.path === '/d/<sub>' && Number.isFinite(e.ms) && Number.isFinite(e.up))).toBe(true);
         expect(JSON.stringify(ios.postMessage.mock.calls)).not.toContain('abc123');
         expect(win.addEventListener.mock.calls.map(([t]) => t)).toEqual(['pageshow', 'pagehide']);
     });

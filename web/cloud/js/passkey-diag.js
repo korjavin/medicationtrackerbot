@@ -39,13 +39,14 @@ function post(fields) {
 
 // One free-text line from another subsystem (the Health import's per-run
 // counts, bd med-w6gx.30) into the same log. Callers pass counts only.
+// `up` is ms since the page loaded: `ms` restarts with every ceremony.
 export function diagLine(line) {
-  if (inShell()) post({ op: 'log', line });
+  if (inShell()) post({ op: 'log', line, up: Math.round(globalThis.performance?.now?.() ?? 0) });
 }
 
 // Page lifecycle lines (bd med-vjxz.1): one boot line, then visible / hidden /
 // pageshow / pagehide, so "Copy diagnostics" shows a Home → return. Words only;
-// post() stamps the ms. Installed once per page by the boot of either mode.
+// diagLine() stamps the ms since load. Installed once per page by the boot of either mode.
 // Both bridges exist from document start, so the web installs nothing.
 export function startLifecycleDiag(win = globalThis.window) {
   if (!inShell()) return;

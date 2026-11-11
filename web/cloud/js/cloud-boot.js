@@ -825,7 +825,9 @@ window.MedTrackerCloudReady = (async function boot() {
         // med-vjxz.1): the first drain to settle after the page comes back to
         // the front. Words only: whether records arrived, or the failure class.
         // Both bridges exist from document start; the web logs nothing.
-        // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does.
+        // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does;
+        // and a drain already in flight at the return settles first and is the one
+        // reported (sync.js's requestDrain does not say which event started a drain).
         let resumeBefore = null;
         const logResumePull = () => {
             if (resumeBefore === null) return;
@@ -833,12 +835,16 @@ window.MedTrackerCloudReady = (async function boot() {
             resumeBefore = null;
             getSyncStatus(ctx).then((st) => {
                 const failed = st.authExpired ? 'auth-expired' : st.updateRequired ? 'update-required' : st.offline ? 'offline' : '';
-                return import('/js/passkey-diag.js').then((m) => m.diagLine(failed ? `sync pull failed ${failed}` : `sync pull arrived=${arrived}`));
+                diagResume(failed ? `sync pull failed ${failed}` : `sync pull arrived=${arrived}`);
             }).catch(() => {});
         };
+        const diagResume = (line) => import('/js/passkey-diag.js').then((m) => m.diagLine(line)).catch(() => {});
         if (window.webkit?.messageHandlers?.wgNative || window.wgNative) {
             document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible') resumeBefore = getRecordsChangeCount();
+                if (document.visibilityState !== 'visible') return;
+                // sync.js starts no drain on a return while offline: say so now.
+                if (navigator.onLine === false) { resumeBefore = null; diagResume('sync pull skipped offline'); return; }
+                resumeBefore = getRecordsChangeCount();
             });
         }
         startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { logResumePull(); unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });

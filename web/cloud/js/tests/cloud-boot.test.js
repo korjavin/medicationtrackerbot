@@ -321,7 +321,11 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       await resume(() => { status = { offline: true }; });
       await drainOpts.onSettled(); // a later SSE-style drain: not logged
       await flush();
-      expect(lines).toEqual(['sync pull arrived=true', 'sync pull arrived=false', 'sync pull failed offline']);
+      // A return while the device is offline starts no drain: logged at once,
+      // and the next unrelated drain is not taken for it.
+      vi.stubGlobal('navigator', { onLine: false });
+      await resume();
+      expect(lines).toEqual(['sync pull arrived=true', 'sync pull arrived=false', 'sync pull failed offline', 'sync pull skipped offline']);
     } finally {
       vi.unstubAllGlobals();
       dom.window.close();
