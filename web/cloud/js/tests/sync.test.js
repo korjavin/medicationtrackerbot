@@ -4993,6 +4993,34 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     expect(snapshotPosts).toBe(0);
   });
 
+  it('a snapshot read before another tab\'s import does not clear that import\'s rejection', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot') {
+        if (init?.method === 'POST') { await post.hold(); return new Response('{}', { status: 200 }); }
+        return snapshot(7, 'bp-old');
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    const forced = forceSnapshot(ctx);
+    await post.reached;
+    // Another tab imports (its replace writes a new importGen) and that import is rejected.
+    const tx = other.transaction('sync_meta', 'readwrite');
+    tx.objectStore('sync_meta').put('their-import', 'importGen');
+    tx.objectStore('sync_meta').put(true, 'importRejected');
+    await txDone(tx);
+    post.release();
+    await forced;
+    const rtx = other.transaction('sync_meta', 'readonly');
+    const rejected = rtx.objectStore('sync_meta').get('importRejected');
+    await txDone(rtx);
+    expect(rejected.result).toBe(true);
+  });
+
   it('the push ack keeps another tab\'s same-millisecond edit queued', async () => {
     const tx = other.transaction('sync_meta', 'readwrite');
     tx.objectStore('sync_meta').put(0, 'localLastSeq');

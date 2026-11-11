@@ -174,6 +174,9 @@ function withRecordsLock(fn) {
 // — a move too, unless it was 0 already (then unfenced, as before).
 let syncEpoch = 0;
 const SYNC_GEN_KEY = 'syncGen';
+// Fresh per import replace (no epoch), written with its records: a snapshot
+// clears importRejected only if it read the store under the current one.
+const IMPORT_GEN_KEY = 'importGen';
 const epochMoved = (epoch) => epoch !== undefined && epoch.mem !== syncEpoch;
 async function captureEpoch() {
   const mem = syncEpoch;
@@ -599,6 +602,7 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
         row.onsuccess = () => { if ((row.result || {}).token === tokens.get(id)) queue.delete(id); };
       }
       for (const r of repairs) queue.put(pendingRow(r.recordId, r.recordType));
+      if (epoch === undefined) tx.objectStore('sync_meta').put(crypto.randomUUID(), IMPORT_GEN_KEY);
     }));
     if (!held.ok) return false;
     return true;
@@ -1270,7 +1274,14 @@ async function pullTail(ctx) {
 // snapshot at a live seq would bury the account's data for every bootstrap.
 async function snapshotAt(ctx, snapshotSeq, epoch) {
   const kData = await getKData(ctx);
-  const records = await readAllRecords();
+  const { records, importGen } = await withDb((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(['records', 'sync_meta'], 'readonly');
+    const all = tx.objectStore('records').getAll();
+    const gen = tx.objectStore('sync_meta').get(IMPORT_GEN_KEY);
+    tx.oncomplete = () => resolve({ records: all.result, importGen: gen.result });
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
   // gzip the JSON before encryption so the ciphertext (POST body) shrinks ~10x;
   // bootstrap sniffs the gzip magic bytes on decrypt. AAD/nonce unchanged.
   const plaintext = await gzip(new TextEncoder().encode(JSON.stringify(records)));
@@ -1304,7 +1315,13 @@ async function snapshotAt(ctx, snapshotSeq, epoch) {
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
   // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
   // snapshotErrorSeq goes with it, so the backoff floor drops back to lastSnapshotSeq.
-  await writeMetaIfEpoch(epoch, { lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null, importRejected: false });
+  // importRejected clears only if no import replaced the store since the read
+  // (bd med-0vdh): a snapshot built before it does not carry it.
+  await withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
+    for (const [key, value] of Object.entries({ lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null })) store.put(value, key);
+    const cur = store.get(IMPORT_GEN_KEY);
+    cur.onsuccess = () => { if (cur.result === importGen) store.put(false, 'importRejected'); };
+  }));
   return { ok: true, status: res.status };
 }
 
@@ -1547,7 +1564,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null, importRejected: false });
+    await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null }); // importRejected: snapshotAt
   }
 }
 
