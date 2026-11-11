@@ -789,6 +789,40 @@ async function bindOperatorVisibility() {
 // ponytail: no memoization — import() caches by specifier.
 function loadAccountDeleteModule() { return import('/js/account-delete.js'); }
 
+const DELETE_DRAIN_TIMEOUT_MS = 15000;
+// What the pre-wipe would lose → the warning the delete shows first (bd med-kraa).
+const DELETE_LOSS_MSG = {
+    unsynced: "Some entries haven't synced yet. Connect and try again, or export a backup first. If you continue and then cancel the passkey step, they're gone.",
+    'local-only': "Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?",
+};
+
+// Drain the outbound queue, then say what the pre-wipe would lose:
+// 'unsynced' — writes or an import still waiting to upload. A drain that
+// throws, hangs (offline) or a status that can't be read counts too: the
+// delete flow must never guess that the server has it all.
+// 'local-only' — only an import the server refused for good (it never syncs).
+// null — nothing to lose. Either loss is a warning, never a refusal: a stuck
+// state must not trap the user in the account (Miles, Zulip 22767).
+async function unsyncedEntries() {
+    // One deadline over the whole check (module load, drain, status read): a
+    // blocked IndexedDB must not leave Delete disabled forever.
+    const check = async () => {
+        const sync = await loadCloudSyncModule();
+        const ctx = cloudCtx();
+        await sync.requestDrain(ctx);
+        const st = await sync.getSyncStatus(ctx);
+        // Waiting before rejected: an older tab never clears importRejected,
+        // so a stale flag must not relabel an import that is still uploading.
+        if (st.pendingCount !== 0 || st.importPending !== false) return 'unsynced';
+        return st.importRejected ? 'local-only' : null;
+    };
+    let timer;
+    return Promise.race([
+        check(),
+        new Promise((resolve) => { timer = setTimeout(() => resolve('unsynced'), DELETE_DRAIN_TIMEOUT_MS); }),
+    ]).catch(() => 'unsynced').finally(() => clearTimeout(timer));
+}
+
 let _deleteAccountBound = false; // module-state: bind the delete modal's listeners once across repeated loadSettings() calls
 
 function bindDeleteAccount() {
@@ -852,7 +886,21 @@ function bindDeleteAccount() {
                 // IndexedDB data with no code left to erase it. Failing
                 // pre-delete is always safe — the account is intact and the
                 // cloud copy is authoritative, so an erased mirror re-syncs if
-                // the user aborts at the passkey prompt.
+                // the user aborts at the passkey prompt. That holds only for
+                // what the server has: warn first when the wipe would take
+                // entries it lacks (bd med-kraa); only Continue goes on.
+                const loss = await unsyncedEntries();
+                if (loss) {
+                    const pick = await window.safeChoose(DELETE_LOSS_MSG[loss], [
+                        { value: 'export', label: 'Export backup' },
+                        { value: 'continue', label: 'Continue' },
+                    ], { title: 'Delete your account?', icon: 'trash', tone: 'danger', cancelLabel: 'Cancel' });
+                    if (pick !== 'continue') {
+                        if (pick === 'export') openSettingsPage('backup');
+                        openBtn.disabled = false;
+                        return;
+                    }
+                }
                 await mod.clearLocalVault();
                 await mod.reauthAndDelete();
                 serverDeleted = true;
