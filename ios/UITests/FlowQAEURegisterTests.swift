@@ -124,7 +124,7 @@ final class FlowQAEURegisterTests: XCTestCase {
         XCTAssertEqual(observed["document"] as? String, document, "account reloaded across pull")
         XCTAssertEqual(observed["trustedTouchEnd"] as? Bool, true, "pull did not deliver a native touch")
         XCTAssertEqual(observed["sawPull"] as? Bool, true, "pull-to-refresh was not observed")
-        XCTAssertGreaterThan(observed["pulls"] as? Int ?? 0, 0, "no pull reached server")
+        XCTAssertEqual(observed["pulls"] as? Int, 1, "expected exactly one pull: \(QA.json(observed))")
         XCTAssertEqual(observed["setting"] as? String, "EU register")
         XCTAssertTrue((observed["chip"] as? String ?? "").contains("Candesartan"))
         XCTAssertEqual(observed["nameEgress"] as? Int, 0, "name sent by page fetch: \(QA.json(observed))")

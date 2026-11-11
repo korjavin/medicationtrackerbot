@@ -608,7 +608,8 @@ jobs:
             > "$GITHUB_WORKSPACE/shots/webcontent-rss-$PART.log" 2>/dev/null &
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
-          # FlowQAOfflineAccountTests (TEST_RUNNER_ → the runner's env).
+          # FlowQAOfflineAccountTests; the isolated EU part uses its own offline
+          # invite too (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \

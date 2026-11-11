@@ -114,7 +114,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → six `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → seven `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
