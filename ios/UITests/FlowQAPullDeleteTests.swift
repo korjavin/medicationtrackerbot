@@ -88,14 +88,36 @@ final class FlowQAPullDeleteTests: XCTestCase {
         XCTAssertEqual(try command(app, "verify")["restored"] as? Bool, true, "the account's BP did not return after cancellation")
 
         // A verified soft passkey completes the real server deletion, then the
-        // shell must forget the host and show the local invite screen.
+        // shell must forget the host and show the local invite screen. The
+        // wipe probe reports the IndexedDB/caches state just before leave().
+        _ = try command(app, "wipe")
         let beforeDelete = try QA.receipts(host: host).count
         try openDelete(app)
         XCTAssertTrue(QA.inviteSheetShows(app, timeout: 120), "delete did not leave account")
         let deletes = try QA.receipts(host: host).dropFirst(beforeDelete)
         XCTAssertTrue(deletes.contains { $0["path"] as? String == "/api/account" && $0["method"] as? String == "DELETE" && $0["status"] as? Int == 204 }, "no successful account DELETE")
         XCTAssertNil(QA.appDefaults()?["wgAccountHost"], "account host persisted")
+        // Push off on iOS: the server rows go with the DELETE cascade
+        // (cloudstore delete_account_test.go); a CI build has no APNs token, so
+        // no /api/push/* call may follow the DELETE.
+        let afterDelete = deletes.drop { !($0["path"] as? String == "/api/account" && $0["method"] as? String == "DELETE") }
+        XCTAssertFalse(afterDelete.contains { ($0["path"] as? String ?? "").hasPrefix("/api/push/") }, "a push call followed the DELETE")
+        let wiped = deletes.compactMap { $0["path"] as? String }.filter { $0.hasPrefix("/qa-wipe/") }
+        XCTAssertEqual(wiped, ["/qa-wipe/clean"], "local data or caches survived the delete")
         shot("pull-delete", "deleted")
+
+        // The deleted host no longer opens: cmd/cloud answers the marked 404
+        // (X-Account-Gone) and the shell lands on "Have an invite?", as
+        // FlowQAAccountGoneTests does for a host that never existed.
+        app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
+        let beforeGone = try QA.receipts(host: host).count
+        app.launchArguments = ["-wgLocalMode", "NO", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgAccountHost", host]
+        app.launch()
+        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "the deleted host did not land on \"Have an invite?\"")
+        let gone = try QA.receipts(host: host).dropFirst(beforeGone)
+        XCTAssertTrue(gone.contains { $0["status"] as? Int == 404 }, "the deleted host was not answered 404: \(gone)")
+        XCTAssertFalse(gone.contains { ($0["status"] as? Int ?? 0) / 100 == 2 }, "the deleted host still served: \(gone)")
+        shot("pull-delete", "deleted-host")
     }
 
     private func openAccount(_ app: XCUIApplication) -> Bool {

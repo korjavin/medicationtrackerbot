@@ -59,6 +59,18 @@
     state.banner = visible(document.getElementById('offline-banner'));
   }
   async function cancel() { localStorage.setItem('qa-softauthn:cancel', '1'); }
+  // The delete flow's last step is CloudVault.leaveAccount (settings.js,
+  // after the verified clearLocalVault); the page is gone right after, so the
+  // wipe state goes out as a tlsfront receipt path (no query or body kept).
+  async function wipe() {
+    const vault = window.CloudVault, leave = vault.leaveAccount;
+    vault.leaveAccount = async (...args) => {
+      const dbs = indexedDB.databases ? (await indexedDB.databases()).map(d => d.name) : null;
+      const left = [...(dbs ? dbs.filter(n => n === 'medtracker-cloud' || n === 'MedTrackerDB') : ['no-databases-api']), ...(typeof caches === 'undefined' ? [] : await caches.keys())];
+      await rawFetch('/qa-wipe/' + (left.length ? 'dirty-' + encodeURIComponent(left.join(',')) : 'clean'), { cache: 'no-store' }).catch(() => {});
+      return leave.apply(vault, args);
+    };
+  }
   async function verify() {
     const rows = await wait(async () => {
       const bp = await window.apiCall('/api/bp?days=2');
@@ -79,7 +91,7 @@
       if (type === 'touchend') blockPull = false;
     }, { capture: true, passive: true });
     const bar = document.createElement('div'); bar.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;font-size:8px;pointer-events:none';
-    for (const [name, fn] of Object.entries({ peer, observed, quiet, quietDone, network, cancel, verify })) {
+    for (const [name, fn] of Object.entries({ peer, observed, quiet, quietDone, network, cancel, verify, wipe })) {
       const b = document.createElement('button'); b.style.pointerEvents = 'auto'; b.textContent = 'QA Pull ' + name;
       b.addEventListener('click', () => run(name, fn)); bar.appendChild(b);
     }
