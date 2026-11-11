@@ -12,8 +12,8 @@ steps:
 invariants:
   - The system permission prompt appears right after the tap when the OS offers it; Enable never hangs
   - After allowing, the control shows as on (Disable)
-  - Refusing points to the system settings and leaves Enable ready to tap again
-  - A later Enable does not repeat a permission prompt the OS can no longer show
+  - Refusing points to the system settings and leaves a one-tap path to turn notifications on (Enable, or the shell's Open Settings button)
+  - A later tap on that path does not repeat a permission prompt the OS can no longer show
   - On Android, a non-granted runtime result without a rationale opens app notification settings
   - On Android, Enable stays pending while the system settings screen covers the app
   - On Android, returning after both grants turns the toggle on without another tap or reload
@@ -21,5 +21,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/settings.cloud-notifications.test.js
   android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (first Enable/both grants/settings fallback) and android/app/src/test/java/com/example/medtracker/NotificationsTest.kt (denied/no-rationale/resume); no full refusal/second-Enable flow or allowed-without-token Wake-ups assertion
-  ios: manual  # partial: ios/UITests/FlowQARemindersTests.swift#testNotificationAndOfflineReminder covers the real prompt, grant and Wake-ups off with no token; refusal and later Enable remain manual; Android-only invariants 5–7 do not apply
+  ios: ios/UITests/FlowQARemindersTests.swift#testNotificationAndOfflineReminder  # FlowQARemindersDeniedTests#testDeniedAndRepeatEnable covers refusal: hidden card, warn note and Open iOS Settings → Preferences foreground (med-ckm5.4/.15); Android-only invariants 5–7 n/a; Disable points to iOS Settings, with no in-app revoke
 source: [med-nt9p.65, med-hh0e]
