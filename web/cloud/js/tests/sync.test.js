@@ -4897,6 +4897,30 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     expect(await cursor()).toBe(null);
   });
 
+  it('a push refused after the reset writes no error streak into the reset store', async () => {
+    const post = gate();
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        await post.hold();
+        return new Response('too big', { status: 400 });
+      }
+      if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      return new Response('{}', { status: 200 });
+    }));
+    await listRecords(ctx, 'bp');
+    await writeRecord(ctx, 'bp', { recordId: 'bp-mine', clientTs: 2, deleted: false, systolic: 1 });
+    await post.reached;
+    await otherTabReset();
+    post.release();
+    await flushConfirmed(ctx);
+    const tx = other.transaction('sync_meta', 'readonly');
+    const streak = tx.objectStore('sync_meta').get('writeErrorStreak');
+    await txDone(tx);
+    expect(streak.result).toBe(undefined);
+  });
+
   it('forceSnapshot: a reset landing before the records read uploads no snapshot', async () => {
     let bumped = false;
     let snapshotPosts = 0;

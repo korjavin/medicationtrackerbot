@@ -452,9 +452,14 @@ async function putRecord(record) {
   afterPut(record);
 }
 
-// putRecord unless `epoch` moved (bd med-0vdh): the check shares the put's tx.
-async function putRecordIfEpoch(record, epoch) {
-  const held = await withTx(['records', 'sync_meta'], (tx) => inGen(tx.objectStore('sync_meta'), epoch, () => tx.objectStore('records').put(record)));
+// putRecord unless `epoch` moved (bd med-0vdh): the check shares the put's tx,
+// and so does the pending row when `queue` (a repair).
+async function putRecordIfEpoch(record, epoch, queue = false) {
+  const stores = queue ? ['records', 'pending', 'sync_meta'] : ['records', 'sync_meta'];
+  const held = await withTx(stores, (tx) => inGen(tx.objectStore('sync_meta'), epoch, () => {
+    tx.objectStore('records').put(record);
+    if (queue) tx.objectStore('pending').put(pendingRow(record.recordId, record.recordType));
+  }));
   if (held.ok) afterPut(record);
   return held.ok;
 }
@@ -543,6 +548,7 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
         }
       }
     }
+    const tokens = new Map(pending.map((p) => [p.recordId, p.token]));
     for (const { recordId, derived } of pending) {
       const r = await getRecord(recordId);
       if (!r) continue;
@@ -578,15 +584,21 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
       }
       overlay.push(merge ? merge(r, snap) : r);
     }
-    const held = await withTx(['records', 'sync_meta'], (tx) => inGen(tx.objectStore('sync_meta'), epoch, () => {
+    // Pending changes share the records tx and its generation check (bd
+    // med-0vdh); a losing row is cleared only if no newer write re-marked it.
+    const held = await withTx(['records', 'pending', 'sync_meta'], (tx) => inGen(tx.objectStore('sync_meta'), epoch, () => {
       const store = tx.objectStore('records');
       store.clear();
       for (const record of records) store.put(record);
       for (const record of overlay) store.put(record);
+      const queue = tx.objectStore('pending');
+      for (const id of losingPending) {
+        const row = queue.get(id);
+        row.onsuccess = () => { if ((row.result || {}).token === tokens.get(id)) queue.delete(id); };
+      }
+      for (const r of repairs) queue.put(pendingRow(r.recordId, r.recordType));
     }));
     if (!held.ok) return false;
-    if (losingPending.length > 0) await clearPending(losingPending);
-    for (const r of repairs) await markPending(r.recordId, r.recordType);
     return true;
   });
   if (!replaced) return false;
@@ -667,16 +679,16 @@ export async function resetLocalSync(ctx) {
 // `token` (bd med-0vdh) is fresh per write: the push ack clears a row only if
 // it still holds the token that push read, so another tab's same-millisecond
 // edit of the record (same clientTs) stays queued.
+const pendingRow = (recordId, recordType) => ({ recordId, recordType, token: crypto.randomUUID() });
 async function markPending(recordId, recordType, derived = false) {
-  const token = crypto.randomUUID();
   await withStore('pending', 'readwrite', (store) => {
     if (!derived) {
-      store.put({ recordId, recordType, token });
+      store.put(pendingRow(recordId, recordType));
       return;
     }
     const req = store.get(recordId);
     req.onsuccess = () => {
-      if (!req.result) store.put({ recordId, recordType, derived, token });
+      if (!req.result) store.put({ ...pendingRow(recordId, recordType), derived });
     };
   });
 }
@@ -1000,9 +1012,7 @@ function repairStamp(a, b) {
 // Lays `winner` re-stamped above `a` and `b` and queues it, inside the
 // records lock (the caller holds it), without going through writeRecord.
 async function putRepair(recordType, winner, a, b, epoch) {
-  if (!(await putRecordIfEpoch({ ...winner, clientTs: repairStamp(a, b), recordType }, epoch))) return false;
-  await markPending(winner.recordId, recordType);
-  return true;
+  return putRecordIfEpoch({ ...winner, clientTs: repairStamp(a, b), recordType }, epoch, true);
 }
 
 // Returns EPOCH_MOVED, applying nothing, once `epoch` moved (bd med-7jgk).
@@ -1255,16 +1265,16 @@ async function pullTail(ctx) {
 // maybeSnapshot runs after a successful pull+flush, so failing it must not flip
 // a healthy app to offline for good.
 // Returns null, uploading nothing, when a reset or wipe moved `epoch` before
-// the records read (bd med-0vdh): the store may be emptied, and an empty
+// the POST (bd med-0vdh): the store may be emptied, and an empty
 // snapshot at a live seq would bury the account's data for every bootstrap.
 async function snapshotAt(ctx, snapshotSeq, epoch) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
-  if (await genMoved(epoch)) return null;
   // gzip the JSON before encryption so the ciphertext (POST body) shrinks ~10x;
   // bootstrap sniffs the gzip magic bytes on decrypt. AAD/nonce unchanged.
   const plaintext = await gzip(new TextEncoder().encode(JSON.stringify(records)));
   const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
+  if (await genMoved(epoch)) return null; // right before the POST
   let res;
   try {
     res = await timedFetch('/api/sync/snapshot', {
@@ -1343,7 +1353,7 @@ async function maybeSnapshot(ctx) {
     && meta.localLastSeq - floor < SNAPSHOT_FORCE_OPS) return;
   const snap = await snapshotAt(ctx, meta.localLastSeq, epoch);
   if (snap && !snap.ok && isPermanentSyncStatus(snap.status)) {
-    await writeMeta({
+    await writeMetaIfEpoch(epoch, {
       snapshotError: { status: snap.status, at: Date.now() },
       snapshotErrorSeq: meta.localLastSeq,
     });
@@ -1491,7 +1501,7 @@ async function tryForceSnapshot(ctx) {
       return; // marker stays set — retried by the reloaded build
     }
     if (isPermanentSyncStatus(res.status)) {
-      await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
+      await writeMetaIfEpoch(epoch, { snapshotError: { status: res.status, at: Date.now() } });
       offline = false;
       return;
     }
@@ -1528,7 +1538,7 @@ async function tryForceSnapshot(ctx) {
     if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isUpdateRequiredStatus(snap.status)) return; // snapshotAt flagged it; marker stays set
     if (isPermanentSyncStatus(snap.status)) {
-      await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
+      await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
       offline = false;
       return;
     }
@@ -1536,7 +1546,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMeta({ forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null });
+    await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null });
   }
 }
 
@@ -1733,7 +1743,7 @@ async function flushPendingUnlocked(ctx) {
         // on every open forever (med-0ol.7). Transient (5xx/offline) failures
         // fall through below and never touch the streak.
         const streak = (meta.writeErrorStreak ?? 0) + 1;
-        await writeMeta({
+        await writeMetaIfEpoch(epoch, {
           writeError: { status: res.status, at: Date.now() },
           writeErrorStreak: streak,
           // Explicit both ways: an old tab's 426 wedge may still be stored
