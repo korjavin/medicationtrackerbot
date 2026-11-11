@@ -96,6 +96,9 @@ final class FlowQAPullDeleteTests: XCTestCase {
         XCTAssertTrue(QA.inviteSheetShows(app, timeout: 120), "delete did not leave account")
         let deletes = try QA.receipts(host: host).dropFirst(beforeDelete)
         XCTAssertTrue(deletes.contains { $0["path"] as? String == "/api/account" && $0["method"] as? String == "DELETE" && $0["status"] as? Int == 204 }, "no successful account DELETE")
+        // removeObject reaches the prefs plist asynchronously (cfprefsd): poll it.
+        let forgetBy = Date().addingTimeInterval(15)
+        while QA.appDefaults()?["wgAccountHost"] != nil && Date() < forgetBy { Thread.sleep(forTimeInterval: 0.5) }
         XCTAssertNil(QA.appDefaults()?["wgAccountHost"], "account host persisted")
         // Push off on iOS: the server rows go with the DELETE cascade
         // (cloudstore delete_account_test.go); a CI build has no APNs token, so
