@@ -11,7 +11,8 @@ name: iOS
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
-# eu (EU register), reminders (grant + cold notification), and reminders-denied, joined by the `qa` gate. Lists: env QA_PARTS.
+# eu (EU register), reminders (grant + cold notification), reminders-denied,
+# and pull-delete (account pull and deletion), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -72,7 +73,8 @@ env:
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
      "reminders": ["FlowQARemindersTests"],
-     "reminders-denied": ["FlowQARemindersDeniedTests"]}
+     "reminders-denied": ["FlowQARemindersDeniedTests"],
+     "pull-delete": ["FlowQAPullDeleteTests"]}
   # Fixed green references in seconds: core/data/update from 42923864088
   # (restore from attempt 2), degraded from 42921440898, and backup chain,
   # account/rest from 42915152895 attempt 1. Unknown tests remain n/a.
@@ -545,6 +547,7 @@ jobs:
           QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
           QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
           QA_EU_PROBE: ${{ matrix.part == 'eu' && '1' || '0' }}
+          QA_PULL_DELETE_PROBE: ${{ matrix.part == 'pull-delete' && '1' || '0' }}
           QA_REMINDER_PROBE: ${{ (matrix.part == 'reminders' || matrix.part == 'reminders-denied') && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
@@ -612,7 +615,7 @@ jobs:
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
           # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests
-          # and FlowQARemindersDeniedTests also consume the offline invite. Keep
+          # FlowQARemindersDeniedTests and FlowQAPullDeleteTests also consume the offline invite. Keep
           # these consumers in separate parts (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \

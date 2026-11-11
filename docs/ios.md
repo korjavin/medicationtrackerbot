@@ -114,14 +114,14 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → nine `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → ten `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
   CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; the
   only part that waits for healthd, `QA_HEALTH_READY=1`), **data** (Backup,
   Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **eu**
-  (EURegister), **reminders** (grant and cold notification tap), **reminders-denied** (refusal and iOS Settings handoff), **rest** (every other class in the bundle; today Lock and
+  (EURegister), **reminders** (grant and cold notification tap), **reminders-denied** (refusal and iOS Settings handoff), **pull-delete** (account pull and deletion), **rest** (every other class in the bundle; today Lock and
   Navigation). The class lists live once, in the workflow env `QA_PARTS`;
   rest is the bundle minus every listed class, so **a new class runs in rest
   by default; move it into a named part when rest passes ~8 min of flows.**
@@ -307,6 +307,8 @@ observes banner replacement, and restores those responses for host-stopped
 recovery. The fixture's `/arm` and `/release` controls inject one held 503.
 Both reminder parts append [`ios/qa/reminder-probe.js`](../ios/qa/reminder-probe.js)
 with `QA_REMINDER_PROBE=1` to create a real medication and observe native scheduling.
+The pull-delete part appends [`ios/qa/pull-delete-probe.js`](../ios/qa/pull-delete-probe.js)
+to create an encrypted peer operation, observe the pull, and simulate one soft-authenticator cancellation.
 
 ### Owner device checklist (account flows, need a passkey)
 
