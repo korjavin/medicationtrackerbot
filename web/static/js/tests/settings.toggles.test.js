@@ -1261,6 +1261,94 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
+        // Miles (Zulip 22739): an import the server refused for good never
+        // syncs, so delete asks instead of refusing — the user can always leave.
+        const localOnlyChoice = async (window, document) => {
+            const mod = await mountCloudWithDeleteModule(window, {}, {
+                getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: false, importRejected: true })),
+            });
+            await confirmDelete(window, document);
+            const dialog = await vi.waitFor(() => {
+                const d = document.querySelector('mt-modal.mt-confirm-modal');
+                if (!d?.querySelector('.mt-confirm-modal__choice')) throw new Error('no choice dialog');
+                return d;
+            });
+            expect(dialog.textContent).toContain("Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?");
+            const pick = (label) => [...dialog.querySelectorAll('.mt-confirm-modal__choice')].find((b) => b.textContent === label).click();
+            return { mod, dialog, pick };
+        };
+
+        it('a permanently rejected import asks first; Continue proceeds in the current order', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { mod, pick } = await localOnlyChoice(window, document);
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                pick('Continue');
+                await vi.waitFor(() => expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1));
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(mod.clearLocalVault.mock.invocationCallOrder[0]).toBeLessThan(mod.reauthAndDelete.mock.invocationCallOrder[0]);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('a permanently rejected import: Export backup opens Backup & import and wipes nothing', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { mod, pick } = await localOnlyChoice(window, document);
+                pick('Export backup');
+                await vi.waitFor(() => expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
+                    ?.querySelector('.wg-pagebar__title').textContent).toBe('Backup & import'));
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+                expect(document.getElementById('delete-account-open').disabled).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('a permanently rejected import: Cancel does nothing', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const { mod, dialog } = await localOnlyChoice(window, document);
+                dialog.querySelector('.mt-confirm-modal__cancel').click();
+                await vi.waitFor(() => expect(document.getElementById('delete-account-open').disabled).toBe(false));
+                expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+                expect(document.getElementById('delete-account-error').textContent).toBe('');
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('a drain still running after 15 s counts as unsynced', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const mod = await mountCloudWithDeleteModule(window, {}, {
+                    requestDrain: vi.fn(() => new Promise(() => {})), // offline: never settles
+                });
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                await confirmDelete(window, document);
+                await vi.advanceTimersByTimeAsync(15000);
+                vi.useRealTimers();
+                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent).toMatch(/haven't synced yet/));
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
         it('with nothing pending, the drain runs before the pre-wipe and the order is unchanged', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();

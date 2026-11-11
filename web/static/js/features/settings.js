@@ -792,9 +792,14 @@ function loadAccountDeleteModule() { return import('/js/account-delete.js'); }
 const UNSYNCED_DELETE_MSG = "Some entries haven't synced yet. Connect and try again, or export a backup first.";
 const DELETE_DRAIN_TIMEOUT_MS = 15000;
 
-// Drain the outbound queue, then report whether writes are still pending.
-// A drain that throws, hangs (offline) or a status that can't be read counts
-// as pending: the delete flow must never guess that the server has it all.
+const LOCAL_ONLY_DELETE_MSG = "Some entries exist only on this device and can't sync. If you continue and then cancel the passkey step, they're gone. Export a backup first?";
+
+// Drain the outbound queue, then say what the pre-wipe would lose:
+// 'local-only' — an import the server refused for good (it never syncs, so
+// refusing would block delete forever: the user confirms instead);
+// 'unsynced' — writes still pending. A drain that throws, hangs (offline) or a
+// status that can't be read counts as 'unsynced': the delete flow must never
+// guess that the server has it all. null — nothing to lose.
 async function unsyncedEntries() {
     try {
         const sync = await loadCloudSyncModule();
@@ -804,11 +809,12 @@ async function unsyncedEntries() {
             Promise.resolve(sync.requestDrain(ctx)).then(() => true),
             new Promise((resolve) => { timer = setTimeout(() => resolve(false), DELETE_DRAIN_TIMEOUT_MS); }),
         ]).finally(() => clearTimeout(timer));
-        if (!drained) return true;
+        if (!drained) return 'unsynced';
         const st = await sync.getSyncStatus(ctx);
-        return st.pendingCount !== 0 || st.importPending !== false;
+        if (st.importRejected) return 'local-only';
+        return st.pendingCount !== 0 || st.importPending !== false ? 'unsynced' : null;
     } catch {
-        return true;
+        return 'unsynced';
     }
 }
 
@@ -883,11 +889,23 @@ function bindDeleteAccount() {
                 // the user aborts at the passkey prompt. That holds only for
                 // what the server has: refuse while the outbound queue (inside
                 // the mirror the wipe deletes) is not empty (bd med-kraa).
-                if (await unsyncedEntries()) {
+                const unsynced = await unsyncedEntries();
+                if (unsynced === 'unsynced') {
                     showError(UNSYNCED_DELETE_MSG);
                     showExport(true);
                     openBtn.disabled = false;
                     return;
+                }
+                if (unsynced === 'local-only') {
+                    const pick = await window.safeChoose(LOCAL_ONLY_DELETE_MSG, [
+                        { value: 'export', label: 'Export backup' },
+                        { value: 'continue', label: 'Continue' },
+                    ], { title: 'Delete your account?', icon: 'trash', tone: 'danger', cancelLabel: 'Cancel' });
+                    if (pick !== 'continue') {
+                        if (pick === 'export') openSettingsPage('backup');
+                        openBtn.disabled = false;
+                        return;
+                    }
                 }
                 await mod.clearLocalVault();
                 await mod.reauthAndDelete();

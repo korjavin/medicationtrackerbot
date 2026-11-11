@@ -2252,6 +2252,11 @@ export async function getSyncStatus(ctx) {
     // A full-vault import still stranded on this device (its records are not
     // in 'pending'): the delete flow refuses on it too (bd med-kraa).
     importPending: meta.forceSnapshotPending,
+    // ...or one the server refused for good (a forced-snapshot or its bump
+    // rejected with a permanent 4xx; only maybeSnapshot's own error carries a
+    // snapshotErrorSeq): those records exist only here and never upload.
+    // ponytail: a later maybeSnapshot failure stamps a seq and hides it.
+    importRejected: !!meta.snapshotError && meta.snapshotErrorSeq == null,
     offline,
     authExpired,
     updateRequired,
