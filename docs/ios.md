@@ -114,14 +114,15 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → six `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → seven `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
   CeremonyExit), **core** (CoreLocal, `FlowQATests`, HealthWriteBack; the
   only part that waits for healthd, `QA_HEALTH_READY=1`), **data** (Backup,
-  Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **rest** (every other class in the bundle; today Lock and
-  EURegister and Navigation). The class lists live once, in the workflow env `QA_PARTS`;
+  Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **eu**
+  (EURegister), **rest** (every other class in the bundle; today Lock and
+  Navigation). The class lists live once, in the workflow env `QA_PARTS`;
   rest is the bundle minus every listed class, so **a new class runs in rest
   by default; move it into a named part when rest passes ~8 min of flows.**
   Then the **`qa` gate** (ubuntu): green only when every part passed — "qa
@@ -194,8 +195,13 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   relaunch: cache-first when WebKit stored it. The driver's `euRegister`
   step puts the numbers in the report; the test attaches them as
   `eu-register-<step>.json`, and the `qa-part` job writes the Simulator's
-  WebContent RSS each second to `webcontent-rss-rest.log` (rest's part; both in `ios-qa`;
-  match the RSS to the JSON's epoch-ms windows).
+  WebContent RSS each second to `webcontent-rss-eu.log` (both in `ios-qa`;
+  match the RSS to the JSON's epoch-ms windows). `testAccountEURegister`
+  claims its own account, caches and saves Candecor, stops the fake listener,
+  and checks the saved chip after relaunch. Its Debug-only `eu-probe.js`
+  simulates an encrypted peer setting and observes a real pull-to-refresh;
+  the server receipts record only a boolean for the synthetic name, never
+  request bodies or queries.
 - **Core local flows** ([`FlowQACoreLocalTests.swift`](../ios/UITests/FlowQACoreLocalTests.swift),
   bd med-sz4k.6.1, twin of Android's `core-local`): `testCoreLocal` on the
   golden seed, one launch per `flowOnly` + `flow` scene `core-local-*`

@@ -41,7 +41,8 @@ mint() {
   echo "$1=https://$host/#claim=${landing##*#}" >> "$GITHUB_ENV"
 }
 # FlowQACeremonyExitTests leaves its claim page; FlowQAOfflineAccountTests
-# claims its own (bd med-sz4k.6.1).
+# claims its own (bd med-sz4k.6.1). The separate eu part also uses the offline
+# invite; do not run both consumers in one Simulator job.
 mint QA_CLAIM_URL; hosts="$host"
 mint QA_OFFLINE_CLAIM_URL; hosts="$hosts $host"
 if [ "${QA_BUNDLES:-0}" = 1 ]; then
