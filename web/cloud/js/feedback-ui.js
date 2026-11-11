@@ -39,7 +39,7 @@ function scrubLog(text) {
     return text
         .replace(/\/(d|i)\/[^/"\s]+/g, '/$1/<sub>')
         .replace(/\/(s|mcp)\/[^/"\s]+/g, '/$1/<token>')
-        .replace(/(\[health\] (?:[^"\\\n]|\\.)*? failed )(?!(?:denied|quota|other|no result)(?:["\\\n]|$))(?:[^"\\\n]|\\.)*/g, '$1<redacted>');
+        .replace(/(\[health\] (?:[^"\\\n]|\\.)*? failed )(?!(?:denied|quota|other|no result)(?:["\n]|$))(?:[^"\\\n]|\\.)*/g, '$1<redacted>');
 }
 
 function toast(message) {
