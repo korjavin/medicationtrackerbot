@@ -10,7 +10,7 @@ name: iOS
 # qa runs as six restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
-# today Lock + EURegister), update (A/B banner), and degraded (boot recovery), joined by the `qa` gate. Lists: env QA_PARTS.
+# today Lock + EURegister + Navigation), update (A/B banner), and degraded (boot recovery), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
