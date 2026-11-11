@@ -29,6 +29,8 @@ final class FlowQAHealthImportTests: XCTestCase {
         }
         let sheet = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         sheet.name = "health-import-requested-kinds.png"; sheet.lifetime = .keepAlways; add(sheet)
+        let requested = XCTAttachment(string: seen.sorted().joined(separator: ", "))
+        requested.name = "health-import-requested-kinds.txt"; requested.lifetime = .keepAlways; add(requested)
         XCTAssertEqual(seen, Set(kinds), "Health sheet did not list the requested read kinds: \(seen)")
         let screen = app.frame
         let end = Date().addingTimeInterval(120)
@@ -36,6 +38,11 @@ final class FlowQAHealthImportTests: XCTestCase {
             var acted = false
             pass: for host in hosts {
                 if HealthDiagnosticTests.tapIfSettled(allButton(host), within: screen) { acted = true; break pass }
+                let off = host.switches.allElementsBoundByIndex.filter { HealthDiagnosticTests.live($0, within: screen)?.value as? String == "0" }
+                if !off.isEmpty {
+                    for item in off { _ = HealthDiagnosticTests.tapIfSettled(item, within: screen) }
+                    acted = true; break pass
+                }
                 if ["Allow", "Continue"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) { acted = true; break pass }
                 let history = host.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'All Recorded Data'")).firstMatch
                 if HealthDiagnosticTests.tapIfSettled(history, within: screen) { acted = true; break pass }
@@ -114,16 +121,23 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         let screen = app.frame
         let deadline = Date().addingTimeInterval(120)
         var sawSheet = false
+        let kinds = ["Steps", "Sleep", "Blood Oxygen", "Heart Rate", "Blood Pressure", "Weight", "Workouts"]
+        var denied = Set<String>()
         while Date() < deadline {
             var acted = false
             pass: for host in hosts {
                 let select = host.descendants(matching: .any).matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
                 if select.exists { sawSheet = true }
+                for kind in kinds {
+                    let item = host.switches.matching(NSPredicate(format: "label CONTAINS[c] %@", kind)).firstMatch
+                    if let snap = HealthDiagnosticTests.live(item, within: screen), snap.value as? String == "0" { denied.insert(kind) }
+                }
                 let on = host.switches.allElementsBoundByIndex.filter { HealthDiagnosticTests.live($0, within: screen)?.value as? String == "1" }
                 if !on.isEmpty {
                     for item in on { _ = HealthDiagnosticTests.tapIfSettled(item, within: screen) }
                     acted = true; break pass
                 }
+                if denied.count < kinds.count { continue }
                 if ["Don't Allow", "Continue", "Allow", "Done"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
                     acted = true; break pass
                 }
@@ -134,6 +148,7 @@ final class FlowQAHealthDeniedTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
         XCTAssertTrue(sawSheet, "did not observe the first Health permission sheet")
+        XCTAssertEqual(denied, Set(kinds), "did not verify all requested read switches were off: \(denied)")
         let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'nothing yet' AND label CONTAINS 'Check access in Settings' AND NOT (label BEGINSWITH '{')")).firstMatch
         XCTAssertTrue(guidance.waitForExistence(timeout: 30), "no denied-read guidance")
         let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
