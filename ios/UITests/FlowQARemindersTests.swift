@@ -59,7 +59,9 @@ final class FlowQARemindersTests: XCTestCase {
         shot("delivered")
         banner.tap()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60), "notification did not cold-open the app")
-        let med = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS 'QA Offline Reminder'")).firstMatch
+        // The selection row in the take sheet is exposed as a Switch by
+        // WebKit, rather than as StaticText (real run 42977699087).
+        let med = app.webViews.switches["QA Offline Reminder"]
         XCTAssertTrue(med.waitForExistence(timeout: 120), "notification did not open this medication's take sheet")
         let take = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS 'Take'")).firstMatch
         XCTAssertTrue(take.waitForExistence(timeout: 15), "dose is not ready to take")
