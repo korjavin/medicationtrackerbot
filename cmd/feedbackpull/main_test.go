@@ -70,6 +70,7 @@ func sampleDoc() feedbackDoc {
 		{Type: "image", Mime: "image/jpeg", DataB64: base64.StdEncoding.EncodeToString([]byte("\xff\xd8\xff-jpeg-bytes"))},
 		{Type: "audio", Mime: "audio/webm", DataB64: base64.StdEncoding.EncodeToString([]byte("webm-bytes"))},
 		{Type: "audio", Mime: "audio/ogg", DataB64: base64.StdEncoding.EncodeToString([]byte("ogg-voice-bytes"))},
+		{Type: "log", Mime: "text/plain", DataB64: base64.StdEncoding.EncodeToString([]byte("visible\nhidden\n"))},
 	}
 	return doc
 }
@@ -89,8 +90,8 @@ func TestDecodeItem(t *testing.T) {
 		if doc.Text != "app crashes on save" {
 			t.Errorf("text = %q", doc.Text)
 		}
-		if len(doc.Attachments) != 3 {
-			t.Fatalf("attachments = %d, want 3", len(doc.Attachments))
+		if len(doc.Attachments) != 4 {
+			t.Fatalf("attachments = %d, want 4", len(doc.Attachments))
 		}
 	})
 
@@ -128,6 +129,7 @@ func TestSaveAttachments(t *testing.T) {
 		filepath.Join(outDir, "1-cid-1-0.jpg"),
 		filepath.Join(outDir, "1-cid-1-1.webm"),
 		filepath.Join(outDir, "1-cid-1-2.ogg"),
+		filepath.Join(outDir, "1-cid-1-3.txt"),
 	}
 	if len(paths) != len(want) {
 		t.Fatalf("paths = %v, want %v", paths, want)

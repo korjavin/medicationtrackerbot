@@ -3421,7 +3421,7 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         expect(toBase()).toEqual([]);
 
         const modal = await compose('the scale page froze');
-        expect(modal.querySelector('.wg-local-only').textContent).toBe('Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.');
+        expect(modal.querySelector('.wg-local-only').textContent).toBe('Sent encrypted to the developer through our server; the server can\'t read it. Your records stay on this phone.');
         expect(toBase()).toEqual([]);
         send(modal);
 
