@@ -811,12 +811,12 @@ async function unsyncedEntries() {
         ]).finally(() => clearTimeout(timer));
         if (!drained) return 'unsynced';
         const st = await sync.getSyncStatus(ctx);
-        // A rejected import's bump keeps importPending set, which also stops
-        // every flush: then nothing here can ever sync. Otherwise syncable
-        // entries still pending get the refusal first.
-        if (st.importRejected && st.importPending) return 'local-only';
-        if (st.pendingCount !== 0 || st.importPending !== false) return 'unsynced';
-        return st.importRejected ? 'local-only' : null;
+        // Queued edits can still sync (a quota-rejected bump retries once quota
+        // is freed), so they always get the refusal; a rejected import alone
+        // gets the choice, even with its bump still marked pending.
+        if (st.pendingCount !== 0) return 'unsynced';
+        if (st.importRejected) return 'local-only';
+        return st.importPending !== false ? 'unsynced' : null;
     } catch {
         return 'unsynced';
     }

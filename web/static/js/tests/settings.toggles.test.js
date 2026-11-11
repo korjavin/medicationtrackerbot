@@ -1247,6 +1247,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             ['a full-vault import still stranded offline', { getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: true })) }],
             // Syncable edits queued beside a rejected import: refuse, don't offer Continue.
             ['a queued edit beside a rejected import', { getSyncStatus: vi.fn(async () => ({ pendingCount: 1, importPending: false, importRejected: true })) }],
+            ['a queued edit beside a rejected import bump', { getSyncStatus: vi.fn(async () => ({ pendingCount: 1, importPending: true, importRejected: true })) }],
         ])('%s counts as unsynced: nothing is wiped or deleted', async (_name, sync) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
@@ -1265,9 +1266,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
 
         // Miles (Zulip 22739): an import the server refused for good never
         // syncs, so delete asks instead of refusing — the user can always leave.
-        const localOnlyChoice = async (window, document) => {
+        const localOnlyChoice = async (window, document, importPending = false) => {
             const mod = await mountCloudWithDeleteModule(window, {}, {
-                getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: false, importRejected: true })),
+                getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending, importRejected: true })),
             });
             await confirmDelete(window, document);
             const dialog = await vi.waitFor(() => {
@@ -1313,11 +1314,11 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('a permanently rejected import: Cancel does nothing', async () => {
+        it('a permanently rejected import (its bump still marked pending): Cancel does nothing', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const { mod, dialog } = await localOnlyChoice(window, document);
+                const { mod, dialog } = await localOnlyChoice(window, document, true);
                 dialog.querySelector('.mt-confirm-modal__cancel').click();
                 await vi.waitFor(() => expect(document.getElementById('delete-account-open').disabled).toBe(false));
                 expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
