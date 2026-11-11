@@ -86,8 +86,9 @@ final class FlowQAMoveAccountTests: XCTestCase {
         try FileManager.default.createDirectory(at: stashURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try stash.write(to: stashURL)
         launch(app, [])
-        XCTAssertTrue(openAccount(app, timeout: 120))
-        XCTAssertTrue(text(app, "Records already in your account").waitForExistence(timeout: 120))
+        // The pickup question is modal: it hides the tab bar from XCUITest.
+        let question = text(app, "Records already in your account")
+        XCTAssertTrue(openAccount(app, timeout: 180, until: question), "populated account asked no Merge/Replace")
         XCTAssertTrue(choice(app, "Merge").exists, "the populated account offers no Merge")
         let replace = choice(app, "Replace")
         XCTAssertTrue(replace.waitForExistence(timeout: 10)); replace.tap()
@@ -175,10 +176,12 @@ final class FlowQAMoveAccountTests: XCTestCase {
         app.launch()
     }
 
-    private func openAccount(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    /// Passes the unlock steps until the tab bar shows, or `until` when given.
+    private func openAccount(_ app: XCUIApplication, timeout: TimeInterval, until target: XCUIElement? = nil) -> Bool {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end {
-            if QA.tabBarShows(app, timeout: 2) { return true }
+            if let target { if target.waitForExistence(timeout: 2) { return true } }
+            else if QA.tabBarShows(app, timeout: 2) { return true }
             for label in ["Continue in browser anyway", "Skip all", "Unlock with passkey"] {
                 let b = app.webViews.buttons[label]; if b.exists { b.tap() }
             }
