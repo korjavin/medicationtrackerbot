@@ -639,6 +639,10 @@ jobs:
           python3 qa/runner-summary.py "$RUNNER_TEMP/qa-boot.log" "$RUNNER_TEMP/qa-tests.json" >> "$GITHUB_STEP_SUMMARY" || echo "Runner summary unavailable (helper failed)" >> "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/qa-tests.json" "$out/qa-tests-$PART.json"
           [ -d build/qa.xcresult ] || { echo "No result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          while IFS= read -r testid; do
+            safe="$(printf '%s' "$testid" | sed -E 's/[^A-Za-z0-9]+/-/g; s/-$//')"
+            xcrun xcresulttool get test-results activities --test-id "$testid" --path build/qa.xcresult > "$out/$safe-activities.json" || rm -f "$out/$safe-activities.json"
+          done < <(jq -r '.. | objects | select(.nodeType == "Test Case" and .result == "Failed") | .nodeIdentifier // empty' "$RUNNER_TEMP/qa-tests.json")
           xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
           # Same manifest mapping as the visual job: <flow>-<step>.png, plus
           # a failed test's UI hierarchy (the first exported) as <Class>-<test>-hierarchy.txt
@@ -648,7 +652,7 @@ jobs:
               while IFS=$'\t' read -r file name test; do
                 name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
                 case "$name" in
-                  *.png|*.json) cp "$raw/$file" "$out/$name" ;;
+                  *.png|*.json|*.ips) cp "$raw/$file" "$out/$name" ;;
                   "App UI hierarchy"*) [ -e "$out/$test-hierarchy.txt" ] || cp "$raw/$file" "$out/$test-hierarchy.txt" ;;
                 esac
               done

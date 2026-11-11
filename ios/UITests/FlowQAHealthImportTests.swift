@@ -1,5 +1,43 @@
 import XCTest
 
+/// Health's hosted sheet has a large accessibility tree. Take one tree per
+/// pass, then use its identifiers and off-screen values; only the chosen
+/// action gets the two settled snapshots required by XCTest's native tap.
+@MainActor
+private enum HealthSheet {
+    static let readPrefix = "UIA.Health.Read."
+    static let all = "UIA.Health.AuthSheet.AllCategoryButton"
+    static let allow = "UIA.Health.Allow.Button"
+    static let deny = "UIA.Health.DoNotAllow.Button"
+    static let expected = Set(["ActiveEnergy", "CyclingDistance", "Steps", "SwimmingDistance", "Walking+RunningDistance", "Workouts", "Weight", "BloodPressure", "HeartRate", "BloodOxygen", "Sleep"])
+
+    static func nodes(_ root: XCUIElementSnapshot) -> [XCUIElementSnapshot] {
+        var result = [XCUIElementSnapshot](), pending = [root]
+        while let node = pending.popLast() { result.append(node); pending.append(contentsOf: node.children) }
+        return result
+    }
+    static func readValues(_ nodes: [XCUIElementSnapshot]) -> [String: String] {
+        var result = [String: String]()
+        for node in nodes where node.identifier.hasPrefix(readPrefix) && node.identifier.hasSuffix(".SwitchCell.Switch") {
+            let kind = String(node.identifier.dropFirst(readPrefix.count).dropLast(".SwitchCell.Switch".count))
+            if let value = node.value as? String { result[kind] = value }
+        }
+        return result
+    }
+    static func visible(_ node: XCUIElementSnapshot, screen: CGRect) -> Bool {
+        node.isEnabled && !node.frame.isEmpty && screen.contains(CGPoint(x: node.frame.midX, y: node.frame.midY))
+    }
+    static func tap(_ id: String, host: XCUIApplication, screen: CGRect) -> Bool {
+        let element = host.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", id)).firstMatch
+        return HealthDiagnosticTests.tapIfSettled(element, within: screen)
+    }
+    static func attach(_ values: [String: String], name: String, in test: XCTestCase) throws {
+        let data = try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys])
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = name + ".json"; attachment.lifetime = .keepAlways; test.add(attachment)
+    }
+}
+
 /// First Health ask in the dedicated simulator part: the real Settings switch
 /// requests read access before the diagnostic seed asks for write access.
 @MainActor
@@ -11,56 +49,55 @@ final class FlowQAHealthImportTests: XCTestCase {
         launch(app, "health-qa-settings")
         let target = try XCTUnwrap(QA.target(QA.flow(app), "health"), "Health import switch absent")
         QA.coordinate(app, target).tap()
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let hosts = [app, springboard]
-        let allButton = { (host: XCUIApplication) in
-            host.descendants(matching: .any).matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
-        }
-        let deadline = Date().addingTimeInterval(60)
-        var seen = Set<String>()
-        let kinds = ["Steps", "Sleep", "Blood Oxygen", "Heart Rate"]
-        while Date() < deadline && seen.count < kinds.count {
-            for host in hosts {
-                for kind in kinds where host.switches.matching(NSPredicate(format: "label CONTAINS[c] %@", kind)).firstMatch.exists {
-                    seen.insert(kind)
-                }
-            }
-            if seen.count < kinds.count { app.swipeUp(); Thread.sleep(forTimeInterval: 0.5) }
-        }
-        let sheet = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        sheet.name = "health-import-requested-kinds.png"; sheet.lifetime = .keepAlways; add(sheet)
-        let requested = XCTAttachment(string: seen.sorted().joined(separator: ", "))
-        requested.name = "health-import-requested-kinds.txt"; requested.lifetime = .keepAlways; add(requested)
-        XCTAssertEqual(seen, Set(kinds), "Health sheet did not list the requested read kinds: \(seen); bridge: \(QA.json(QA.flow(app)?["memo"]))")
+        let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
+        let kinds = Set(["Steps", "Sleep", "BloodOxygen", "HeartRate"])
         let screen = app.frame
         let end = Date().addingTimeInterval(120)
+        var seen = [String: String]()
+        var selected = false, submitted = false, finished = false
         while Date() < end {
             var acted = false
             pass: for host in hosts {
-                if HealthDiagnosticTests.tapIfSettled(allButton(host), within: screen) { acted = true; break pass }
-                let off = host.switches.allElementsBoundByIndex.filter { HealthDiagnosticTests.live($0, within: screen)?.value as? String == "0" }
-                if !off.isEmpty {
-                    for item in off { _ = HealthDiagnosticTests.tapIfSettled(item, within: screen) }
+                guard let tree = try? host.snapshot() else { continue }
+                let nodes = HealthSheet.nodes(tree)
+                let reads = HealthSheet.readValues(nodes)
+                if !reads.isEmpty && seen.isEmpty {
+                    seen = reads
+                    let sheet = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                    sheet.name = "health-import-requested-kinds.png"; sheet.lifetime = .keepAlways; add(sheet)
+                }
+                if !selected, kinds.isSubset(of: Set(reads.keys)), let all = nodes.first(where: { $0.identifier == HealthSheet.all }) {
+                    if HealthSheet.visible(all, screen: screen) { selected = HealthSheet.tap(HealthSheet.all, host: host, screen: screen) }
+                    else { app.swipeDown() }
                     acted = true; break pass
                 }
-                if ["Allow", "Continue"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) { acted = true; break pass }
-                let history = host.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'All Recorded Data'")).firstMatch
-                if HealthDiagnosticTests.tapIfSettled(history, within: screen) { acted = true; break pass }
+                if selected, let allow = nodes.first(where: { $0.identifier == HealthSheet.allow }) {
+                    if HealthSheet.visible(allow, screen: screen) { submitted = HealthSheet.tap(HealthSheet.allow, host: host, screen: screen) || submitted }
+                    else { app.swipeUp() }
+                    acted = true; break pass
+                }
+                if submitted, nodes.contains(where: { $0.label.hasPrefix("Import from") && $0.isEnabled && ($0.value as? String) == "1" }) {
+                    finished = true; break pass
+                }
+                // On iOS 27 a second Health page can request a history range.
+                if submitted, let history = nodes.first(where: { $0.label.hasPrefix("All Recorded Data") && HealthSheet.visible($0, screen: screen) }), !history.identifier.isEmpty {
+                    acted = HealthSheet.tap(history.identifier, host: host, screen: screen); break pass
+                }
             }
-            let healthSwitch = app.webViews.switches.matching(NSPredicate(format: "label BEGINSWITH 'Import from' ")).firstMatch
-            if let state = try? healthSwitch.snapshot(), state.isEnabled, state.value as? String == "1" { break }
+            if finished { break }
             if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        let healthSwitch = app.webViews.switches.matching(NSPredicate(format: "label BEGINSWITH 'Import from' ")).firstMatch
-        let finished = try? healthSwitch.snapshot()
-        XCTAssertTrue(finished?.isEnabled == true && finished?.value as? String == "1", "Health authorization did not finish")
+        try HealthSheet.attach(seen, name: "health-import-requested-kinds", in: self)
+        XCTAssertTrue(kinds.isSubset(of: Set(seen.keys)), "Health sheet missing requested read kinds: \(seen); bridge: \(QA.json(QA.flow(app)?["memo"]))")
+        XCTAssertTrue(finished, "Health authorization did not finish")
         app.terminate()
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 30), "the authorization instance did not exit")
 
         // This second, diagnostic-only ask grants write access for seeded data.
         let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
         XCTAssertEqual(seed["weightSeeded"] as? Bool, true, "simulator did not grant weight seeding: \(QA.json(seed))")
+        XCTAssertEqual(seed["bpSeeded"] as? Bool, true, "simulator did not grant BP seeding: \(QA.json(seed))")
         launch(app, "health-qa-import")
         XCTAssertTrue(webText(app, "Sources · Health import").waitForExistence(timeout: 30), "sleep source label absent")
         shot("health-import-sleep")
@@ -72,9 +109,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         XCTAssertTrue(saved, "typed BP did not save: \(QA.json(after))")
         let bp = rows(after ?? [:], "bp")
         XCTAssertTrue(bp.contains { $0.contains("141/91") && !$0.contains("Health import") }, "typed BP has Health label: \(bp)")
-        if seed["bpSeeded"] as? Bool == true {
-            XCTAssertTrue(bp.contains { $0.contains("123/79") && $0.contains("Health import") }, "imported BP source absent: \(bp)")
-        }
+        XCTAssertTrue(bp.contains { $0.contains("123/79") && $0.contains("Health import") }, "imported BP source absent: \(bp)")
         shot("health-import-bp")
         launch(app, "health-qa-weight")
         let (weightOK, weightState) = QA.waitFlow(app, timeout: 30) { rows($0, "weight").contains { $0.contains("73.4") && $0.contains("Health import") } }
@@ -124,47 +159,33 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
         let screen = app.frame
         let deadline = Date().addingTimeInterval(120)
-        var sawSheet = false
-        let kinds = ["Steps", "Sleep", "Blood Oxygen", "Heart Rate", "Blood Pressure", "Weight", "Workouts"]
-        var denied = Set<String>()
-        var allReadSwitchesOff = false
+        var denied = [String: String]()
+        var submitted = false, finished = false
         while Date() < deadline {
             var acted = false
             pass: for host in hosts {
-                let select = host.descendants(matching: .any).matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
-                if select.exists { sawSheet = true }
-                for kind in kinds {
-                    let item = host.switches.matching(NSPredicate(format: "label CONTAINS[c] %@", kind)).firstMatch
-                    if let snap = HealthDiagnosticTests.live(item, within: screen), snap.value as? String == "0" { denied.insert(kind) }
-                }
-                // Workout read access expands to additional Health types. Check
-                // every read switch, not just the seven named categories above.
-                let reads = host.switches.allElementsBoundByIndex.compactMap { try? $0.snapshot() }
-                    .filter { $0.identifier.hasPrefix("UIA.Health.Read.") }
-                if reads.count >= kinds.count && reads.allSatisfy({ $0.value as? String == "0" }) { allReadSwitchesOff = true }
-                let on = host.switches.allElementsBoundByIndex.filter { HealthDiagnosticTests.live($0, within: screen)?.value as? String == "1" }
-                if !on.isEmpty {
-                    allReadSwitchesOff = false
-                    for item in on { _ = HealthDiagnosticTests.tapIfSettled(item, within: screen) }
+                guard let tree = try? host.snapshot() else { continue }
+                let nodes = HealthSheet.nodes(tree)
+                let reads = HealthSheet.readValues(nodes)
+                if !reads.isEmpty { denied = reads }
+                if let deny = nodes.first(where: { $0.identifier == HealthSheet.deny }),
+                   Set(reads.keys) == HealthSheet.expected, reads.values.allSatisfy({ $0 == "0" }) {
+                    if HealthSheet.visible(deny, screen: screen) { submitted = HealthSheet.tap(HealthSheet.deny, host: host, screen: screen) || submitted }
+                    else { app.swipeUp() }
                     acted = true; break pass
                 }
-                if denied.count < kinds.count || !allReadSwitchesOff { continue }
-                if ["Don’t Allow", "Don't Allow", "Continue", "Allow", "Done"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
-                    acted = true; break pass
+                if submitted, nodes.contains(where: { $0.label.contains("Checked") && $0.label.contains("nothing yet") && $0.label.contains("Settings → Health → Data Access & Devices") && !$0.label.hasPrefix("{") }) {
+                    finished = true; break pass
                 }
             }
-            let desc = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Checked' AND label CONTAINS 'nothing yet' AND label CONTAINS 'Settings → Health → Data Access & Devices' AND NOT (label BEGINSWITH '{')")).firstMatch
-            if desc.exists { break }
+            if finished { break }
             if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        XCTAssertTrue(sawSheet, "did not observe the first Health permission sheet")
-        XCTAssertEqual(denied, Set(kinds), "did not verify all requested read switches were off: \(denied)")
-        XCTAssertTrue(allReadSwitchesOff, "not all Health read switches were verified off")
-        let switches = XCTAttachment(string: denied.sorted().joined(separator: ", "))
-        switches.name = "health-import-denied-kinds.txt"; switches.lifetime = .keepAlways; add(switches)
-        let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Checked' AND label CONTAINS 'nothing yet' AND label CONTAINS 'Settings → Health → Data Access & Devices' AND NOT (label BEGINSWITH '{')")).firstMatch
-        XCTAssertTrue(guidance.waitForExistence(timeout: 30), "no denied-read guidance")
+        try HealthSheet.attach(denied, name: "health-import-denied-kinds", in: self)
+        XCTAssertEqual(Set(denied.keys), HealthSheet.expected, "wrong Health read switches: \(denied)")
+        XCTAssertTrue(denied.values.allSatisfy { $0 == "0" }, "a Health read switch was enabled: \(denied)")
+        XCTAssertTrue(submitted && finished, "no denied-read guidance after the native denial")
         let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
         shot.name = "health-import-denied-guidance.png"; shot.lifetime = .keepAlways; add(shot)
     }

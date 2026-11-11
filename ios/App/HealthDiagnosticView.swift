@@ -52,7 +52,7 @@ struct HealthDiagnosticView: View {
                     result["weightSeeded"] = true
                 }
                 let bp = HKCorrelationType(.bloodPressure)
-                if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized && store.authorizationStatus(for: bp) == .sharingAuthorized {
+                if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized {
                     let unit = HKUnit.millimeterOfMercury()
                     let s = HKQuantitySample(type: sys, quantity: HKQuantity(unit: unit, doubleValue: 123), start: at, end: at)
                     let d = HKQuantitySample(type: dia, quantity: HKQuantity(unit: unit, doubleValue: 79), start: at, end: at)
