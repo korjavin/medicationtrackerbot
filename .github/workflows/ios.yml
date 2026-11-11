@@ -614,6 +614,20 @@ jobs:
           kill "$sampler" 2>/dev/null || true
           exit "$status"
 
+      - name: Inspect fake cloud log without exporting it
+        if: always()
+        run: |
+          [ -s "$RUNNER_TEMP/cloud.log" ] || { echo 'Cloud log missing'; exit 1; }
+          pid=$(pgrep -f "^$RUNNER_TEMP/cloud$")
+          [ -n "$pid" ] || { echo 'Cloud process missing'; exit 1; }
+          secret=$(ps eww -p "$pid" | tr ' ' '\n' | sed -n 's/^SESSION_SECRET=//p')
+          [ -n "$secret" ] || { echo 'Could not inspect cloud environment'; exit 1; }
+          if grep -Fq -- "$secret" "$RUNNER_TEMP/cloud.log" || grep -Eiq 'SESSION_SECRET|credential.?id|public.?key|private.?key|clientDataJSON|attestationObject|authenticatorData' "$RUNNER_TEMP/cloud.log"; then
+            echo 'Cloud log has a sensitive marker or session secret'
+            exit 1
+          fi
+          echo 'Cloud log checked: no session secret or passkey material markers'
+
       - name: Export screenshots and summary
         if: always()
         working-directory: ios
