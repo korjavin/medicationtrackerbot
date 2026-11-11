@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL, onLocalWrite, localRecordsPort } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, markForceSnapshotPending, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL, onLocalWrite, localRecordsPort } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 import { mergeSleep } from '../../../domain/healthsource.js';
 
@@ -5019,6 +5019,75 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     const rejected = rtx.objectStore('sync_meta').get('importRejected');
     await txDone(rtx);
     expect(rejected.result).toBe(true);
+  });
+
+  // bd med-yrq1 — tab B is a second module instance running the real import
+  // calls (cloud-boot importAll: mark, then replace).
+  describe('a forced snapshot read before another tab\'s import keeps that import pending (med-yrq1)', () => {
+    const marker = async () => {
+      const tx = other.transaction('sync_meta', 'readonly');
+      const req = tx.objectStore('sync_meta').get('forceSnapshotPending');
+      await txDone(tx);
+      return req.result;
+    };
+    const imported = [{ recordId: 'bp-imported', recordType: 'bp', clientTs: 3, deleted: false, systolic: 140 }];
+    let post;
+    let tabB;
+    beforeEach(async () => {
+      post = gate();
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        const u = String(url);
+        if (u === '/api/sync/snapshot') {
+          if (init?.method === 'POST') { await post.hold(); return new Response('{}', { status: 200 }); }
+          return snapshot(7, 'bp-old');
+        }
+        if (u === '/api/sync/ops' && init?.method === 'POST') return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+        if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+        return new Response('{}', { status: 200 });
+      }));
+      await listRecords(ctx, 'bp');
+      vi.resetModules();
+      tabB = await import('../sync.js');
+    });
+
+    it('A\'s held flight landing after B\'s mark and replace leaves B\'s marker set', async () => {
+      const forced = forceSnapshot(ctx);
+      await post.reached;
+      await tabB.markForceSnapshotPending();
+      await tabB.replaceAllRecords(imported, { armImport: true });
+      post.release();
+      await forced;
+      expect(await marker()).toBe(true);
+      // B closed here: a later open (any tab) still reads the import as waiting...
+      expect((await getSyncStatus(ctx)).importPending).toBe(true);
+      // ...until that open's retry uploads it.
+      await pullOnOpen(ctx);
+      expect((await getSyncStatus(ctx)).importPending).toBe(false);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-imported']);
+    });
+
+    it('A\'s flight clearing between B\'s mark and replace is re-armed by the replace', async () => {
+      await tabB.markForceSnapshotPending();
+      const forced = forceSnapshot(ctx); // reads the store B has marked but not yet replaced
+      await post.reached;
+      post.release();
+      expect(await forced).toBe('synced');
+      expect(await marker()).toBe(false);
+      await tabB.replaceAllRecords(imported, { armImport: true });
+      expect(await marker()).toBe(true);
+    });
+
+    it('two overlapping imports: A\'s landed upload does not leave B\'s later replace unmarked', async () => {
+      await markForceSnapshotPending();
+      await tabB.markForceSnapshotPending();
+      await replaceAllRecords([{ ...imported[0], recordId: 'bp-a' }], { armImport: true });
+      const forced = forceSnapshot(ctx);
+      await post.reached;
+      post.release();
+      expect(await forced).toBe('synced');
+      await tabB.replaceAllRecords(imported, { armImport: true });
+      expect(await marker()).toBe(true);
+    });
   });
 
   it('the push ack keeps another tab\'s same-millisecond edit queued', async () => {

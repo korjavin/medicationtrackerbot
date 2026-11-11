@@ -437,6 +437,8 @@ window.MedTrackerCloudReady = (async function boot() {
             // Mark before the wipe: a crash between replaceAllRecords and the
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
+            // The replace re-arms it (armImport): another tab's flight may
+            // clear it in between (bd med-yrq1).
             await markForceSnapshotPending();
             // No due-dose sweep in flight or started from here on: one that read
             // the old medications would write their doses over the import
@@ -460,7 +462,7 @@ window.MedTrackerCloudReady = (async function boot() {
                     const rewritten = new Set(here.map((r) => r.recordId));
                     for (const r of merged) if (mine.has(r)) rewritten.delete(r.recordId);
                     return { records: merged, dropPendingIds: rewritten };
-                });
+                }, { armImport: true });
             } else {
                 // Replace: discard any not-yet-flushed managed writes first, or
                 // replaceAllRecords' pending overlay resurrects them over the backup
@@ -468,7 +470,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 // the delivery pref when the file carries none) stays queued —
                 // those records are in `survive`.
                 await dropPendingForTypes(VAULT_MANAGED_TYPES);
-                await replaceAllRecords([...records, ...survive]);
+                await replaceAllRecords([...records, ...survive], { armImport: true });
             } });
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen

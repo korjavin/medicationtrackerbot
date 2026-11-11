@@ -1005,6 +1005,8 @@ class MainActivity : Activity() {
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
             "lock.set" -> setLock(msg.optJSONObject("args")?.optBoolean("on") == true) { answer(it == null) }
             "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
+            // The same text Copy diagnostics puts on the clipboard (redacted header + log): the Send feedback attachment.
+            "diag.read" -> answer(diagnosticsText())
             "health.authorize", "health.query", "health.writeAccess", "health.write", "health.delete" ->
                 health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             "attest.status", "attest.enroll", "attest.setPass", "attest.assert" ->
@@ -1293,6 +1295,12 @@ class MainActivity : Activity() {
 
     /** Launcher shortcut or the load-error screen (N4): the device header plus the log, as plain text. */
     private fun copyDiagnostics() {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Med Tracker diagnostics", diagnosticsText()))
+        Toast.makeText(this, "Diagnostics copied", Toast.LENGTH_SHORT).show()
+    }
+
+    /** The device header (redacted) plus the stored log, scrubbed of legacy message text: what Copy diagnostics and `diag.read` give. */
+    private fun diagnosticsText(): String {
         val wv = WebViewCompat.getCurrentWebViewPackage(this)
         val credential = runCatching { Settings.Secure.getString(contentResolver, "credential_service") }.getOrNull()
         val autofill = runCatching { getSystemService(AutofillManager::class.java)?.autofillServiceComponentName?.flattenToShortString() }.getOrNull()
@@ -1304,9 +1312,7 @@ class MainActivity : Activity() {
             "credential provider ${credential?.takeIf { it.isNotBlank() } ?: "unavailable"}; autofill ${autofill ?: "unavailable"}",
             "webauthn ${if (::web.isInitialized) webAuthnMode(web) else "not started"}",
         ).joinToString("\n")
-        val text = Diag.redact(header, base) + "\n\n" + (diagPrefs.getString(DIAG_KEY, "") ?: "")
-        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Med Tracker diagnostics", text))
-        Toast.makeText(this, "Diagnostics copied", Toast.LENGTH_SHORT).show()
+        return Diag.redact(header, base) + "\n\n" + Diag.scrub(diagPrefs.getString(DIAG_KEY, "") ?: "")
     }
 
     private companion object {
