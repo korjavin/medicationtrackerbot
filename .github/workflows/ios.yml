@@ -381,14 +381,18 @@ jobs:
       matrix:
         include:
           # First available type per width. A job runs part `shard` of
-          # `shards`: the full list overran 440's 60 min cap (bd med-05az, run
-          # 42882605423: ~9 min setup, 105/138 scenes at ~38 min), so 440 runs
-          # it in two halves. 390 fits (~41 min there); split it the same way
-          # when it nears the cap.
+          # `shards`: the full list overran the 60 min cap (bd med-05az: 440 in
+          # run 42882605423, ~9 min setup, 105/138 scenes at ~38 min; 390 in
+          # run 43110294474, 51 min of scenes), so each width runs it in two
+          # halves (33-40 min per half there).
           - width: 390
             types: iPhone 16e,iPhone 16,iPhone 15
             shard: 1
-            shards: 1
+            shards: 2
+          - width: 390
+            types: iPhone 16e,iPhone 16,iPhone 15
+            shard: 2
+            shards: 2
           - width: 440
             types: iPhone 17 Pro Max,iPhone 16 Pro Max
             shard: 1
