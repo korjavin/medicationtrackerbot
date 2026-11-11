@@ -119,7 +119,7 @@ final class FlowQAPullDeleteTests: XCTestCase {
         XCTAssertTrue(delete.waitForExistence(timeout: 20)); delete.tap()
         let input = app.webViews.textFields.firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 20))
-        let confirm = app.webViews.buttons["Delete account"].allElementsBoundByIndex.last
+        let confirm = app.webViews.buttons.matching(identifier: "Delete account").allElementsBoundByIndex.last
         XCTAssertFalse(confirm?.isEnabled ?? true, "delete enabled without phrase")
         input.tap(); input.typeText("DELETE")
         let button = try XCTUnwrap(confirm)
