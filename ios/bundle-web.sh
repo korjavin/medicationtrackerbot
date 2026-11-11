@@ -63,6 +63,8 @@ if [ "${QA:-}" = 1 ]; then
         cat "$repo/ios/qa/eu-probe.js" >> "$out/cloud/qa/softauthn.js"
     elif [ "${QA_HELD_PROBE:-}" = 1 ]; then
         cat "$repo/ios/qa/held-refresh-probe.js" >> "$out/cloud/qa/softauthn.js"
+    elif [ "${QA_REMINDER_PROBE:-}" = 1 ]; then
+        cat "$repo/ios/qa/reminder-probe.js" >> "$out/cloud/qa/softauthn.js"
     fi
     sed -e 's|<script src="/js/local-boot.js"></script>|&<link rel="stylesheet" href="/qa/driver.css"><script src="/qa/driver.js"></script>|' \
         "$out/index.html" > "$out/index.qa.html"

@@ -16,5 +16,5 @@ invariants:
 covered_by:
   web: manual  # partial: web/cloud/js/tests/sw.reminder-actions.test.js (the tap opens the dose); missing: a real Web Push delivery with the page closed, and the tap from a cold start or a locked screen, need a browser with a push service
   android: manual  # partial: android/qa/scenarios/reminders-offline.mjs (fires with the process killed and before the first unlock, tap opens the dose; network on, no locked tap)
-  ios: manual  # no iOS run yet: the local notification posted with the app terminated and the server down, its tap opening the dose, is med-sz4k.6.3; tests/visual/scenes.json#reminder-stale-* (VisualQATests, run by the ios.yml visual job, not qa) tap a notification delivered while the app runs; no cold-start or locked-screen tap
+  ios: manual  # partial: ios/UITests/FlowQARemindersTests.swift#testNotificationAndOfflineReminder tests a local notification after process termination and server shutdown, and its cold-start tap; simulator network stays on and locked-screen tap remains manual
 source: [med-nt9p.55]
