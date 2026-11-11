@@ -121,7 +121,7 @@ final class FlowQAHealthImportTests: XCTestCase {
     private func reveal(_ app: XCUIApplication, _ text: String) {
         let element = webText(app, text)
         for _ in 0..<6 {
-            if element.isHittable && element.frame.maxY < app.frame.maxY - 80 { return }
+            if element.isHittable && element.frame.maxY < app.frame.maxY - 100 { return }
             app.swipeUp()
         }
     }

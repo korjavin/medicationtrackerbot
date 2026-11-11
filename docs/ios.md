@@ -157,7 +157,9 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   or the attempt's `ios-qa-<part>` from the run's artifact list.
 - **Health flows:** `testHealthImport` grants one union seed sheet and checks
   Settings import plus BP, weight and sleep source labels; the subsequent
-  Settings authorization resolves without another sheet. `testDeniedHealthGuidance`
+  Settings authorization resolves without another sheet. A second authorization
+  ask on the Simulator can hang without presenting a sheet, so seed first.
+  `testDeniedHealthGuidance`
   uses a separate first ask, verifies all read switches off, denies and checks
   Settings guidance. The `health-qa-*` scenes are flow-only. Evidence includes
   `health-import-denied-kinds.json`, `health-import-*.png` and, on failure,
