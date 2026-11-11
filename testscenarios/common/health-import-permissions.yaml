@@ -16,5 +16,5 @@ invariants:
 covered_by:
   web: web/cloud/js/tests/health-import.test.js#in a browser (no Health capability) mounts no Health row in Settings
   android: manual  # partial: android/qa/scenarios/health-connect.mjs (real SDK-granted steps/sleep/HR/SpO2 import into Vitals; same package, SDK-assigned dataOrigin); real requested-kinds system sheet, full denied guidance and real third-party origin/user Health data remain unasserted
-  ios: ios/UITests/FlowQAHealthImportTests.swift#testHealthImport  # The first Settings authorization sheet lists the four kinds; native seeded steps/sleep/HR/SpO2 import is checked. Denied-access guidance and real Health data from real sources remain manual.
+  ios: ios/UITests/FlowQAHealthImportTests.swift  # testHealthImport asserts the first Settings sheet and native seeded steps/sleep/HR/SpO2; testDeniedHealthGuidance uses a separate Simulator. Real Health data from real sources remains manual.
 source: [Zulip 11260]

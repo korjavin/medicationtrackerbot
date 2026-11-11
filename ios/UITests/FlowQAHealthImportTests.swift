@@ -96,3 +96,47 @@ final class FlowQAHealthImportTests: XCTestCase {
         image.name = name + ".png"; image.lifetime = .keepAlways; add(image)
     }
 }
+
+/// Separate QA part = a fresh Simulator and first Health ask with every read
+/// switch left off. HealthKit intentionally does not report read denial.
+@MainActor
+final class FlowQAHealthDeniedTests: XCTestCase {
+    func testDeniedHealthGuidance() throws {
+        continueAfterFailure = false
+        QA.reset()
+        let app = XCUIApplication()
+        app.launchArguments = ["-wgLocalMode", "YES", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQAScene", "health-qa-settings"]
+        app.launch()
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 120), "Settings scene did not start")
+        let target = try XCTUnwrap(QA.target(QA.flow(app), "health"), "Health import switch absent")
+        QA.coordinate(app, target).tap()
+        let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
+        let screen = app.frame
+        let deadline = Date().addingTimeInterval(120)
+        var sawSheet = false
+        while Date() < deadline {
+            var acted = false
+            pass: for host in hosts {
+                let select = host.descendants(matching: .any).matching(NSPredicate(format: "label == 'Turn On All' OR label BEGINSWITH 'Select All'")).firstMatch
+                if select.exists { sawSheet = true }
+                let on = host.switches.allElementsBoundByIndex.filter { HealthDiagnosticTests.live($0, within: screen)?.value as? String == "1" }
+                if !on.isEmpty {
+                    for item in on { _ = HealthDiagnosticTests.tapIfSettled(item, within: screen) }
+                    acted = true; break pass
+                }
+                if ["Don't Allow", "Continue", "Allow", "Done"].contains(where: { HealthDiagnosticTests.tapIfSettled(host.buttons[$0].firstMatch, within: screen) }) {
+                    acted = true; break pass
+                }
+            }
+            let desc = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'nothing yet' AND label CONTAINS 'Check access in Settings' AND NOT (label BEGINSWITH '{')")).firstMatch
+            if desc.exists { break }
+            if !acted { app.swipeUp() }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(sawSheet, "did not observe the first Health permission sheet")
+        let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'nothing yet' AND label CONTAINS 'Check access in Settings' AND NOT (label BEGINSWITH '{')")).firstMatch
+        XCTAssertTrue(guidance.waitForExistence(timeout: 30), "no denied-read guidance")
+        let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
+        shot.name = "health-import-denied-guidance.png"; shot.lifetime = .keepAlways; add(shot)
+    }
+}
