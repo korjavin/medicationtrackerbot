@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
 import { bootBuildID, fetchServerBuildID, renderUpdateBanner, showUpdateBanner, startUpdateCheck, reloadProviderDocument } from '../update-check.js';
+import { maskPath, startLifecycleDiag } from '../passkey-diag.js';
 
 function setup({ booted = '20260710-1000' } = {}) {
     const meta = booted ? `<meta name="medtracker-build-id" content="${booted}">` : '';
@@ -528,5 +529,70 @@ describe('showUpdateBanner', () => {
         // A later trigger (e.g. cloud-boot onupdatefound after the poll) re-fires.
         showUpdateBanner({ doc, win, registration: { waiting: { postMessage: vi.fn() } } });
         expect(doc.getElementById('cloud-update-banner')).toBeNull();
+    });
+});
+
+// bd med-vjxz.1: lifecycle and update-check lines for the app shells'
+// diagnostic log (passkey-diag.js). Words, counts and statuses only.
+describe('shell diagnostic lines', () => {
+    let ios;
+    const entries = () => ios.postMessage.mock.calls.map(([m]) => (expect(m.op).toBe('diag.append'), JSON.parse(m.args.entry)));
+    const lines = () => entries().map((e) => e.line);
+    const shell = (pathname) => {
+        ios = { postMessage: vi.fn() };
+        vi.stubGlobal('window', { webkit: { messageHandlers: { wgNative: ios } } });
+        vi.stubGlobal('location', { pathname });
+    };
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('logs boot, then hidden and visible, with the account label masked out of the path', () => {
+        shell('/d/abc123');
+        const { doc } = setup();
+        let state = 'visible';
+        Object.defineProperty(doc, 'visibilityState', { get: () => state, configurable: true });
+        const win = { document: doc, location: { pathname: '/d/abc123' }, addEventListener: vi.fn() };
+        startLifecycleDiag(win);
+        state = 'hidden';
+        doc.dispatchEvent(new doc.defaultView.Event('visibilitychange'));
+        state = 'visible';
+        doc.dispatchEvent(new doc.defaultView.Event('visibilitychange'));
+        expect(lines()).toEqual(['boot /d/<sub> build 20260710-1000', 'hidden', 'visible']);
+        expect(entries().every((e) => e.path === '/d/<sub>' && Number.isFinite(e.ms) && Number.isFinite(e.up))).toBe(true);
+        expect(JSON.stringify(ios.postMessage.mock.calls)).not.toContain('abc123');
+        expect(win.addEventListener.mock.calls.map(([t]) => t)).toEqual(['pageshow', 'pagehide']);
+    });
+
+    it('masks every path segment that names an account or a token; other paths pass', () => {
+        expect(maskPath('/d/abc123')).toBe('/d/<sub>');
+        expect(maskPath('/i/abc123')).toBe('/i/<sub>');
+        expect(maskPath('/s/Xy9')).toBe('/s/<token>');
+        expect(maskPath('/mcp/secret/tools')).toBe('/mcp/<token>/tools');
+        expect(maskPath('/unlock')).toBe('/unlock');
+        expect(maskPath('/')).toBe('/');
+    });
+
+    it('logs the update check outcome as same | new | failed <status or class>, never the error text', async () => {
+        shell('/');
+        for (const fetchImpl of [
+            serving('20260710-1000'),
+            vi.fn().mockResolvedValue({ ok: false, status: 503 }),
+            vi.fn().mockRejectedValue(new TypeError('Failed to fetch https://acct.example.com/api/version')),
+            serving('20260711-0900'),
+        ]) {
+            const { doc, win } = setup();
+            startUpdateCheck({ doc, win, fetchImpl, showBanner: vi.fn() });
+            await flush();
+        }
+        expect(lines()).toEqual(['update check same', 'update check failed 503', 'update check failed TypeError', 'update check new']);
+        expect(JSON.stringify(ios.postMessage.mock.calls)).not.toMatch(/acct|example|Failed to fetch/);
+    });
+
+    it('installs nothing on the web (no shell bridge)', () => {
+        vi.stubGlobal('window', {});
+        const { doc, win } = setup();
+        const add = vi.spyOn(doc, 'addEventListener');
+        startLifecycleDiag({ ...win, document: doc });
+        expect(add).not.toHaveBeenCalled();
+        expect(win.addEventListener).not.toHaveBeenCalled();
     });
 });

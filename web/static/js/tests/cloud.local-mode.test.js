@@ -496,7 +496,7 @@ describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {
                 LOCAL_EFFECTS: {}, LOCAL_PROTECTION: {}, LOCAL_FOOD_DB: null, LOCAL_VAULT: {},
                 registerLocalEgress: async () => ({ changed: false, hosts: [] }),
                 showLeaveToastOnce() {}, pickupLeaveStash: async () => {}, keepLocalRemindersFresh() {}, startLocalHealthImport() {},
-                mountLocalLockRow: async () => {}, mountLocalFeedback: async () => {},
+                mountLocalLockRow: async () => {}, mountLocalFeedback: async () => {}, startLifecycleDiag() {},
             },
         };
         run(win, async (spec) => { await imports; return modules[spec]; });

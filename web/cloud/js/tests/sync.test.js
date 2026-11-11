@@ -1270,6 +1270,100 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBe(2);
   });
 
+  // bd med-vjxz.1: the shell diag log reports the pull a return to the front
+  // started. A drain already in flight then settles { resumed: false }; the
+  // rerun it queued is the return's pull and settles { resumed: true }.
+  it('onSettled marks the return\'s own drain, not the one in flight at the return', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) await gate; // hold the first drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    window.dispatchEvent(new Event('online'));
+    await fireDebounce();
+    await first; // an online drain is in flight
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce(); // the return coalesces into a queued rerun
+    const rerun = nextOpsGet();
+    release();
+    await rerun;
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled.map((s) => s.resumed)).toEqual([false, true]);
+
+    // A return with no drain in flight: its own drain is marked.
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await vi.waitFor(() => expect(settled).toHaveLength(3));
+    expect(settled[2]).toEqual({ resumed: true, arrived: false, failed: null });
+  });
+
+  // Two returns overlapping (return, Home, return while the first pull runs):
+  // each pull reports its own outcome, and a rejected pull its error class
+  // (never its message), even when the sync status reads normal.
+  it('each return\'s drain reports its own arrived / failure class', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) { await gate; return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 }); }
+        return new Response('not json: weight 80 kg', { status: 200 }); // the second pull rejects after a 200
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await first; // the first return's pull is in flight
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce(); // the second return queues its own rerun
+    release();
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled[0]).toEqual({ resumed: true, arrived: false, failed: null });
+    expect(settled[1].resumed).toBe(true);
+    expect(settled[1].failed).toMatch(/^\w+$/);
+    expect(JSON.stringify(settled)).not.toMatch(/weight|kg|json/i);
+  });
+
+  // The status class is this drain's: taken before its queued rerun can clear
+  // (or set) the shared offline flag.
+  it('a return\'s pull that went offline reports offline even when the next return\'s pull succeeds', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) { await gate; throw new TypeError('Failed to fetch'); }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await first;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    release();
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled.map((s) => s.failed)).toEqual(['offline', null]);
+  });
+
   it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {
     let release;
     const gate = new Promise((r) => { release = r; });

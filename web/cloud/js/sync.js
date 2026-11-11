@@ -1882,7 +1882,7 @@ export async function reauthenticate(ctx) {
   drainInFlight = pullOnOpen(ctx).finally(() => {
     drainInFlight = null;
     drainSettled(ctx);
-    if (onDrainSettled) onDrainSettled();
+    if (onDrainSettled) onDrainSettled({ resumed: false });
   });
   await drainInFlight;
   return getSyncStatus(ctx);
@@ -1900,6 +1900,9 @@ let drainInFlight = null;
 // reauth-owned drain held the slot is not leaked into a later drain. false, or
 // 'wake' (only SSE wakes queued) / 'full' (any open/visibility/online request).
 let drainRerun = false;
+// Whether the queued rerun owes a return to the front (bd med-vjxz.1): the
+// rerun, not the drain already in flight, is the return's pull.
+let rerunResume = false;
 // Installed by startReconnectAutoDrain: surfaces a mid-session auth expiry.
 let onDrainAuthExpired = null;
 function drainSettled(ctx) {
@@ -1907,8 +1910,10 @@ function drainSettled(ctx) {
   // cannot chain another retry; a queued reconnect still gets its full retry.
   if (drainRerun) {
     const wake = drainRerun === 'wake';
+    const resume = rerunResume;
     drainRerun = false;
-    requestDrain(ctx, { wake });
+    rerunResume = false;
+    requestDrain(ctx, { wake, resume });
   }
 }
 
@@ -1917,27 +1922,37 @@ function drainSettled(ctx) {
 // and the SSE sync-ready wake (bd med-eas.9): a wake never overlaps a drain,
 // and a burst of wakes mid-drain coalesces into one follow-up run. Pass
 // { wake: true } from the SSE path: it pulls but never retries a stranded
-// import (see pullOnOpen).
-export function requestDrain(ctx, { wake = false } = {}) {
+// import (see pullOnOpen). { resume: true } marks the pull of a return to the
+// front; onSettled gets { resumed, arrived, failed } for that drain alone.
+export function requestDrain(ctx, { wake = false, resume = false } = {}) {
   // An event landing mid-drain coalesces into a run that may already have
   // missed it (a drain stuck on a dying fetch when connectivity returned, or a
   // peer write landing after this drain's GET) — remember it and run once more
   // after the current one settles.
   if (drainInFlight) {
     if (drainRerun !== 'full') drainRerun = wake ? 'wake' : 'full';
+    if (resume) rerunResume = true;
     return drainInFlight;
   }
+  // For onSettled (bd med-vjxz.1): whether records changed during this drain,
+  // and how it failed — this drain's status class, else a rejected pull's
+  // error name (never its message). Taken before the queued rerun starts and
+  // can move the shared flags.
+  const before = getRecordsChangeCount();
+  let rejected = null;
   drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
-    .catch(() => {}) // failures already land in sync status; retried on the next event
+    .catch((e) => { rejected = /^\w{1,40}$/.test(e && e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
     .finally(() => {
       drainInFlight = null;
+      const failed = authExpired ? 'auth-expired' : updateRequired ? 'update-required' : offline ? 'offline' : rejected;
+      const arrived = getRecordsChangeCount() !== before;
       drainSettled(ctx);
       // A mid-session expiry (the common case for a non-sliding 30-day
       // cookie in a long-lived PWA tab) is only ever detected by these
       // event-driven drains — the boot-time check already ran. Hand it to
       // the caller so the UI can surface it instead of queueing silently.
       if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
-      if (onDrainSettled) onDrainSettled();
+      if (onDrainSettled) onDrainSettled({ resumed: resume, arrived, failed });
     });
   return drainInFlight;
 }
@@ -1959,23 +1974,31 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: 
   let debounce = null;
   const surface = onAuthExpired ? () => onAuthExpired() : null;
   onDrainAuthExpired = surface;
-  const settled = onSettled ? () => onSettled() : null;
+  const settled = onSettled ? (info) => onSettled(info) : null;
   onDrainSettled = settled;
   // Fired once, the first time any push (drain or a write's inline flush) hits 426.
   const surfaceUpdate = onUpdate ? () => onUpdate() : null;
   onUpdateRequired = surfaceUpdate;
-  const trigger = () => {
+  // A return coalesced with an 'online' inside the debounce still marks the drain.
+  let resume = false;
+  const trigger = (fromVisible = false) => {
+    resume = resume || fromVisible === true;
     clearTimeout(debounce);
-    debounce = setTimeout(() => requestDrain(ctx), 250);
+    debounce = setTimeout(() => {
+      const r = resume;
+      resume = false;
+      requestDrain(ctx, { resume: r });
+    }, 250);
   };
   const onVisible = () => {
-    if (document.visibilityState === 'visible' && navigator.onLine) trigger();
+    if (document.visibilityState === 'visible' && navigator.onLine) trigger(true);
   };
   window.addEventListener('online', trigger);
   document.addEventListener('visibilitychange', onVisible);
   return () => {
     // No queued rerun or expiry surface outlives the teardown.
     drainRerun = false;
+    rerunResume = false;
     if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
     if (onDrainSettled === settled) onDrainSettled = null;
     if (onUpdateRequired === surfaceUpdate) onUpdateRequired = null;
