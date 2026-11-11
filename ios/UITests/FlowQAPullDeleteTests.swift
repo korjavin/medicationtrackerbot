@@ -119,11 +119,36 @@ final class FlowQAPullDeleteTests: XCTestCase {
         XCTAssertTrue(delete.waitForExistence(timeout: 20)); delete.tap()
         let input = app.webViews.textFields.firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 20))
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "pull-delete-dialog-pretap-hierarchy.txt"; tree.lifetime = .keepAlways; add(tree)
+        shot("pull-delete", "dialog-pretap")
+        QA.hideKeyboard(app)
+        let dialog = app.webViews.otherElements["Delete your account?"]
+        XCTAssertTrue(dialog.waitForExistence(timeout: 10), "delete dialog missing; see pull-delete-dialog-pretap")
+        var safe = false
+        for attempt in 0..<4 {
+            let first = input.frame
+            Thread.sleep(forTimeInterval: 0.3)
+            let second = input.frame
+            if first == second && input.isHittable && dialog.frame.contains(second) { safe = true; break }
+            guard attempt < 3 else { break }
+            let start = dialog.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+            let end = dialog.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            start.press(forDuration: 0.1, thenDragTo: end)
+        }
+        guard safe else { XCTFail("delete field not stable and inside dialog; see pull-delete-dialog-pretap"); return }
         let confirm = app.webViews.buttons.matching(identifier: "Delete account").allElementsBoundByIndex.last
         XCTAssertFalse(confirm?.isEnabled ?? true, "delete enabled without phrase")
-        input.tap(); input.typeText("DELETE")
+        input.tap()
+        guard input.exists || (confirm?.exists == true && confirm?.isEnabled == false) else {
+            XCTFail("field tap cancelled the dialog; see pull-delete-dialog-pretap"); return
+        }
+        QA.dismissKeyboardTip(app)
+        input.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "DELETE")
+        QA.dismissKeyboardTip(app)
         let button = try XCTUnwrap(confirm)
         XCTAssertTrue(button.isEnabled, "typed DELETE did not enable confirmation")
+        QA.hideKeyboard(app)
         button.tap()
     }
 
