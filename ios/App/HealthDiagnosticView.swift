@@ -49,11 +49,12 @@ struct HealthDiagnosticView: View {
                     try await store.save(HKQuantitySample(type: mass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 73.4), start: at, end: at))
                     result["weightSeeded"] = true
                 }
-                if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized {
+                let bp = HKCorrelationType(.bloodPressure)
+                if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized && store.authorizationStatus(for: bp) == .sharingAuthorized {
                     let unit = HKUnit.millimeterOfMercury()
                     let s = HKQuantitySample(type: sys, quantity: HKQuantity(unit: unit, doubleValue: 123), start: at, end: at)
                     let d = HKQuantitySample(type: dia, quantity: HKQuantity(unit: unit, doubleValue: 79), start: at, end: at)
-                    try await store.save(HKCorrelation(type: HKCorrelationType(.bloodPressure), start: at, end: at, objects: [s, d]))
+                    try await store.save(HKCorrelation(type: bp, start: at, end: at, objects: [s, d]))
                     result["bpSeeded"] = true
                 }
             }

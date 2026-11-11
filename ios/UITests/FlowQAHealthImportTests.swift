@@ -21,7 +21,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         let kinds = ["Steps", "Sleep", "Blood Oxygen", "Heart Rate"]
         while Date() < deadline && seen.count < kinds.count {
             for host in hosts {
-                for kind in kinds where host.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", kind)).firstMatch.exists {
+                for kind in kinds where host.switches.matching(NSPredicate(format: "label CONTAINS[c] %@", kind)).firstMatch.exists {
                     seen.insert(kind)
                 }
             }
@@ -142,14 +142,16 @@ final class FlowQAHealthDeniedTests: XCTestCase {
                     acted = true; break pass
                 }
             }
-            let desc = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'nothing yet' AND label CONTAINS 'Check access in Settings' AND NOT (label BEGINSWITH '{')")).firstMatch
+            let desc = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Checked' AND label CONTAINS 'nothing yet' AND label CONTAINS 'Settings → Health → Data Access & Devices' AND NOT (label BEGINSWITH '{')")).firstMatch
             if desc.exists { break }
             if !acted { app.swipeUp() }
             Thread.sleep(forTimeInterval: 0.5)
         }
         XCTAssertTrue(sawSheet, "did not observe the first Health permission sheet")
         XCTAssertEqual(denied, Set(kinds), "did not verify all requested read switches were off: \(denied)")
-        let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'nothing yet' AND label CONTAINS 'Check access in Settings' AND NOT (label BEGINSWITH '{')")).firstMatch
+        let switches = XCTAttachment(string: denied.sorted().joined(separator: ", "))
+        switches.name = "health-import-denied-kinds.txt"; switches.lifetime = .keepAlways; add(switches)
+        let guidance = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Checked' AND label CONTAINS 'nothing yet' AND label CONTAINS 'Settings → Health → Data Access & Devices' AND NOT (label BEGINSWITH '{')")).firstMatch
         XCTAssertTrue(guidance.waitForExistence(timeout: 30), "no denied-read guidance")
         let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
         shot.name = "health-import-denied-guidance.png"; shot.lifetime = .keepAlways; add(shot)

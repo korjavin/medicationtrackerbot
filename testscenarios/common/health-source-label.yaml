@@ -13,5 +13,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/bp.history.test.js  # BP: label on the imported row, none on typed-in ones; weight: weight.history.test.js; sleep: health.sleep.test.js; Mi Band import control gone and a retained Mi Band night keeping its label: health.summary.test.js (med-fi1k); the web renders rows synced from a phone, the import that marks them is web/cloud/js/tests/health-import.test.js
   android: android/qa/scenarios/health-connect.mjs#healthConnect  # SDK BP/weight/sleep labels, BP/weight manual entries and a hand-authored non-Health sleep day row, dedupe, retained Mi Band/control absence; same package, SDK-assigned dataOrigin; real third-party origin remains manual
-  ios: ios/UITests/FlowQAHealthImportTests.swift#testHealthImport  # Simulator seeded Health weight/sleep, typed BP without label, and BP label when the simulator grants BP write for seeding; BP if not granted and real Health data remain manual. Mi Band retained label: web/static/js/tests/health.summary.test.js.
+  ios: manual  # partial: ios/UITests/FlowQAHealthImportTests.swift#testHealthImport checks Simulator Health weight/sleep and typed BP; BP seeding is conditional on Simulator write authorization. Real Health data remain manual. Mi Band retained label: web/static/js/tests/health.summary.test.js.
 source: [med-w6gx.32]
