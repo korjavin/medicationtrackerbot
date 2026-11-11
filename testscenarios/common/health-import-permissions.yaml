@@ -13,8 +13,9 @@ invariants:
   - If access was denied the app says where to allow it
   - In a browser there is no Health row in Settings at all
   - On a phone whose system has no Health store (Health Connect not installed) the toggle flips back with "<Store> is not available on this device."
+  - If the authorization request itself fails (e.g. times out) the toggle flips back with "Couldn't reach <Store>. Try again." — never the not-available sentence
 covered_by:
   web: web/cloud/js/tests/health-import.test.js#in a browser (no Health capability) mounts no Health row in Settings
   android: manual  # partial: android/qa/scenarios/health-connect.mjs (real SDK-granted steps/sleep/HR/SpO2 import into Vitals; same package, SDK-assigned dataOrigin); real requested-kinds system sheet, full denied guidance and real third-party origin/user Health data remain unasserted
-  ios: ios/UITests/FlowQAHealthImportTests.swift#testDeniedHealthGuidance  # First Settings sheet and denied guidance; testHealthImport grants a union seed sheet and imports native data. VisualQATests scene health-kit-import asserts steps/sleep/HR/SpO2 render in Vitals; real Health data from real sources remains manual.
-source: [Zulip 11260]
+  ios: manual  # partial: ios/UITests/FlowQAHealthImportTests.swift#testDeniedHealthGuidance asserts the first Settings sheet and denied guidance; testHealthImport grants a union seed sheet and imports native data; VisualQATests health-kit-import renders steps/sleep/HR/SpO2. Authorization-throw copy and real Health data from real sources remain manual.
+source: [Zulip 11260, med-iou1]
