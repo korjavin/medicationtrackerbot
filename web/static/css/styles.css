@@ -2425,6 +2425,17 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     gap: var(--space-sm);
 }
 
+/* "Attach the app log" checkbox row (med-vjxz.4): shell-only, under the
+   capture buttons; its caption reuses __chip. */
+.wg-feedback-modal__log {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+}
+
 .wg-feedback-modal__chip {
     margin: 0;
     font-family: var(--wg-font-ui);

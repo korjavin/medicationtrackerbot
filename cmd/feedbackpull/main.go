@@ -75,6 +75,8 @@ func mimeExt(mime string) string {
 		return ".webm"
 	case "audio/ogg":
 		return ".ogg"
+	case "text/plain":
+		return ".txt"
 	default:
 		return ".bin"
 	}

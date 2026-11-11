@@ -90,6 +90,27 @@ function openFeedbackModal() {
     }
     body.appendChild(capture);
 
+    // "Attach the app log" (bd med-vjxz.4): only in a shell that answers
+    // diag.read (shell.ops, cached per page; false on the web). Default
+    // unticked; unticked, the bundle is exactly what it was before.
+    let logBox = null;
+    const native = w().MediaCapture && w().MediaCapture.__native;
+    if (native && typeof native.has === 'function') {
+        native.has('diag.read').then((has) => {
+            if (!has || settled) return;
+            const row = doc.createElement('label');
+            row.className = 'wg-feedback-modal__log';
+            logBox = doc.createElement('input');
+            logBox.type = 'checkbox';
+            logBox.setAttribute('data-feedback-log', '');
+            row.append(logBox, doc.createTextNode('Attach the app log'));
+            const caption = doc.createElement('p');
+            caption.className = 'wg-feedback-modal__chip';
+            caption.textContent = 'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes and Health import counts. No entries, no names, no account address.';
+            capture.after(row, caption);
+        }, () => { /* no shell answer — no checkbox */ });
+    }
+
     const chip = doc.createElement('p');
     chip.className = 'wg-feedback-modal__chip';
     chip.setAttribute('data-feedback-chip', '');
@@ -243,6 +264,15 @@ function openFeedbackModal() {
         }
         if (audioBlob) {
             attachments.push({ type: 'audio', mime: audioBlob.type || 'audio/webm', bytes: await audioBlob.arrayBuffer() });
+        }
+        if (logBox && logBox.checked) {
+            // A shell that can't read its log sends the feedback without it.
+            try {
+                const text = await native.call('diag.read');
+                if (typeof text === 'string' && text) {
+                    attachments.push({ type: 'log', mime: 'text/plain', bytes: new TextEncoder().encode(text) });
+                }
+            } catch (_) { /* no log — send the rest */ }
         }
         // The user may have cancelled (settle) during the stop/arrayBuffer
         // awaits — honor it and don't enqueue behind a closed modal.

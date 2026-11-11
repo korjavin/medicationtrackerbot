@@ -300,6 +300,80 @@ describe('feedback-ui', () => {
         expect(audioHandle.stop).not.toHaveBeenCalled();
     });
 
+    describe('Attach the app log (bd med-vjxz.4)', () => {
+        // A fake shell: the native foundation's has()/call() as native/index.js
+        // exposes them under every capability global's __native.
+        function shell(ops, log) {
+            const call = vi.fn(async (op) => {
+                if (op !== 'diag.read') throw new Error('unexpected op ' + op);
+                return log;
+            });
+            window.MediaCapture = {
+                pickPhoto: vi.fn(),
+                __native: { has: vi.fn(async (op) => ops.includes(op)), call },
+            };
+            return call;
+        }
+        async function openWithText(text) {
+            await mountFeedbackLauncher({});
+            click(q('#feedback-launcher'));
+            await flush();
+            const ta = q('.wg-feedback-modal__textarea');
+            ta.value = text;
+            ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+        }
+
+        it('shows no checkbox on the web (no foundation) or in a shell without diag.read', async () => {
+            await openWithText('x');
+            expect(q('[data-feedback-log]')).toBeNull();
+            click(q('[data-feedback-choice="cancel"]'));
+
+            shell(['diag.append'], 'log');
+            await openWithText('x');
+            expect(q('[data-feedback-log]')).toBeNull();
+        });
+
+        it('shows the unticked checkbox and its caption in a shell listing diag.read', async () => {
+            shell(['diag.read'], 'log');
+            await openWithText('x');
+            const box = q('[data-feedback-log]');
+            expect(box).toBeTruthy();
+            expect(box.type).toBe('checkbox');
+            expect(box.checked).toBe(false);
+            const row = box.closest('label');
+            expect(row.textContent).toBe('Attach the app log');
+            expect(row.nextElementSibling.textContent).toBe(
+                'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes and Health import counts. No entries, no names, no account address.');
+        });
+
+        it('ticked: Send adds one text/plain log attachment carrying the diag.read reply', async () => {
+            const call = shell(['diag.read'], 'visible\nhidden\n');
+            await openWithText('it reloaded');
+            q('[data-feedback-log]').checked = true;
+            click(q('[data-feedback-choice="send"]'));
+            await flush();
+
+            expect(call).toHaveBeenCalledWith('diag.read');
+            const bundle = enqueueFeedback.mock.calls[0][0];
+            expect(bundle.text).toBe('it reloaded');
+            expect(bundle.attachments).toHaveLength(1);
+            const [log] = bundle.attachments;
+            expect(log.type).toBe('log');
+            expect(log.mime).toBe('text/plain');
+            expect(new TextDecoder().decode(log.bytes)).toBe('visible\nhidden\n');
+        });
+
+        it('unticked: no diag.read call and the bundle is as before', async () => {
+            const call = shell(['diag.read'], 'secret log');
+            await openWithText('plain');
+            click(q('[data-feedback-choice="send"]'));
+            await flush();
+
+            expect(call).not.toHaveBeenCalled();
+            expect(enqueueFeedback.mock.calls[0][0]).toEqual({ text: 'plain', attachments: [] });
+        });
+    });
+
     it('hides the Record button when recordAudio is unavailable (graceful degradation)', async () => {
         window.MediaCapture = { pickPhoto: vi.fn() }; // no recordAudio
         await mountFeedbackLauncher({});
