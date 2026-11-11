@@ -307,25 +307,32 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
         },
       });
       const flush = () => new Promise((r) => setTimeout(r, 0));
+      // sync.js settles the drain that was in flight at the return first
+      // ({ resumed: false }), then the return's own pull ({ resumed: true }).
       const resume = async (between) => {
         state = 'visible';
         doc.dispatchEvent(new dom.window.Event('visibilitychange'));
+        await drainOpts.onSettled({ resumed: false }); // the older drain: not reported
+        await flush();
         between?.();
-        await drainOpts.onSettled();
+        await drainOpts.onSettled({ resumed: true });
         await flush();
       };
-      await drainOpts.onSettled(); // not a resume: nothing logged
+      await drainOpts.onSettled({ resumed: false }); // not a resume: nothing logged
       await flush();
       expect(lines).toEqual([]);
       await resume(() => { changes++; });
       await resume();
       await resume(() => { status = { offline: true }; });
-      await drainOpts.onSettled(); // a later SSE-style drain: not logged
+      await drainOpts.onSettled({ resumed: false }); // a later SSE-style drain: not logged
       await flush();
       // A return while the device is offline starts no drain: logged at once,
       // and the next unrelated drain is not taken for it.
       vi.stubGlobal('navigator', { onLine: false });
-      await resume();
+      state = 'visible';
+      doc.dispatchEvent(new dom.window.Event('visibilitychange'));
+      await drainOpts.onSettled({ resumed: false });
+      await flush();
       expect(lines).toEqual(['sync pull arrived=true', 'sync pull arrived=false', 'sync pull failed offline', 'sync pull skipped offline']);
     } finally {
       vi.unstubAllGlobals();

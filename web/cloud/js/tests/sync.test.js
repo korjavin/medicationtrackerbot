@@ -1270,6 +1270,42 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBe(2);
   });
 
+  // bd med-vjxz.1: the shell diag log reports the pull a return to the front
+  // started. A drain already in flight then settles { resumed: false }; the
+  // rerun it queued is the return's pull and settles { resumed: true }.
+  it('onSettled marks the return\'s own drain, not the one in flight at the return', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) await gate; // hold the first drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    window.dispatchEvent(new Event('online'));
+    await fireDebounce();
+    await first; // an online drain is in flight
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce(); // the return coalesces into a queued rerun
+    const rerun = nextOpsGet();
+    release();
+    await rerun;
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled).toEqual([{ resumed: false }, { resumed: true }]);
+
+    // A return with no drain in flight: its own drain is marked.
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await vi.waitFor(() => expect(settled).toHaveLength(3));
+    expect(settled[2]).toEqual({ resumed: true });
+  });
+
   it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {
     let release;
     const gate = new Promise((r) => { release = r; });

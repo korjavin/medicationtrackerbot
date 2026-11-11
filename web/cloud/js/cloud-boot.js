@@ -824,15 +824,15 @@ window.MedTrackerCloudReady = (async function boot() {
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
         // The resume pull's outcome for the app shells' diagnostic log (bd
-        // med-vjxz.1): the first drain to settle after the page comes back to
-        // the front. Words only: whether records arrived, or the failure class.
-        // Both bridges exist from document start; the web logs nothing.
-        // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does;
-        // and a drain already in flight at the return settles first and is the one
-        // reported (sync.js's requestDrain does not say which event started a drain).
+        // med-vjxz.1): the drain sync.js ran for the return to the front
+        // (onSettled's resumed; a drain already in flight then is not it, its
+        // queued rerun is). Words only: whether records arrived since the
+        // return, or the failure class. Both bridges exist from document start;
+        // the web logs nothing.
+        // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does.
         let resumeBefore = null;
-        const logResumePull = () => {
-            if (resumeBefore === null) return;
+        const logResumePull = (info) => {
+            if (!info?.resumed || resumeBefore === null) return;
             const arrived = getRecordsChangeCount() !== resumeBefore;
             resumeBefore = null;
             getSyncStatus(ctx).then((st) => {
@@ -849,7 +849,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 resumeBefore = getRecordsChangeCount();
             });
         }
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { logResumePull(); unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: (info) => { logResumePull(info); unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
         // Pull to refresh (bd med-y7b4.6): one more drain through the same
         // single-slot guard. Registered after the boot pull so the two never
         // overlap. What lands repaints through notifyRecordsChanged.

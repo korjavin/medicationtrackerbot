@@ -35,8 +35,10 @@ function lines() {
         for (const rel of fs.readdirSync(base, { recursive: true })) {
             if (!ext.test(rel) || rel.split(path.sep).some((p) => p === 'tests' || p === 'vendor')) continue;
             const file = path.join(dir, rel);
-            fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n').forEach((text, i) => {
-                if (CALL.test(text)) out.push({ at: `${file}:${i + 1}`, text: text.trim() });
+            fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n').forEach((raw, i) => {
+                // A trailing `// …` comment is prose, not what gets logged ("https://" has no space before //).
+                const text = raw.replace(/(^|\s)\/\/.*$/, '').trim();
+                if (CALL.test(text)) out.push({ at: `${file}:${i + 1}`, text });
             });
         }
     }
