@@ -15,9 +15,18 @@ let t0 = Date.now();
 
 const inShell = () => !!iosShellBridge() || inAndroidShell();
 
+// Path segments that carry an account label or a capability token (router.go:
+// /d/<sub> hand-off, /i/<sub> invite, /s/<id> share link, /mcp/<token>) are
+// masked here: the shells redact hosts, never paths.
+export function maskPath(path) {
+  return String(path || '')
+    .replace(/^\/(d|i)\/[^/]*/, '/$1/<sub>')
+    .replace(/^\/(s|mcp)\/[^/]*/, '/$1/<token>');
+}
+
 function post(fields) {
   try {
-    const entry = { ms: Date.now() - t0, path: globalThis.location?.pathname, ...fields };
+    const entry = { ms: Date.now() - t0, path: maskPath(globalThis.location?.pathname), ...fields };
     const msg = { op: 'diag.append', args: { entry: JSON.stringify(entry) } };
     const ios = iosShellBridge();
     // iOS: {op, args} like native/index.js; its reply promise is not awaited.
@@ -32,6 +41,20 @@ function post(fields) {
 // counts, bd med-w6gx.30) into the same log. Callers pass counts only.
 export function diagLine(line) {
   if (inShell()) post({ op: 'log', line });
+}
+
+// Page lifecycle lines (bd med-vjxz.1): one boot line, then visible / hidden /
+// pageshow / pagehide, so "Copy diagnostics" shows a Home → return. Words only;
+// post() stamps the ms. Installed once per page by the boot of either mode.
+// Both bridges exist from document start, so the web installs nothing.
+export function startLifecycleDiag(win = globalThis.window) {
+  if (!inShell()) return;
+  const doc = win.document;
+  const build = doc.querySelector('meta[name="medtracker-build-id"]')?.content || 'none';
+  diagLine(`boot ${maskPath(win.location?.pathname)} build ${build}`);
+  doc.addEventListener('visibilitychange', () => diagLine(doc.visibilityState));
+  win.addEventListener('pageshow', () => diagLine('pageshow'));
+  win.addEventListener('pagehide', () => diagLine('pagehide'));
 }
 
 // A server ceremony step's HTTP status; returns res unchanged. A begin (or the
@@ -65,7 +88,10 @@ export async function diagCeremony(op, publicKey, attempt, run) {
     outcome(fields, start, cred, allow).catch(() => {});
     return cred;
   } catch (e) {
-    post({ ...fields, took: Date.now() - start, error: e && e.name, message: e && e.message });
+    // Only the browser's own WebAuthn text (a DOMException); any other error's
+    // text could carry app data, so it is logged by class name only.
+    const message = typeof DOMException === 'function' && e instanceof DOMException ? e.message : undefined;
+    post({ ...fields, took: Date.now() - start, error: e && e.name, message });
     throw e;
   }
 }

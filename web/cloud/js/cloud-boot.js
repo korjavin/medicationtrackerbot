@@ -821,7 +821,27 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
+        // The resume pull's outcome for the app shells' diagnostic log (bd
+        // med-vjxz.1): the first drain to settle after the page comes back to
+        // the front. Words only: whether records arrived, or the failure class.
+        // Both bridges exist from document start; the web logs nothing.
+        // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does.
+        let resumeBefore = null;
+        const logResumePull = () => {
+            if (resumeBefore === null) return;
+            const arrived = getRecordsChangeCount() !== resumeBefore;
+            resumeBefore = null;
+            getSyncStatus(ctx).then((st) => {
+                const failed = st.authExpired ? 'auth-expired' : st.updateRequired ? 'update-required' : st.offline ? 'offline' : '';
+                return import('/js/passkey-diag.js').then((m) => m.diagLine(failed ? `sync pull failed ${failed}` : `sync pull arrived=${arrived}`));
+            }).catch(() => {});
+        };
+        if (window.webkit?.messageHandlers?.wgNative || window.wgNative) {
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') resumeBefore = getRecordsChangeCount();
+            });
+        }
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { logResumePull(); unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
         // Pull to refresh (bd med-y7b4.6): one more drain through the same
         // single-slot guard. Registered after the boot pull so the two never
         // overlap. What lands repaints through notifyRecordsChanged.

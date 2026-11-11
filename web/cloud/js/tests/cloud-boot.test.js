@@ -274,6 +274,60 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(runs).toBe(1);
   });
 
+  // bd med-vjxz.1: in the app shells, the first drain to settle after a return
+  // to the front logs its outcome as words, never record ids or error text.
+  it('logs the resume pull outcome to the shell diagnostic log, words only', async () => {
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
+    const doc = dom.window.document;
+    let state = 'hidden';
+    Object.defineProperty(doc, 'visibilityState', { get: () => state, configurable: true });
+    vi.stubGlobal('document', doc);
+    try {
+      let drainOpts;
+      let changes = 0;
+      let status = {};
+      const lines = [];
+      await runBoot({
+        setupWindow(win) { win.webkit = { messageHandlers: { wgNative: { postMessage() {} } } }; },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': { installApiShim: () => async () => null },
+          'sync.js': {
+            pullOnOpen: async () => {},
+            pulledThisSession: () => false,
+            hasCaughtUp: async () => true,
+            startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+            getSyncStatus: async () => status,
+            getRecordsChangeCount: () => changes,
+          },
+          'passkey-diag.js': { diagLine: (l) => lines.push(l) },
+          'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+          'mcp-responder.js': { refreshResponder: () => {} },
+        },
+      });
+      const flush = () => new Promise((r) => setTimeout(r, 0));
+      const resume = async (between) => {
+        state = 'visible';
+        doc.dispatchEvent(new dom.window.Event('visibilitychange'));
+        between?.();
+        await drainOpts.onSettled();
+        await flush();
+      };
+      await drainOpts.onSettled(); // not a resume: nothing logged
+      await flush();
+      expect(lines).toEqual([]);
+      await resume(() => { changes++; });
+      await resume();
+      await resume(() => { status = { offline: true }; });
+      await drainOpts.onSettled(); // a later SSE-style drain: not logged
+      await flush();
+      expect(lines).toEqual(['sync pull arrived=true', 'sync pull arrived=false', 'sync pull failed offline']);
+    } finally {
+      vi.unstubAllGlobals();
+      dom.window.close();
+    }
+  });
+
   // bd med-kk1q.1: the boot eviction of the shim-served tags runs only after a
   // pull in this page load landed; an offline boot keeps the ApiCache rows and
   // evicts after the first drain that lands, once.

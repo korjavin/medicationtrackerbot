@@ -18,6 +18,8 @@
 // We never reload on the user's behalf — a silent reload mid-form throws away
 // whatever they were typing.
 
+import { diagLine, startLifecycleDiag } from './passkey-diag.js';
+
 const POLL_MS = 60 * 60 * 1000;
 
 // buildIDFrom (internal/cloudserver/version.go) reports "dev" for an unstamped
@@ -31,7 +33,7 @@ export function bootBuildID(doc) {
 
 export async function fetchServerBuildID(fetchImpl) {
     const res = await fetchImpl('/api/version', { cache: 'no-store' });
-    if (!res.ok) throw new Error(`/api/version returned ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(`/api/version returned ${res.status}`), { status: res.status });
     const body = await res.json();
     return body?.build_id ?? '';
 }
@@ -421,12 +423,18 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
         let serving;
         try {
             serving = await fetchServerBuildID(fetchImpl);
-        } catch {
+        } catch (e) {
             // Offline, or a deploy is mid-flight. Say nothing; the next
-            // foreground or tick asks again.
+            // foreground or tick asks again. The log gets the status or the
+            // error class, never its text.
+            diagLine(`update check failed ${e?.status ?? e?.name ?? 'error'}`);
             return;
         }
-        if (!serving || serving === DEV_BUILD_ID || serving === booted) return;
+        if (!serving || serving === DEV_BUILD_ID || serving === booted) {
+            diagLine('update check same');
+            return;
+        }
+        diagLine('update check new');
         prompted = true;
         showBanner();
     };
@@ -443,6 +451,10 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
 // Auto-start on the real app page. The meta tag is injected only into the
 // index.html cmd/cloud serves (injectCloudBoot), so importing this module from a
 // test — where no such tag exists — starts nothing and touches no network.
+// The app page's lifecycle lines start here too: this module runs once on every
+// account app document (cloud-boot.js is a classic script); local mode starts
+// them from local-boot.js.
 if (typeof document !== 'undefined' && bootBuildID(document)) {
+    startLifecycleDiag(window);
     startUpdateCheck();
 }
