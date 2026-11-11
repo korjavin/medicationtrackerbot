@@ -26,6 +26,14 @@ final class FlowQAHeldRefreshTests: XCTestCase {
         let create = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Continue with'")).firstMatch
         XCTAssertTrue(create.waitForExistence(timeout: 60)); create.tap()
         XCTAssertTrue(openAccount(app, timeout: 120), "account did not open")
+        // Claim can navigate again after the tab bar first appears. Begin in
+        // a cold account document so a late claim navigation cannot discard
+        // the Health switch or our observation state.
+        app.terminate()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
+        app.launchArguments = ["-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQASoftAuthn", "YES"]
+        app.launch()
+        XCTAssertTrue(openAccount(app, timeout: 120), "account cold open failed")
         let setup = app.webViews.buttons["QA held setup"]
         XCTAssertTrue(setup.waitForExistence(timeout: 60)); setup.tap()
         // The app asks for any remaining Health read kinds. Answer the real
@@ -77,7 +85,9 @@ final class FlowQAHeldRefreshTests: XCTestCase {
     }
 
     private func state(_ app: XCUIApplication) -> [String: Any]? {
-        let label = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA held {'")).firstMatch.label
+        let node = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA held {'")).firstMatch
+        guard node.exists else { return nil }
+        let label = node.label
         guard label.hasPrefix("QA held "), let data = String(label.dropFirst(8)).data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }

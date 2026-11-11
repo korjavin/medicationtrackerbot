@@ -25,7 +25,7 @@
     window.switchTab('settings');
     const toggle = await wait(() => document.querySelector('#health-import-toggle'), 'Health switch');
     if (!toggle.checked) toggle.click();
-    await wait(() => localStorage.getItem('wg.health.enabled') === 'true', 'Health enabled');
+    await wait(() => { s.toggle = { checked: toggle.checked, disabled: toggle.disabled, enabled: localStorage.getItem('wg.health.enabled') }; publish(); return localStorage.getItem('wg.health.enabled') === 'true'; }, 'Health enabled');
     await wait(() => s.queries > 0 && s.completed === s.queries, 'initial Health queries');
     await new Promise(r => setTimeout(r, 3000));
     const ex = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'QA refresh bench', body_part: 'chest' });
