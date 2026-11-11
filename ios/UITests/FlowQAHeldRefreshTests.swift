@@ -54,7 +54,7 @@ final class FlowQAHeldRefreshTests: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
-        XCTAssertTrue(wait(app, timeout: 60) { ($0["events"] as? [String] ?? []).contains("visible:true") && ($0["queries"] as? Int ?? 0) > ($0["beforeQueries"] as? Int ?? 0) }, "native return did not run Health: \(QA.json(state(app)))")
+        XCTAssertTrue(wait(app, timeout: 60) { ($0["events"] as? [String] ?? []).contains("hidden:true") && ($0["events"] as? [String] ?? []).contains("visible:true") && ($0["returnQueries"] as? Int ?? 0) > 0 }, "native return did not run Health: \(QA.json(state(app)))")
         XCTAssertEqual(state(app)?["document"] as? String, beforeDocument, "return replaced the open document")
         let stopped = try QA.fakeServer("POST", "/stop")
         XCTAssertEqual(stopped["listening"] as? Bool, false)

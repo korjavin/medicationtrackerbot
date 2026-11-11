@@ -21,7 +21,7 @@
     await wait(() => window.Health?.isSupported() && window.apiCall && window.WorkoutSessions, 'account and Health');
     const health = window.Health;
     const query = health.query.bind(health);
-    health.query = async (...args) => { s.queries++; publish(); try { return await query(...args); } finally { s.completed = (s.completed || 0) + 1; publish(); } };
+    health.query = async (...args) => { s.queries++; if (s.returned) s.returnQueries = (s.returnQueries || 0) + 1; publish(); try { return await query(...args); } finally { s.completed = (s.completed || 0) + 1; publish(); } };
     window.switchTab('settings');
     const toggle = await wait(() => document.querySelector('#health-import-toggle'), 'Health switch');
     if (!toggle.checked) toggle.click();
@@ -47,6 +47,9 @@
       .observe(document.getElementById('app-banners'), { subtree: true, childList: true, attributes: true, characterData: true });
     await wait(() => s.completed === s.queries, 'initial Health pass settled');
     s.beforeQueries = s.queries; s.session = session.id;
+    document.addEventListener('visibilitychange', event => {
+      if (event.isTrusted && document.visibilityState === 'visible') { s.returned = true; publish(); }
+    });
   }
   async function peer() {
     const sync = await import(new URL('/js/sync.js', location.href).href);
@@ -64,7 +67,7 @@
   }
   async function inspect() {
     await wait(async () => (await window.apiCall('/api/bp?days=2'))?.some(x => x.systolic === 168 && x.diastolic === 97), 'peer BP arrived');
-    await wait(() => s.queries > s.beforeQueries, 'foreground Health pass');
+    await wait(() => s.returnQueries > 0, 'foreground Health pass');
     s.held = { sameInput: held.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), sameExercise: held.exercise === document.querySelector('#workout-session-modal .wg-workouts-session-exercise'), connected: held.input.isConnected, open: !held.modal.classList.contains('hidden'), value: held.input.value, sameList: held.list === document.getElementById('bp-list').innerHTML, removed: held.removed, notices: held.notices.filter(x => /new (reading|entr|data)|synced/i.test(x)) };
   }
   async function after() {
