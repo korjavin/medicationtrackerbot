@@ -28,7 +28,8 @@ struct HealthDiagnosticView: View {
                                             HKQuantityType(.bloodPressureDiastolic)]
         do {
             let requested = labels ? kinds.union(labelKinds) : kinds
-            try await store.requestAuthorization(toShare: seed ? requested : [], read: Set(requested.map { $0 as HKObjectType }))
+            let read = labels ? Set(["bp", "weight", "sleep", "workout", "steps", "hr", "spo2"].flatMap(Health.readTypes)) : Set(requested.map { $0 as HKObjectType })
+            try await store.requestAuthorization(toShare: seed ? requested : [], read: read)
             result["authorizationCompleted"] = true
             if seed && !UserDefaults.standard.bool(forKey: "wgQAHealthSeededV1") {
                 let end = Date().addingTimeInterval(-4 * 3600)

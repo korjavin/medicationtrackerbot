@@ -50,75 +50,35 @@ private enum HealthSheet {
     }
 }
 
-/// First Health ask in the dedicated simulator part: the real Settings switch
-/// requests read access before the diagnostic seed asks for write access.
+/// A single union authorization grants the diagnostic seed and every kind
+/// requested by Settings. The separate denial part observes Settings' first ask.
 @MainActor
 final class FlowQAHealthImportTests: XCTestCase {
     func testHealthImport() throws {
         continueAfterFailure = false
         QA.reset()
+        let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
+        XCTAssertEqual(seed["weightSeeded"] as? Bool, true, "simulator did not grant weight seeding: \(QA.json(seed))")
+        XCTAssertEqual(seed["bpSeeded"] as? Bool, true, "simulator did not grant BP seeding: \(QA.json(seed))")
+
         let app = XCUIApplication()
         launch(app, "health-qa-settings")
         let target = try XCTUnwrap(QA.target(QA.flow(app), "health"), "Health import switch absent")
         QA.coordinate(app, target).tap()
-        Thread.sleep(forTimeInterval: 3)
-        HealthSheet.screenshot("health-import-after-tap", in: self)
-        let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
-        let kinds = Set(["Steps", "Sleep", "BloodOxygen", "HeartRate"])
-        let screen = app.frame
-        let end = Date().addingTimeInterval(120)
-        var seen = [String: String]()
-        var evidence = [String: String]()
-        var selected = false, submitted = false, finished = false
-        while Date() < end {
-            var acted = false
-            pass: for host in hosts {
-                guard let tree = try? host.snapshot() else { continue }
-                let nodes = HealthSheet.nodes(tree)
-                evidence.merge(HealthSheet.evidence(nodes).mapKeys(prefix: host == app ? "app-" : "springboard-")) { _, new in new }
-                let reads = HealthSheet.readValues(nodes)
-                if !reads.isEmpty && seen.isEmpty {
-                    seen = reads
-                    let sheet = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-                    sheet.name = "health-import-requested-kinds.png"; sheet.lifetime = .keepAlways; add(sheet)
-                }
-                if !selected, kinds.isSubset(of: Set(reads.keys)), let all = nodes.first(where: { $0.identifier == HealthSheet.all }) {
-                    if HealthSheet.visible(all, screen: screen) { selected = HealthSheet.tap(HealthSheet.all, host: host, screen: screen) }
-                    else { app.swipeDown() }
-                    acted = true; break pass
-                }
-                if selected, let allow = nodes.first(where: { $0.identifier == HealthSheet.allow }) {
-                    if HealthSheet.visible(allow, screen: screen) { submitted = HealthSheet.tap(HealthSheet.allow, host: host, screen: screen) || submitted }
-                    else { app.swipeUp() }
-                    acted = true; break pass
-                }
-                if submitted, nodes.contains(where: { $0.label.hasPrefix("Import from") && $0.isEnabled && ($0.value as? String) == "1" }) {
-                    finished = true; break pass
-                }
-                // On iOS 27 a second Health page can request a history range.
-                if submitted, let history = nodes.first(where: { $0.label.hasPrefix("All Recorded Data") && HealthSheet.visible($0, screen: screen) }), !history.identifier.isEmpty {
-                    acted = HealthSheet.tap(history.identifier, host: host, screen: screen); break pass
-                }
+        let deadline = Date().addingTimeInterval(120)
+        var finished = false
+        while Date() < deadline {
+            for host in [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")] {
+                let sheet = host.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "UIA.Health.")).firstMatch
+                XCTAssertFalse(sheet.exists, "seed read set drifted: a second Health sheet appeared")
             }
-            if finished { break }
-            if !acted { app.swipeUp() }
+            if let tree = try? app.snapshot(), HealthSheet.nodes(tree).contains(where: { $0.label.hasPrefix("Import from") && $0.isEnabled && ($0.value as? String) == "1" }) {
+                finished = true; break
+            }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        try HealthSheet.attach(seen, name: "health-import-requested-kinds", in: self)
-        if seen.isEmpty {
-            evidence["app-debugDescription"] = app.debugDescription
-            try HealthSheet.attach(evidence, name: "health-import-hierarchy", in: self)
-            HealthSheet.screenshot("health-import-missing-sheet", in: self)
-        }
-        XCTAssertTrue(kinds.isSubset(of: Set(seen.keys)), "Health sheet missing requested read kinds: \(seen); bridge: \(QA.json(QA.flow(app)?["memo"]))")
-        XCTAssertTrue(finished, "Health authorization did not finish")
-        app.terminate()
-        XCTAssertTrue(app.wait(for: .notRunning, timeout: 30), "the authorization instance did not exit")
-
-        // This second, diagnostic-only ask grants write access for seeded data.
-        let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
-        XCTAssertEqual(seed["weightSeeded"] as? Bool, true, "simulator did not grant weight seeding: \(QA.json(seed))")
-        XCTAssertEqual(seed["bpSeeded"] as? Bool, true, "simulator did not grant BP seeding: \(QA.json(seed))")
+        if !finished { HealthSheet.screenshot("health-import-pending", in: self) }
+        XCTAssertTrue(finished, "Health authorization did not finish; bridge: \(QA.json(QA.flow(app)?["memo"]))")
         launch(app, "health-qa-import")
         XCTAssertTrue(webText(app, "Sources · Health import").waitForExistence(timeout: 30), "sleep source label absent")
         shot("health-import-sleep")
