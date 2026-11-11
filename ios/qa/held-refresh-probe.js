@@ -38,7 +38,7 @@
     const input = await wait(() => document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), 'session Notes');
     const sync = await import(new URL('/js/sync.js', location.href).href);
     if (!await sync.flushConfirmed(window.MedTrackerCloud.ctx)) throw new Error('workout did not sync');
-    held = { input, exercise: input.closest('.wg-workouts-session-exercise'), modal: document.getElementById('workout-session-modal'), list: document.getElementById('bp-list').innerHTML, removed: 0, notices: [] };
+    held = { input, exercise: input.closest('.wg-workouts-session-exercise'), modal: document.getElementById('workout-session-modal'), listNode: document.getElementById('bp-list'), list: document.getElementById('bp-list').innerHTML, removed: 0, notices: [] };
     const original = window.safeToast;
     window.safeToast = (...args) => { held.notices.push(String(args[0])); return original(...args); };
     new MutationObserver(ms => { for (const m of ms) for (const n of m.removedNodes) if (n === input || n.contains?.(input)) held.removed++; })
@@ -68,7 +68,7 @@
   async function inspect() {
     await wait(async () => (await window.apiCall('/api/bp?days=2'))?.some(x => x.systolic === 168 && x.diastolic === 97), 'peer BP arrived');
     await wait(() => s.returnQueries > 0, 'foreground Health pass');
-    s.held = { sameInput: held.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), sameExercise: held.exercise === document.querySelector('#workout-session-modal .wg-workouts-session-exercise'), connected: held.input.isConnected, open: !held.modal.classList.contains('hidden'), value: held.input.value, sameList: held.list === document.getElementById('bp-list').innerHTML, removed: held.removed, notices: held.notices.filter(x => /new (reading|entr|data)|synced/i.test(x)) };
+    s.held = { sameInput: held.input === document.querySelector('#workout-session-modal .wg-workouts-session-exercise__field--notes input'), sameExercise: held.exercise === document.querySelector('#workout-session-modal .wg-workouts-session-exercise'), connected: held.input.isConnected, open: !held.modal.classList.contains('hidden'), value: held.input.value, sameList: held.listNode === document.getElementById('bp-list') && held.list === held.listNode.innerHTML, removed: held.removed, notices: held.notices.filter(x => /new (reading|entr|data)|synced/i.test(x)) };
   }
   async function after() {
     await wait(() => !visible(document.getElementById('workout-session-modal')), 'session closed');

@@ -61,18 +61,22 @@ final class FlowQAHeldRefreshTests: XCTestCase {
         XCTAssertEqual(try QA.fakeServer("POST", "/start")["listening"] as? Bool, true)
         try action(app, "peer")
         note.tap(); QA.dismissKeyboardTip(app); note.typeText(" typing stays here")
+        let typed = try XCTUnwrap(note.value as? String, "Notes has no text value")
+        XCTAssertTrue(typed.contains("Before Home") && typed.contains("typing stays here"), "Notes did not receive both phrases: \(typed)")
         try action(app, "inspect")
         let held = try XCTUnwrap(state(app)?["held"] as? [String: Any])
         XCTAssertEqual(held["sameInput"] as? Bool, true); XCTAssertEqual(held["sameExercise"] as? Bool, true)
         XCTAssertEqual(held["connected"] as? Bool, true); XCTAssertEqual(held["open"] as? Bool, true)
         XCTAssertEqual(held["sameList"] as? Bool, true); XCTAssertEqual(held["removed"] as? Int, 0)
-        XCTAssertEqual(held["value"] as? String, "Before Home typing stays here")
+        XCTAssertEqual(held["value"] as? String, typed, "Notes changed while the session was open")
         XCTAssertEqual((held["notices"] as? [String])?.count, 0, QA.json(held))
+        try attachState(app, "held-refresh-open")
         shot("held-refresh-open")
         let close = app.webViews.buttons["Minimise"]
         XCTAssertTrue(close.waitForExistence(timeout: 10)); close.tap()
         try action(app, "after")
         XCTAssertEqual(state(app)?["healthVisible"] as? Bool, true)
+        try attachState(app, "held-refresh-closed")
         shot("held-refresh-closed")
     }
 
@@ -104,5 +108,9 @@ final class FlowQAHeldRefreshTests: XCTestCase {
     }
     private func shot(_ name: String) {
         let a = XCTAttachment(screenshot: QA.stableScreenshot().0); a.name = name + ".png"; a.lifetime = .keepAlways; add(a)
+    }
+    private func attachState(_ app: XCUIApplication, _ name: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: try XCTUnwrap(state(app)), options: [.prettyPrinted, .sortedKeys])
+        let a = XCTAttachment(data: data, uniformTypeIdentifier: "public.json"); a.name = name + ".json"; a.lifetime = .keepAlways; add(a)
     }
 }
