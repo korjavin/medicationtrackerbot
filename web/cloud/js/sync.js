@@ -225,7 +225,7 @@ async function readMeta() {
   return withDb(async (db) => {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt, importBumpSeq] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt, importBumpSeq, importRejected] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -239,6 +239,7 @@ async function readMeta() {
       reqToPromise(store.get('syncWedged')),
       reqToPromise(store.get('lastSnapshotAt')),
       reqToPromise(store.get('importBumpSeq')),
+      reqToPromise(store.get('importRejected')),
     ]);
     // A 426 error/streak/wedge in the shared sync_meta was written by a pre-v2
     // bundle's tab (this build never counts a 426: markUpdateRequired), which
@@ -261,6 +262,7 @@ async function readMeta() {
       syncWedged: gateWedge ? false : (syncWedged ?? false),
       lastSnapshotAt: lastSnapshotAt ?? null,
       importBumpSeq: importBumpSeq ?? null,
+      importRejected: importRejected ?? false,
     };
   });
 }
@@ -1245,7 +1247,7 @@ async function snapshotAt(ctx, snapshotSeq) {
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
   // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
   // snapshotErrorSeq goes with it, so the backoff floor drops back to lastSnapshotSeq.
-  await writeMeta({ lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null });
+  await writeMeta({ lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null, importRejected: false });
   return { ok: true, status: res.status };
 }
 
@@ -1351,7 +1353,7 @@ export async function markForceSnapshotPending() {
   // that a permanent write-error wedged on, and its snapshot bump bypasses the
   // wedge-guarded flushPending — so without clearing here the device lands the
   // import but leaves syncWedged set, silently blocking every later writeRecord.
-  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0 });
+  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false });
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
@@ -1442,7 +1444,7 @@ async function tryForceSnapshot(ctx) {
       return; // marker stays set — retried by the reloaded build
     }
     if (isPermanentSyncStatus(res.status)) {
-      await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
+      await writeMeta({ snapshotError: { status: res.status, at: Date.now() }, importRejected: true });
       offline = false;
       return;
     }
@@ -1478,7 +1480,7 @@ async function tryForceSnapshot(ctx) {
     if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isUpdateRequiredStatus(snap.status)) return; // snapshotAt flagged it; marker stays set
     if (isPermanentSyncStatus(snap.status)) {
-      await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
+      await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() }, importRejected: true });
       offline = false;
       return;
     }
@@ -1486,7 +1488,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMeta({ forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null });
+    await writeMeta({ forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null, importRejected: false });
   }
 }
 
@@ -2252,11 +2254,12 @@ export async function getSyncStatus(ctx) {
     // A full-vault import still stranded on this device (its records are not
     // in 'pending'): the delete flow refuses on it too (bd med-kraa).
     importPending: meta.forceSnapshotPending,
-    // ...or one the server refused for good (a forced-snapshot or its bump
-    // rejected with a permanent 4xx; only maybeSnapshot's own error carries a
-    // snapshotErrorSeq): those records exist only here and never upload.
-    // ponytail: a later maybeSnapshot failure stamps a seq and hides it.
-    importRejected: !!meta.snapshotError && meta.snapshotErrorSeq == null,
+    // ...or one the server refused for good (the forced snapshot or its bump
+    // got a permanent 4xx): those records exist only here and never upload.
+    // Its own meta key, so a later maybeSnapshot error can't mask it; cleared
+    // when any snapshot lands or a new import starts. The seq-less
+    // snapshotError fallback catches a rejection from before the key existed.
+    importRejected: meta.importRejected || (!!meta.snapshotError && meta.snapshotErrorSeq == null),
     offline,
     authExpired,
     updateRequired,

@@ -1245,6 +1245,8 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             ['a drain that throws', { requestDrain: vi.fn(async () => { throw new Error('offline'); }) }],
             // Imported records live only in 'records', never in the queue.
             ['a full-vault import still stranded offline', { getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: true })) }],
+            // Syncable edits queued beside a rejected import: refuse, don't offer Continue.
+            ['a queued edit beside a rejected import', { getSyncStatus: vi.fn(async () => ({ pendingCount: 1, importPending: false, importRejected: true })) }],
         ])('%s counts as unsynced: nothing is wiped or deleted', async (_name, sync) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
