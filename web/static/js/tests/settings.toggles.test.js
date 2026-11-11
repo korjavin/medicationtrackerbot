@@ -972,7 +972,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             // The sync engine the pre-wipe drain asks (bd med-kraa): drained, nothing pending.
             window.loadCloudSyncModule = () => Promise.resolve({
                 requestDrain: vi.fn(async () => {}),
-                getSyncStatus: vi.fn(async () => ({ pendingCount: 0 })),
+                getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: false })),
                 ...sync,
             });
             const mod = {
@@ -1241,13 +1241,15 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('a drain that throws counts as unsynced: nothing is wiped or deleted', async () => {
+        it.each([
+            ['a drain that throws', { requestDrain: vi.fn(async () => { throw new Error('offline'); }) }],
+            // Imported records live only in 'records', never in the queue.
+            ['a full-vault import still stranded offline', { getSyncStatus: vi.fn(async () => ({ pendingCount: 0, importPending: true })) }],
+        ])('%s counts as unsynced: nothing is wiped or deleted', async (_name, sync) => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const mod = await mountCloudWithDeleteModule(window, {}, {
-                    requestDrain: vi.fn(async () => { throw new Error('offline'); }),
-                });
+                const mod = await mountCloudWithDeleteModule(window, {}, sync);
                 await confirmDelete(window, document);
 
                 await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent).toMatch(/haven't synced yet/));
@@ -1269,7 +1271,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     reauthAndDelete: vi.fn(async () => { order.push('reauthAndDelete'); }),
                 }, {
                     requestDrain: vi.fn(async () => { order.push('drain'); }),
-                    getSyncStatus: vi.fn(async () => { order.push('status'); return { pendingCount: 0 }; }),
+                    getSyncStatus: vi.fn(async () => { order.push('status'); return { pendingCount: 0, importPending: false }; }),
                 });
                 await vi.waitFor(() => expect(order).toContain('status')); // the vault card's read on open
                 order.length = 0;

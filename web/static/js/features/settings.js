@@ -805,7 +805,8 @@ async function unsyncedEntries() {
             new Promise((resolve) => { timer = setTimeout(() => resolve(false), DELETE_DRAIN_TIMEOUT_MS); }),
         ]).finally(() => clearTimeout(timer));
         if (!drained) return true;
-        return (await sync.getSyncStatus(ctx)).pendingCount !== 0;
+        const st = await sync.getSyncStatus(ctx);
+        return st.pendingCount !== 0 || st.importPending !== false;
     } catch {
         return true;
     }

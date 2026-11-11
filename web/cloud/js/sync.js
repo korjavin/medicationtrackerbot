@@ -2249,6 +2249,9 @@ export async function getSyncStatus(ctx) {
   return {
     lastSyncedAt: meta.lastSyncedAt,
     pendingCount,
+    // A full-vault import still stranded on this device (its records are not
+    // in 'pending'): the delete flow refuses on it too (bd med-kraa).
+    importPending: meta.forceSnapshotPending,
     offline,
     authExpired,
     updateRequired,
