@@ -45,6 +45,12 @@
   async function initial() {
     await window.apiCall('/api/settings/body', 'PATCH', { med_register: 'eu' });
     await editor();
+    await wait(async () => {
+      for (const name of await caches.keys()) {
+        if (name.startsWith('medtracker-ema-') && await (await caches.open(name)).match('/static/data/ema-article57-rev90-v1.json')) return true;
+      }
+      return false;
+    }, 'register cache');
     document.querySelector('#med-dosage').value = '8mg';
     document.querySelector('[data-schedule-type="as_needed"]').click();
     document.querySelector('#med-modal-save-btn').click();
