@@ -20,7 +20,7 @@ private enum HealthSheet {
         var result = [String: String]()
         for node in nodes where node.identifier.hasPrefix(readPrefix) && node.identifier.hasSuffix(".SwitchCell.Switch") {
             let kind = String(node.identifier.dropFirst(readPrefix.count).dropLast(".SwitchCell.Switch".count))
-            if let value = node.value as? String { result[kind] = value }
+            if let value = node.value { result[kind] = String(describing: value) }
         }
         return result
     }
@@ -36,6 +36,18 @@ private enum HealthSheet {
         let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
         attachment.name = name + ".json"; attachment.lifetime = .keepAlways; test.add(attachment)
     }
+    static func evidence(_ nodes: [XCUIElementSnapshot]) -> [String: String] {
+        var result = [String: String]()
+        for (index, node) in nodes.enumerated() where !node.identifier.isEmpty || !node.label.isEmpty {
+            let value = node.value.map { "\(type(of: $0)):\($0)" } ?? "nil"
+            result[String(index)] = "id=\(node.identifier) label=\(node.label) value=\(value)"
+        }
+        return result
+    }
+    static func screenshot(_ name: String, in test: XCTestCase) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = name + ".png"; shot.lifetime = .keepAlways; test.add(shot)
+    }
 }
 
 /// First Health ask in the dedicated simulator part: the real Settings switch
@@ -49,17 +61,21 @@ final class FlowQAHealthImportTests: XCTestCase {
         launch(app, "health-qa-settings")
         let target = try XCTUnwrap(QA.target(QA.flow(app), "health"), "Health import switch absent")
         QA.coordinate(app, target).tap()
+        Thread.sleep(forTimeInterval: 3)
+        HealthSheet.screenshot("health-import-after-tap", in: self)
         let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
         let kinds = Set(["Steps", "Sleep", "BloodOxygen", "HeartRate"])
         let screen = app.frame
         let end = Date().addingTimeInterval(120)
         var seen = [String: String]()
+        var evidence = [String: String]()
         var selected = false, submitted = false, finished = false
         while Date() < end {
             var acted = false
             pass: for host in hosts {
                 guard let tree = try? host.snapshot() else { continue }
                 let nodes = HealthSheet.nodes(tree)
+                evidence.merge(HealthSheet.evidence(nodes).mapKeys(prefix: host == app ? "app-" : "springboard-")) { _, new in new }
                 let reads = HealthSheet.readValues(nodes)
                 if !reads.isEmpty && seen.isEmpty {
                     seen = reads
@@ -89,6 +105,10 @@ final class FlowQAHealthImportTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
         try HealthSheet.attach(seen, name: "health-import-requested-kinds", in: self)
+        if seen.isEmpty {
+            try HealthSheet.attach(evidence, name: "health-import-hierarchy", in: self)
+            HealthSheet.screenshot("health-import-missing-sheet", in: self)
+        }
         XCTAssertTrue(kinds.isSubset(of: Set(seen.keys)), "Health sheet missing requested read kinds: \(seen); bridge: \(QA.json(QA.flow(app)?["memo"]))")
         XCTAssertTrue(finished, "Health authorization did not finish")
         app.terminate()
@@ -156,16 +176,20 @@ final class FlowQAHealthDeniedTests: XCTestCase {
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 120), "Settings scene did not start")
         let target = try XCTUnwrap(QA.target(QA.flow(app), "health"), "Health import switch absent")
         QA.coordinate(app, target).tap()
+        Thread.sleep(forTimeInterval: 3)
+        HealthSheet.screenshot("health-denied-after-tap", in: self)
         let hosts = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
         let screen = app.frame
         let deadline = Date().addingTimeInterval(120)
         var denied = [String: String]()
+        var evidence = [String: String]()
         var submitted = false, finished = false
         while Date() < deadline {
             var acted = false
             pass: for host in hosts {
                 guard let tree = try? host.snapshot() else { continue }
                 let nodes = HealthSheet.nodes(tree)
+                evidence.merge(HealthSheet.evidence(nodes).mapKeys(prefix: host == app ? "app-" : "springboard-")) { _, new in new }
                 let reads = HealthSheet.readValues(nodes)
                 if !reads.isEmpty { denied = reads }
                 if let deny = nodes.first(where: { $0.identifier == HealthSheet.deny }),
@@ -183,10 +207,20 @@ final class FlowQAHealthDeniedTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.5)
         }
         try HealthSheet.attach(denied, name: "health-import-denied-kinds", in: self)
-        XCTAssertEqual(Set(denied.keys), HealthSheet.expected, "wrong Health read switches: \(denied)")
+        if denied.isEmpty {
+            try HealthSheet.attach(evidence, name: "health-denied-hierarchy", in: self)
+            HealthSheet.screenshot("health-denied-missing-sheet", in: self)
+        }
+        XCTAssertEqual(Set(denied.keys), HealthSheet.expected, "wrong Health read switches: \(denied); bridge: \(QA.json(QA.flow(app)?["memo"]))")
         XCTAssertTrue(denied.values.allSatisfy { $0 == "0" }, "a Health read switch was enabled: \(denied)")
         XCTAssertTrue(submitted && finished, "no denied-read guidance after the native denial")
         let shot = XCTAttachment(screenshot: QA.stableScreenshot().0)
         shot.name = "health-import-denied-guidance.png"; shot.lifetime = .keepAlways; add(shot)
+    }
+}
+
+private extension Dictionary where Key == String {
+    func mapKeys(prefix: String) -> [String: Value] {
+        Dictionary(uniqueKeysWithValues: map { (prefix + $0.key, $0.value) })
     }
 }
