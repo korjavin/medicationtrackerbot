@@ -71,6 +71,7 @@ env:
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
+     "move": ["FlowQAMoveAccountTests"],
      "reminders": ["FlowQARemindersTests"],
      "reminders-denied": ["FlowQARemindersDeniedTests"]}
   # Fixed green references in seconds: core/data/update from 42923864088
@@ -545,6 +546,7 @@ jobs:
           QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
           QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
           QA_EU_PROBE: ${{ matrix.part == 'eu' && '1' || '0' }}
+          QA_MOVE_PROBE: ${{ matrix.part == 'move' && '1' || '0' }}
           QA_REMINDER_PROBE: ${{ (matrix.part == 'reminders' || matrix.part == 'reminders-denied') && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
@@ -582,6 +584,7 @@ jobs:
       - name: Start the fake account server (tlsfront) and trust its CA
         env:
           QA_BUNDLES: ${{ (matrix.part == 'update' || matrix.part == 'degraded') && '1' || '0' }}
+          QA_MOVE_FAULT: ${{ matrix.part == 'move' && '1' || '0' }}
         run: ios/qa/fake-server.sh
 
       - name: Run the flows
