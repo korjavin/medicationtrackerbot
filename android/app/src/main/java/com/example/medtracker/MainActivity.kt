@@ -1005,6 +1005,8 @@ class MainActivity : Activity() {
             "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
             "lock.set" -> setLock(msg.optJSONObject("args")?.optBoolean("on") == true) { answer(it == null) }
             "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
+            // The stored log (already redacted at append time), "" when empty: the Send feedback attachment.
+            "diag.read" -> answer(diagPrefs.getString(DIAG_KEY, "") ?: "")
             "health.authorize", "health.query", "health.writeAccess", "health.write", "health.delete" ->
                 health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             "attest.status", "attest.enroll", "attest.setPass", "attest.assert" ->
