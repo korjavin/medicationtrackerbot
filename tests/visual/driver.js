@@ -871,6 +871,23 @@
             if (mode === 'running') {
                 await until(() => /^[1-9]\d* of /.test(document.querySelector('#health-copy-row .wg-setting__desc')?.textContent || ''), STEP_MS, 'health copy progress');
             }
+        } else if (step.healthAuthTrace) {
+            // QA-only observation of the real bridge result. The page handles
+            // false and exceptions identically; preserve that distinction for
+            // Simulator failures without changing the authorization outcome.
+            const health = window.Health;
+            if (!health || typeof health.requestAuthorization !== 'function') throw new Error('no Health authorization port');
+            const request = health.requestAuthorization;
+            health.requestAuthorization = async function (...args) {
+                try {
+                    const value = await request.apply(this, args);
+                    qa.memo.healthAuthorization = { returned: value };
+                    return value;
+                } catch (error) {
+                    qa.memo.healthAuthorization = { error: String(error && error.message || error) };
+                    throw error;
+                }
+            };
         } else if (step.healthNative || step.healthNativeLabels) {
             // iOS Simulator scene: only the native seed writes Health samples.
             // Remove fixture vitals, then run the real native importer and assert its values.

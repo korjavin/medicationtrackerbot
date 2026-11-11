@@ -31,7 +31,7 @@ final class FlowQAHealthImportTests: XCTestCase {
         sheet.name = "health-import-requested-kinds.png"; sheet.lifetime = .keepAlways; add(sheet)
         let requested = XCTAttachment(string: seen.sorted().joined(separator: ", "))
         requested.name = "health-import-requested-kinds.txt"; requested.lifetime = .keepAlways; add(requested)
-        XCTAssertEqual(seen, Set(kinds), "Health sheet did not list the requested read kinds: \(seen)")
+        XCTAssertEqual(seen, Set(kinds), "Health sheet did not list the requested read kinds: \(seen); bridge: \(QA.json(QA.flow(app)?["memo"]))")
         let screen = app.frame
         let end = Date().addingTimeInterval(120)
         while Date() < end {

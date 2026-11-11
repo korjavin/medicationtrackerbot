@@ -561,7 +561,7 @@
     { "name": "workouts-plans-none", "steps": [{ "noPlan": true }, { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"groups\"]" }],
       "ready": ["#workout-groups-tab.active", "#workout-groups-list .wg-empty .wg-btn--primary"] },
     { "name": "health-qa-settings", "platform": "ios", "localOnly": true, "flowOnly": true, "flow": true,
-      "steps": [{ "tab": "today" }, { "tab": "settings" }, { "scroll": "#health-import-row" }],
+      "steps": [{ "tab": "today" }, { "tab": "settings" }, { "scroll": "#health-import-row" }, { "healthAuthTrace": true }],
       "ready": ["#health-import-toggle"], "targets": { "health": "#health-import-toggle" } },
     { "name": "health-qa-import", "platform": "ios", "localOnly": true, "flowOnly": true, "flow": true,
       "steps": [{ "healthNativeLabels": true }, { "tab": "health" }],
