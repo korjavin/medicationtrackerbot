@@ -91,13 +91,14 @@ final class FlowQAEURegisterTests: XCTestCase {
         let create = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Continue with'")).firstMatch
         XCTAssertTrue(create.waitForExistence(timeout: 60)); create.tap()
         XCTAssertTrue(openAccount(app, timeout: 120), "claim did not open account")
-        let before = try QA.receipts(host: host).count
+        let before = try QA.receipts().count
         let initial = try command(app, "initial", timeout: 180)
         XCTAssertEqual(initial["nameEgress"] as? Int, 0, "name sent by page fetch: \(QA.json(initial))")
         XCTAssertEqual(initial["rxnav"] as? Int, 0, "RxNav sent by page fetch: \(QA.json(initial))")
         XCTAssertEqual(initial["uninspected"] as? Int, 0, "page fetch body could not be inspected: \(QA.json(initial))")
-        let online = try QA.receipts(host: host)
+        let online = try QA.receipts()
         XCTAssertGreaterThan(online.count, before, "server observed no account requests")
+        XCTAssertTrue(online.dropFirst(before).contains { ($0["path"] as? String ?? "").contains("ema-article57") && $0["status"] as? Int == 200 }, "no successful register response in server receipts")
         XCTAssertFalse(online.dropFirst(before).contains { $0["nameEgress"] as? Bool == true }, "synthetic medication name reached fake server")
         XCTAssertFalse(online.dropFirst(before).contains { $0["inspectionTruncated"] as? Bool == true }, "request body was too large to inspect")
         XCTAssertFalse(online.dropFirst(before).contains { ($0["path"] as? String ?? "").contains("rxnav") }, "RxNav proxy was requested with EU selected")
@@ -130,7 +131,7 @@ final class FlowQAEURegisterTests: XCTestCase {
         XCTAssertEqual(observed["rxnav"] as? Int, 0, "RxNav sent by page fetch: \(QA.json(observed))")
         XCTAssertEqual(observed["uninspected"] as? Int, 0, "page fetch body could not be inspected: \(QA.json(observed))")
         shot("eu-account", "pulled-chip")
-        let all = try QA.receipts(host: host)
+        let all = try QA.receipts()
         XCTAssertFalse(all.dropFirst(before).contains { $0["nameEgress"] as? Bool == true }, "synthetic medication name reached fake server")
         XCTAssertFalse(all.dropFirst(before).contains { $0["inspectionTruncated"] as? Bool == true }, "request body was too large to inspect")
         XCTAssertFalse(all.dropFirst(before).contains { ($0["path"] as? String ?? "").contains("rxnav") }, "RxNav proxy requested")
