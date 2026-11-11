@@ -142,7 +142,9 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   reference. Missing references are `n/a`.
   It uploads `ios-qa-<part>` (14 days): `<flow>-<step>.png`,
   a failed test's UI hierarchy (`<Class>-<test>-hierarchy.txt`) and
-  `webcontent-rss-<part>.log` and `qa-tests-<part>.json` (xcresult test data).
+  `webcontent-rss-<part>.log`, `qa-tests-<part>.json` (xcresult test data),
+  `tlsfront-<part>.log`, `cloud-<part>.log` and `receipts-<part>.json` (fake
+  server evidence, when available).
   The gate merges them into the one artifact
   `ios-qa` (full runs only; the newest attempt of each part):
   `gh run download <run> -n ios-qa -D /tmp/ios-qa`. After "Re-run failed
