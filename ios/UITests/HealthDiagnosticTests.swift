@@ -6,17 +6,18 @@ final class HealthDiagnosticTests: XCTestCase {
         try Self.run(seed: false, in: self)
     }
 
-    static func run(seed: Bool, in test: XCTestCase) throws {
-        let json = try run(seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", in: test)
+    static func run(seed: Bool, labels: Bool = false, in test: XCTestCase) throws -> [String: Any] {
+        let json = try run(seed ? "-wgQAHealthSeed" : "-wgQAHealthDiagnostic", labels: labels, in: test)
         if seed { XCTAssertGreaterThan(json["sampleCount"] as? Int ?? 0, 0, "Health store has no seeded Steps sample") }
+        return json
     }
 
     /// Launches HealthDiagnosticView in `mode`, accepts the Health sheet, and
     /// returns its JSON report after asserting `ok`.
     @discardableResult
-    static func run(_ mode: String, in test: XCTestCase) throws -> [String: Any] {
+    static func run(_ mode: String, labels: Bool = false, in test: XCTestCase) throws -> [String: Any] {
         let app = XCUIApplication()
-        app.launchArguments = [mode, "YES"]
+        app.launchArguments = [mode, "YES"] + (labels ? ["-wgQAHealthLabels", "YES"] : [])
         app.launch()
         defer { app.terminate() }
         let result = app.staticTexts["health-diagnostic-result"]
@@ -84,7 +85,7 @@ final class HealthDiagnosticTests: XCTestCase {
     // "Allow"). Read state from one throwing snapshot() instead; a vanished
     // control is just skipped this pass, and whether the sheet was answered is
     // still decided by the app's report above.
-    private static func live(_ element: XCUIElement, within screen: CGRect) -> XCUIElementSnapshot? {
+    static func live(_ element: XCUIElement, within screen: CGRect) -> XCUIElementSnapshot? {
         guard let snap = try? element.snapshot(), snap.isEnabled, !snap.frame.isEmpty,
               screen.contains(CGPoint(x: snap.frame.midX, y: snap.frame.midY)) else { return nil }
         return snap
@@ -96,7 +97,7 @@ final class HealthDiagnosticTests: XCTestCase {
     // applied), while element.tap() resolves XCTest's own hit point (qa run
     // 42152745433 passed). Tap only once two snapshots 0.3s apart agree, so a
     // control mid-transition is skipped instead of vanishing under the tap.
-    private static func tapIfSettled(_ element: XCUIElement, within screen: CGRect) -> Bool {
+    static func tapIfSettled(_ element: XCUIElement, within screen: CGRect) -> Bool {
         guard let first = live(element, within: screen) else { return false }
         Thread.sleep(forTimeInterval: 0.3)
         guard let settled = live(element, within: screen), settled.frame == first.frame else { return false }

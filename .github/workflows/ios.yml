@@ -7,11 +7,11 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as seven restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as eight restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
-# and eu (EU register), joined by the `qa` gate. Lists: env QA_PARTS.
+# eu (EU register), and health (Health import), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -56,7 +56,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,health,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -70,7 +70,8 @@ env:
      "data": ["FlowQABackupTests", "FlowQAStashTests"],
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"],
-     "eu": ["FlowQAEURegisterTests"]}
+     "eu": ["FlowQAEURegisterTests"],
+     "health": ["FlowQAHealthImportTests"]}
   # Fixed green references in seconds: core/data/update from 42923864088
   # (restore from attempt 2), degraded from 42921440898, and backup chain,
   # account/rest from 42915152895 attempt 1. Unknown tests remain n/a.
@@ -561,8 +562,8 @@ jobs:
 
       - name: Create and boot the simulator
         env:
-          # Only core runs HealthWriteBackTests; the others skip the healthd wait.
-          QA_HEALTH_READY: ${{ matrix.part == 'core' && '1' || '0' }}
+          # Health import is the first Health ask on its separate simulator.
+          QA_HEALTH_READY: ${{ (matrix.part == 'core' || matrix.part == 'health') && '1' || '0' }}
         run: |
           ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt | tee "$RUNNER_TEMP/qa-boot.log"
           exit "${PIPESTATUS[0]}"

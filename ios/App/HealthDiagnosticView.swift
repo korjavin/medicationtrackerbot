@@ -18,11 +18,15 @@ struct HealthDiagnosticView: View {
         let store = HKHealthStore()
         let type = HKQuantityType(.stepCount)
         let seed = UserDefaults.standard.bool(forKey: "wgQAHealthSeed")
+        let labels = UserDefaults.standard.bool(forKey: "wgQAHealthLabels")
         let kinds: Set<HKSampleType> = seed
             ? [type, HKQuantityType(.heartRate), HKQuantityType(.oxygenSaturation), HKCategoryType(.sleepAnalysis)]
             : [type]
+        let labelKinds: Set<HKSampleType> = [HKQuantityType(.bodyMass), HKQuantityType(.bloodPressureSystolic),
+                                            HKQuantityType(.bloodPressureDiastolic), HKCorrelationType(.bloodPressure)]
         do {
-            try await store.requestAuthorization(toShare: seed ? kinds : [], read: Set(kinds.map { $0 as HKObjectType }))
+            let requested = labels ? kinds.union(labelKinds) : kinds
+            try await store.requestAuthorization(toShare: seed ? requested : [], read: Set(requested.map { $0 as HKObjectType }))
             result["authorizationCompleted"] = true
             if seed && !UserDefaults.standard.bool(forKey: "wgQAHealthSeededV1") {
                 let end = Date().addingTimeInterval(-4 * 3600)
@@ -36,6 +40,22 @@ struct HealthDiagnosticView: View {
                 try await store.save(samples)
                 UserDefaults.standard.set(true, forKey: "wgQAHealthSeededV1")
                 result["seeded"] = samples.count
+            }
+            if labels {
+                let at = Date().addingTimeInterval(-3600)
+                let mass = HKQuantityType(.bodyMass)
+                let sys = HKQuantityType(.bloodPressureSystolic), dia = HKQuantityType(.bloodPressureDiastolic)
+                if store.authorizationStatus(for: mass) == .sharingAuthorized {
+                    try await store.save(HKQuantitySample(type: mass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 73.4), start: at, end: at))
+                    result["weightSeeded"] = true
+                }
+                if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized {
+                    let unit = HKUnit.millimeterOfMercury()
+                    let s = HKQuantitySample(type: sys, quantity: HKQuantity(unit: unit, doubleValue: 123), start: at, end: at)
+                    let d = HKQuantitySample(type: dia, quantity: HKQuantity(unit: unit, doubleValue: 79), start: at, end: at)
+                    try await store.save(HKCorrelation(type: HKCorrelationType(.bloodPressure), start: at, end: at, objects: [s, d]))
+                    result["bpSeeded"] = true
+                }
             }
             let query = HKSampleQueryDescriptor(predicates: [.quantitySample(type: type)],
                                                 sortDescriptors: [], limit: 1)

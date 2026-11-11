@@ -871,7 +871,7 @@
             if (mode === 'running') {
                 await until(() => /^[1-9]\d* of /.test(document.querySelector('#health-copy-row .wg-setting__desc')?.textContent || ''), STEP_MS, 'health copy progress');
             }
-        } else if (step.healthNative) {
+        } else if (step.healthNative || step.healthNativeLabels) {
             // iOS Simulator scene: only the native seed writes Health samples.
             // Remove fixture vitals, then run the real native importer and assert its values.
             if (!document.documentElement.classList.contains('wg-local-vault') || !window.Health?.isSupported()) {
