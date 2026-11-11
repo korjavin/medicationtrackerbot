@@ -19,6 +19,13 @@ object Diag {
     }
 
     /**
+     * Older shells logged `health <op> <type> error <Class>: <message>` (SDK text can echo a record
+     * value); the log outlives app updates, so cut the message from any such stored line.
+     */
+    fun scrub(log: String): String =
+        Regex("(health [^\\n]*? error \\w+):[^\\n]*").replace(log, "$1")
+
+    /**
      * The spike's rule (bd med-nt9p.4): the base domain becomes `<base>`, each
      * account label `<sub-xxxxxx>` (a short SHA-256, so two accounts stay
      * distinguishable with no raw label kept), the FOR_APP origin's cert hash `<cert>`.

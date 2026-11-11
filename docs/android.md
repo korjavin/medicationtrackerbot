@@ -1578,7 +1578,7 @@ Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
   `local.leave`. The `move.*` ops are unchanged. `move-ops` also covers it
   (gates, stash, kept into local mode, take/clear, `local.reset`, `open()`).
 
-  Both modes: `ping`, `chrome`, `diag.append`, `diag.read` (replies the stored, already-redacted diagnostic log as a string, `""` when empty; bd med-vjxz.2), `notifications.*`, `health.*`,
+  Both modes: `ping`, `chrome`, `diag.append`, `diag.read` (replies the same text Copy diagnostics copies: redacted device header plus the stored log, with legacy `health … error <Class>: <message>` text cut by `Diag.scrub`; bd med-vjxz.2), `notifications.*`, `health.*`,
   `invite.pending` / `invite.clear` / `clipboard.read` ([Invite links](#the-shell-bd-med-nt9p5)),
   `app.openSettings` (no args → `true` once launched; bd med-r1j2.19: the camera-denied
   *Allow camera in Settings*, `media-capture.js` `openSettings`) — this app's page in system

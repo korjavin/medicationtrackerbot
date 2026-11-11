@@ -34,4 +34,15 @@ class DiagTest {
         assertEquals("T entry ${Diag.CAP + 5} second line", lines.last())
         assertTrue(Diag.append("", "x".repeat(10_000), base, "T").length <= 2000)
     }
+
+    // Lines stored by older shells carried the SDK message (it can echo a record value).
+    @Test
+    fun scrubCutsLegacyHealthErrorMessages() {
+        val log = "T health query steps error IllegalArgumentException: value 12345 out of range\n" +
+            "T health query  error IOException: boom\nT health steps denied\nT page hello: world"
+        assertEquals(
+            "T health query steps error IllegalArgumentException\nT health query  error IOException\nT health steps denied\nT page hello: world",
+            Diag.scrub(log),
+        )
+    }
 }
