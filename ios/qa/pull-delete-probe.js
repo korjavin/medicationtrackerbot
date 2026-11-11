@@ -78,12 +78,12 @@
       state.touch.push(type);
       if (type === 'touchend') blockPull = false;
     }, { capture: true, passive: true });
-    const bar = document.createElement('div'); bar.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;font-size:8px';
+    const bar = document.createElement('div'); bar.style.cssText = 'position:fixed;top:0;right:0;z-index:2147483647;font-size:8px;pointer-events:none';
     for (const [name, fn] of Object.entries({ peer, observed, quiet, quietDone, network, cancel, verify })) {
-      const b = document.createElement('button'); b.textContent = 'QA Pull ' + name;
+      const b = document.createElement('button'); b.style.pointerEvents = 'auto'; b.textContent = 'QA Pull ' + name;
       b.addEventListener('click', () => run(name, fn)); bar.appendChild(b);
     }
-    output = document.createElement('button'); output.textContent = 'QA Pull state'; bar.appendChild(output);
+    output = document.createElement('button'); output.style.pointerEvents = 'auto'; output.textContent = 'QA Pull state'; bar.appendChild(output);
     document.body.appendChild(bar); publish();
   }, { once: true });
 })();

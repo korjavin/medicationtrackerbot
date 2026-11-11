@@ -80,7 +80,7 @@ final class FlowQAPullDeleteTests: XCTestCase {
         let cancelReceipts = try QA.receipts(host: host).dropFirst(beforeCancel)
         XCTAssertEqual(cancelReceipts.filter { $0["path"] as? String == "/api/account/reauth" && $0["method"] as? String == "POST" }.count, 1)
         XCTAssertFalse(cancelReceipts.contains { $0["path"] as? String == "/api/account" && $0["method"] as? String == "DELETE" })
-        XCTAssertTrue(app.webViews.buttons["Delete account"].firstMatch.isEnabled, "delete button was not re-enabled")
+        XCTAssertTrue(app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Delete account'")).firstMatch.isEnabled, "delete button was not re-enabled")
         shot("pull-delete", "cancelled")
         app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
         app.launchArguments = ["-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQASoftAuthn", "YES"]
@@ -114,7 +114,7 @@ final class FlowQAPullDeleteTests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 30)); settings.tap()
         let vault = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Your vault'")).firstMatch
         XCTAssertTrue(vault.waitForExistence(timeout: 30)); vault.tap()
-        let delete = app.webViews.buttons["Delete account"]
+        let delete = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Delete account'")).firstMatch
         for _ in 0..<6 where !delete.isHittable { app.swipeUp() }
         XCTAssertTrue(delete.waitForExistence(timeout: 20)); delete.tap()
         let input = app.webViews.textFields.firstMatch
