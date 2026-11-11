@@ -4797,17 +4797,14 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
-  // Creates its transaction synchronously, so it is ordered before any later one.
-  const otherTabReset = () => {
+  // Creates its transaction synchronously, so it is ordered before any later
+  // one. `older`: an older bundle's reset, which knows no syncGen.
+  const otherTabReset = ({ older = false } = {}) => {
     const tx = other.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
-    const meta = tx.objectStore('sync_meta');
-    const gen = meta.get('syncGen');
-    gen.onsuccess = () => {
-      tx.objectStore('records').clear();
-      tx.objectStore('pending').clear();
-      meta.clear();
-      meta.put((gen.result ?? 0) + 1, 'syncGen');
-    };
+    tx.objectStore('records').clear();
+    tx.objectStore('pending').clear();
+    tx.objectStore('sync_meta').clear();
+    if (!older) tx.objectStore('sync_meta').put(crypto.randomUUID(), 'syncGen');
     return txDone(tx);
   };
   const getAll = async (store) => {
@@ -4874,6 +4871,43 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     await pull;
     expect(await getAll('records')).toEqual([]);
     expect(await cursor()).toBe(null);
+  });
+
+  it('an older bundle\'s reset between two current ones still fences a pull', async () => {
+    const page = gate();
+    const { nonce, ct } = await encryptRecord({
+      kData: ctx.kData, accountId, recordType: 'bp', recordId: 'bp-ghost', seq: 8,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: 'bp-ghost', clientTs: 5, deleted: false, systolic: 1 })),
+    });
+    let holdOps = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && (!init || init.method !== 'POST')) return snapshot(7, 'bp-old');
+      if (u.startsWith('/api/sync/ops')) {
+        if (holdOps) {
+          holdOps = false;
+          await page.hold();
+          const op = { seq: 8, record_type_tag: 'bp:bp-ghost', nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+          return new Response(JSON.stringify({ ops: [op], next: false }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }));
+    // Tab B: the real resetLocalSync from a second module instance (its own
+    // syncEpoch and cached connection). Its first reset sets the generation.
+    vi.resetModules();
+    const tabB = await import('../sync.js');
+    await tabB.resetLocalSync(ctx);
+    holdOps = true;
+    const pull = pullOnOpen(ctx); // captures B's generation
+    await page.reached;
+    await otherTabReset({ older: true });
+    await tabB.resetLocalSync(ctx); // re-bootstraps to seq 7
+    page.release();
+    await pull;
+    expect((await getAll('records')).map((r) => r.recordId)).toEqual(['bp-old']);
+    expect(await cursor()).toBe(7);
   });
 
   it('a push acked after the reset writes no cursor', async () => {

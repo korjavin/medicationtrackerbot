@@ -166,12 +166,12 @@ function withRecordsLock(fn) {
 // Merges (applyIncoming, adoptLedgerCut) check it under the records lock,
 // which reset's bump holds.
 //
-// bd med-0vdh — syncEpoch is per tab, so resetLocalSync also bumps a stored
-// generation (sync_meta 'syncGen') inside its wipe; another tab's flight sees it
-// moved. A captured epoch is { mem, gen }; guarded writes compare gen inside
-// their own transaction (inGen), so no other tab's wipe can slip between check
-// and write. An older bundle's reset clears sync_meta, so gen drops to 0 — a
-// move too, unless it was 0 already (then unfenced, as before).
+// bd med-0vdh — syncEpoch is per tab, so resetLocalSync also writes a fresh
+// random generation (sync_meta 'syncGen') inside its wipe; another tab's flight
+// sees it moved. A captured epoch is { mem, gen }; guarded writes compare gen
+// inside their own transaction (inGen), so no other tab's wipe can slip between
+// check and write. An older bundle's reset clears sync_meta, so gen drops to 0
+// — a move too, unless it was 0 already (then unfenced, as before).
 let syncEpoch = 0;
 const SYNC_GEN_KEY = 'syncGen';
 const epochMoved = (epoch) => epoch !== undefined && epoch.mem !== syncEpoch;
@@ -639,14 +639,13 @@ export async function resetLocalSync(ctx) {
   await withRecordsLock(async () => {
     syncEpoch++;
     await withTx(['records', 'pending', 'sync_meta'], (tx) => {
-      const meta = tx.objectStore('sync_meta');
-      const gen = meta.get(SYNC_GEN_KEY);
-      gen.onsuccess = () => {
-        tx.objectStore('records').clear();
-        tx.objectStore('pending').clear();
-        meta.clear();
-        meta.put((gen.result ?? 0) + 1, SYNC_GEN_KEY); // fences other tabs (bd med-0vdh)
-      };
+      tx.objectStore('records').clear();
+      tx.objectStore('pending').clear();
+      tx.objectStore('sync_meta').clear();
+      // Fences other tabs (bd med-0vdh). Random, not a counter: an older
+      // bundle's reset deletes the key, and a counter restarting from there
+      // could hand a pre-reset flight its captured value back (ABA).
+      tx.objectStore('sync_meta').put(crypto.randomUUID(), SYNC_GEN_KEY);
     });
   });
   invalidateRecords();
