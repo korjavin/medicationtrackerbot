@@ -343,7 +343,7 @@ describe('feedback-ui', () => {
             const row = box.closest('label');
             expect(row.textContent).toBe('Attach the app log');
             expect(row.nextElementSibling.textContent).toBe(
-                'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes and Health import counts. No entries, no names, no account address.');
+                'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your phone model, system version and password-manager app. No entries, no names, no account address.');
         });
 
         it('ticked: Send adds one text/plain log attachment carrying the diag.read reply', async () => {
@@ -368,7 +368,11 @@ describe('feedback-ui', () => {
                 + '{"op":"log","line":"[health] write bp failed Systolic 142 \\"bad\\" rejected","x":1}\n'
                 + '[health] write batch of 3 failed Weight 80.0 kg\n'
                 + JSON.stringify({ line: '[health] write bp failed quota\nSystolic 142' }) + '\n'
-                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n');
+                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n'
+                // Operator-resolvable hashes (breakage review): label tag, credential tag, push fingerprint.
+                + '{"op":"get","rp":"<sub-ab12cd>.<base>","result":"ok","id":"0f9e8d","match":true}\n'
+                + JSON.stringify({ e: JSON.stringify({ id: 'a1b2c3' }) }) + '\n'
+                + 'shell push token deadbeef\n');
             await openWithText('x');
             q('[data-feedback-log]').checked = true;
             click(q('[data-feedback-choice="send"]'));
@@ -379,7 +383,10 @@ describe('feedback-ui', () => {
                 + '{"op":"log","line":"[health] write bp failed <redacted>","x":1}\n'
                 + '[health] write batch of 3 failed <redacted>\n'
                 + '{"line":"[health] write bp failed <redacted>"}\n'
-                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n');
+                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n'
+                + '{"op":"get","rp":"<sub>.<base>","result":"ok","id":"<tag>","match":true}\n'
+                + JSON.stringify({ e: JSON.stringify({ id: '<tag>' }) }) + '\n'
+                + 'shell push token <tag>\n');
         });
 
         it('unticked: no diag.read call and the bundle is as before', async () => {

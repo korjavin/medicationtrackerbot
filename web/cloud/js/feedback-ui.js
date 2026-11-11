@@ -35,8 +35,16 @@ function canRecordAudio() {
 // paths with an account label (/d/, /i/) or a token (/s/, /mcp/), and Health
 // write failures carrying the store's raw error text (which can hold a value).
 // Mask both before the log leaves the phone; .1's class words pass unchanged.
+// Also the short hashes the operator could map back to an account by hashing
+// its own tables: the shells' account-label tag <sub-xxxxxx> (Diag.kt/.swift),
+// the passkey credential tag "id":"xxxxxx" (passkey-diag.js outcome, maybe
+// JSON-escaped once more by the shell) and the push token fingerprint
+// (Push.kt/.swift fingerprint).
 function scrubLog(text) {
     return text
+        .replace(/<sub-[0-9a-f]{6}>/g, '<sub>')
+        .replace(/(\\*"id\\*":\\*")[0-9a-f]{6}(?=\\*")/g, '$1<tag>')
+        .replace(/push token [0-9a-f]{8}\b/g, 'push token <tag>')
         .replace(/\/(d|i)\/[^/"\s]+/g, '/$1/<sub>')
         .replace(/\/(s|mcp)\/[^/"\s]+/g, '/$1/<token>')
         .replace(/(\[health\] (?:[^"\\\n]|\\.)*? failed )(?!(?:denied|quota|other|no result)(?:["\n]|$))(?:[^"\\\n]|\\.)*/g, '$1<redacted>');
@@ -117,7 +125,7 @@ function openFeedbackModal() {
             row.append(logBox, doc.createTextNode('Attach the app log'));
             const caption = doc.createElement('p');
             caption.className = 'wg-feedback-modal__chip';
-            caption.textContent = 'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes and Health import counts. No entries, no names, no account address.';
+            caption.textContent = 'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your phone model, system version and password-manager app. No entries, no names, no account address.';
             capture.after(row, caption);
         }, () => { /* no shell answer — no checkbox */ });
     }
