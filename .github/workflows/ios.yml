@@ -7,11 +7,11 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as thirteen restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as fourteen restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
-# eu (EU register), health and health-denied (separate Health permission states),
+# eu (EU register), move (local-to-cloud account half), health and health-denied (separate Health permission states),
 # held (open-session refresh), reminders and reminders-denied, and pull-delete
 # (account pull and deletion), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
@@ -58,7 +58,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,health,health-denied,held,reminders,reminders-denied,pull-delete,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,move,health,health-denied,held,reminders,reminders-denied,pull-delete,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -73,6 +73,7 @@ env:
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
+     "move": ["FlowQAMoveAccountTests"],
      "health": ["FlowQAHealthImportTests"],
      "health-denied": ["FlowQAHealthDeniedTests"],
      "held": ["FlowQAHeldRefreshTests"],
@@ -599,6 +600,7 @@ jobs:
           QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
           QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
           QA_EU_PROBE: ${{ matrix.part == 'eu' && '1' || '0' }}
+          QA_MOVE_PROBE: ${{ matrix.part == 'move' && '1' || '0' }}
           QA_PULL_DELETE_PROBE: ${{ matrix.part == 'pull-delete' && '1' || '0' }}
           QA_HELD_PROBE: ${{ matrix.part == 'held' && '1' || '0' }}
           QA_REMINDER_PROBE: ${{ (matrix.part == 'reminders' || matrix.part == 'reminders-denied') && '1' || '0' }}
@@ -643,6 +645,7 @@ jobs:
       - name: Start the fake account server (tlsfront) and trust its CA
         env:
           QA_BUNDLES: ${{ (matrix.part == 'update' || matrix.part == 'degraded') && '1' || '0' }}
+          QA_MOVE_FAULT: ${{ matrix.part == 'move' && '1' || '0' }}
         run: ios/qa/fake-server.sh
 
       - name: Run the flows
@@ -672,12 +675,13 @@ jobs:
             > "$GITHUB_WORKSPACE/shots/webcontent-rss-$PART.log" 2>/dev/null &
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
-          # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests
-          # FlowQARemindersDeniedTests and FlowQAHeldRefreshTests also consume
-          # the offline invite. Keep these consumers in separate parts.
-          # FlowQAPullDeleteTests claims its own (QA_PULL_DELETE_CLAIM_URL)
-          # (TEST_RUNNER_ → the runner's env).
-          TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_PULL_DELETE_CLAIM_URL="$QA_PULL_DELETE_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
+          # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests,
+          # FlowQARemindersDeniedTests, FlowQAHeldRefreshTests and
+          # FlowQAMoveAccountTests also consume the offline invite. Keep these
+          # consumers in separate parts. FlowQAPullDeleteTests claims its own
+          # (QA_PULL_DELETE_CLAIM_URL); the move part's QA_MOVE_FAIL_CLAIM_URL is
+          # one-shot too (TEST_RUNNER_ → the runner's env).
+          TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_PULL_DELETE_CLAIM_URL="$QA_PULL_DELETE_CLAIM_URL" TEST_RUNNER_WG_QA_MOVE_FAIL_CLAIM_URL="$QA_MOVE_FAIL_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep --line-buffered -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'

@@ -42,13 +42,19 @@ mint() {
 }
 # FlowQACeremonyExitTests leaves its claim page; FlowQAOfflineAccountTests
 # claims its own (bd med-sz4k.6.1). FlowQAEURegisterTests,
-# FlowQARemindersTests, FlowQARemindersDeniedTests and FlowQAHeldRefreshTests
-# also consume the offline invite; do not run them together in one Simulator job.
-# FlowQAPullDeleteTests claims (and deletes) its own QA_PULL_DELETE_CLAIM_URL
-# (bd med-sz4k.6.3.4).
+# FlowQARemindersTests, FlowQARemindersDeniedTests, FlowQAHeldRefreshTests and
+# FlowQAMoveAccountTests also consume the offline invite; do not run them
+# together in one Simulator job. FlowQAPullDeleteTests claims (and deletes) its
+# own QA_PULL_DELETE_CLAIM_URL (bd med-sz4k.6.3.4); the move part's
+# testMoveFailure claims a third, QA_MOVE_FAIL_CLAIM_URL (one-shot too).
 mint QA_CLAIM_URL; hosts="$host"
 mint QA_OFFLINE_CLAIM_URL; hosts="$hosts $host"
 mint QA_PULL_DELETE_CLAIM_URL; hosts="$hosts $host"
+if [ "${QA_MOVE_FAULT:-0}" = 1 ]; then
+  mint QA_MOVE_FAIL_CLAIM_URL; hosts="$hosts $host"
+else
+  echo 'QA_MOVE_FAIL_CLAIM_URL=' >> "$GITHUB_ENV"
+fi
 if [ "${QA_BUNDLES:-0}" = 1 ]; then
   mint QA_UPDATE_CLAIM_URL; hosts="$hosts $host"
 else
@@ -60,7 +66,11 @@ fi
 # (https://qa.test:8768, same CA): the flows read what it received and stop /
 # restart its listener (bd med-sz4k.6.1; the Simulator has no airplane mode).
 if [ "${QA_BUNDLES:-0}" != 1 ]; then
-  sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 > "$RUNNER_TEMP/tlsfront.log" 2>&1
+  if [ "${QA_MOVE_FAULT:-0}" = 1 ]; then
+    sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 -move-fault > "$RUNNER_TEMP/tlsfront.log" 2>&1
+  else
+    sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" -control 127.0.0.1:8768 > "$RUNNER_TEMP/tlsfront.log" 2>&1
+  fi
 fi
 for _ in $(seq 1 30); do [ -s "$ca" ] && break; sleep 1; done
 [ -s "$ca" ] || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront wrote no CA"; exit 1; }
