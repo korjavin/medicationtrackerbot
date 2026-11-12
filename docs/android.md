@@ -732,7 +732,7 @@ stays the acceptance device.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
-# Also: core-local (in all); offline-account, degraded-boot, update-banner, eu-register (standalone, one invite, no retry).
+# Also: core-local (in all); offline-account, degraded-boot, update-banner, update-resume, eu-register (standalone, one invite, no retry).
 # B3: file-backup and local-lock (invite-free, in all); file-backup-age is standalone and adds encrypted export/restore. health-connect stays standalone.
 # food-photo is standalone: it clears the app and checks the Food Photo and Gallery paths.
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
@@ -802,7 +802,7 @@ The zero-network check counts account-host requests **received by tlsfront** fro
 through the offline checks, including initial navigation and service-worker requests; failed fetch
 attempts seen after CDP attach are recorded separately and do not fail the scenario.
 
-`update-banner` and `degraded-boot` are account-only, dispatch-only and never retry. Their existing
+`update-banner`, `update-resume` and `degraded-boot` are account-only, dispatch-only and never retry. Their existing
 workflow setup builds two real cloud executables from the same source, using Go overlays to stamp
 HTML asset fingerprints and worker bytes as deployment does. Settings uses the fixture build stamp
 so A/B differ despite sharing one source commit (deployment uses the short git SHA). `bundles.json`
@@ -819,19 +819,33 @@ switch to B produces one notice (before any synthetic check), and repeated check
 Later hides the settled notice, and a new A document with B already waiting still shows one notice
 (state C). The real Reload must activate B with exactly one new document, including after the
 two-second fallback window; Settings, build meta, fingerprinted cached assets and controller state
-must identify B, with the saved note intact. Native Home/return is observed separately with a
-three-second dwell; DOM visibility events exercise the real dedupe/check listener, not native
-resume delivery. Run42159109277 observed no version/SW request
-after Home/return alone; that does not establish the cause. Native/explicit event timing, trust,
-visibility and focus are recorded separately. This proves the real handler and update path,
-not automatic delivery of the native resume signal. Local mode is bundled and outside this account update flow; Play-installed
-updates remain a manual real-device check. This does not implement or deploy local-mode OTA.
-The three native Home dwells in run42161115363 kept the document visible throughout, despite
-logcat recording the launcher and return actions. This separate foreground-delivery gap is
-med-jyxy (Android, needs-go, non-gating under the child's contract); the account cold-open and
-Reload invariants above are asserted independently.
+must identify B, with the saved note intact. `update-resume` deploys B while A is open and requires
+one notice present after a real three-second Home/return, a version request after return, trusted
+hidden then visible events and no synthetic event for that step. These scenarios and degraded-boot disable Playwright's focus emulation in its own
+session before it attaches; that emulation otherwise suppresses page visibility changes. Earlier
+run42161115363's missing events were observed with focus emulation enabled, so do not establish a
+native gap. The device check below remains pending. Local mode is bundled and outside this account
+update flow; Play-installed updates remain a manual real-device check. This does not implement or
+deploy local-mode OTA.
 The dismiss-during-install race stays covered by the owning update-check logic suite; the native
 run dismisses after B reaches waiting and does not claim that race as device evidence.
+
+**Physical Home visibility check (med-jyxy):** Download the `android-visibility-debug-apk` artifact
+from an `update-resume` Android QA run and install its placeholder `com.example.medtracker` debug
+app on a test phone. This is a separate QA install, not a Play update; use no real vault data.
+Open Only on this device and leave the page open. Connect the phone to a computer with USB debugging,
+open `chrome://inspect/#devices` in desktop Chrome and inspect the WebView. In the console run:
+
+```js
+window.__qaVis = []; document.addEventListener('visibilitychange', e => window.__qaVis.push({state: document.visibilityState, trusted: e.isTrusted, at: Date.now()}));
+```
+
+Close the inspector, wait five seconds, press Home, wait at least three seconds, return to the app,
+wait five seconds, and reconnect the inspector without reloading the page. Evaluate `window.__qaVis`.
+Record the phone model, Android and WebView versions, APK run number, and full event list; the Home
+cycle must contain a trusted `hidden` followed at least two seconds later by trusted `visible`.
+Events around inspector disconnection/reconnection alone are not proof of the Home cycle. Preserve
+the record for the med-jyxy acceptance check.
 
 `degraded-boot` waits for the complete real A/B cache graphs, saves the good `/js/apishim.js`
 Responses for each exact cache/key, evicts all copies, clears/disables the HTTP cache (the real SW
@@ -1564,7 +1578,7 @@ Twin of iOS `Shell.swift` (bd med-o7zq.5, .9), in
   `local.leave`. The `move.*` ops are unchanged. `move-ops` also covers it
   (gates, stash, kept into local mode, take/clear, `local.reset`, `open()`).
 
-  Both modes: `ping`, `chrome`, `diag.append`, `notifications.*`, `health.*`,
+  Both modes: `ping`, `chrome`, `diag.append`, `diag.read` (replies the same text Copy diagnostics copies: redacted device header plus the stored log, with legacy `health … error <Class>: <message>` text cut by `Diag.scrub`; bd med-vjxz.2), `notifications.*`, `health.*`,
   `invite.pending` / `invite.clear` / `clipboard.read` ([Invite links](#the-shell-bd-med-nt9p5)),
   `app.openSettings` (no args → `true` once launched; bd med-r1j2.19: the camera-denied
   *Allow camera in Settings*, `media-capture.js` `openSettings`) — this app's page in system

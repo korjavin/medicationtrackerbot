@@ -437,6 +437,8 @@ window.MedTrackerCloudReady = (async function boot() {
             // Mark before the wipe: a crash between replaceAllRecords and the
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
+            // The replace re-arms it (armImport): another tab's flight may
+            // clear it in between (bd med-yrq1).
             await markForceSnapshotPending();
             // No due-dose sweep in flight or started from here on: one that read
             // the old medications would write their doses over the import
@@ -460,7 +462,7 @@ window.MedTrackerCloudReady = (async function boot() {
                     const rewritten = new Set(here.map((r) => r.recordId));
                     for (const r of merged) if (mine.has(r)) rewritten.delete(r.recordId);
                     return { records: merged, dropPendingIds: rewritten };
-                });
+                }, { armImport: true });
             } else {
                 // Replace: discard any not-yet-flushed managed writes first, or
                 // replaceAllRecords' pending overlay resurrects them over the backup
@@ -468,7 +470,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 // the delivery pref when the file carries none) stays queued —
                 // those records are in `survive`.
                 await dropPendingForTypes(VAULT_MANAGED_TYPES);
-                await replaceAllRecords([...records, ...survive]);
+                await replaceAllRecords([...records, ...survive], { armImport: true });
             } });
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen
@@ -821,7 +823,26 @@ window.MedTrackerCloudReady = (async function boot() {
             const host = document.getElementById('app-banners');
             if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] update-required surface failed', e));
-        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: () => { unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
+        // The resume pull's outcome for the app shells' diagnostic log (bd
+        // med-vjxz.1): each drain sync.js ran for a return to the front reports
+        // itself (onSettled's { resumed, arrived, failed }; a drain already in
+        // flight at the return is not it, its queued rerun is). Words only:
+        // whether records arrived during that drain, or the failure class.
+        // Both bridges exist from document start; the web logs nothing.
+        // ponytail: "arrived" counts a local write landing mid-pull too, as pull to refresh does.
+        const inAppShell = !!(window.webkit?.messageHandlers?.wgNative || window.wgNative);
+        const diagResume = (line) => import('/js/passkey-diag.js').then((m) => m.diagLine(line)).catch(() => {});
+        const logResumePull = (info) => {
+            if (!inAppShell || !info?.resumed) return;
+            diagResume(info.failed ? `sync pull failed ${info.failed}` : `sync pull arrived=${!!info.arrived}`);
+        };
+        if (inAppShell) {
+            document.addEventListener('visibilitychange', () => {
+                // sync.js starts no drain on a return while offline: say so now.
+                if (document.visibilityState === 'visible' && navigator.onLine === false) diagResume('sync pull skipped offline');
+            });
+        }
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired, onUpdateRequired: surfaceUpdateRequired, onSettled: (info) => { logResumePull(info); unifyLegacy(); floorTimeZone(); evictShimTags().catch((e) => console.error('[cloud-boot] tag eviction failed', e)); return askFirstRun(); } });
         // Pull to refresh (bd med-y7b4.6): one more drain through the same
         // single-slot guard. Registered after the boot pull so the two never
         // overlap. What lands repaints through notifyRecordsChanged.

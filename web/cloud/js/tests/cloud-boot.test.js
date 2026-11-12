@@ -274,6 +274,65 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(runs).toBe(1);
   });
 
+  // bd med-vjxz.1: in the app shells, the first drain to settle after a return
+  // to the front logs its outcome as words, never record ids or error text.
+  it('logs the resume pull outcome to the shell diagnostic log, words only', async () => {
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>');
+    const doc = dom.window.document;
+    let state = 'hidden';
+    Object.defineProperty(doc, 'visibilityState', { get: () => state, configurable: true });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('navigator', { onLine: true });
+    try {
+      let drainOpts;
+      let status = {};
+      const lines = [];
+      await runBoot({
+        setupWindow(win) { win.webkit = { messageHandlers: { wgNative: { postMessage() {} } } }; },
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+          'apishim.js': { installApiShim: () => async () => null },
+          'sync.js': {
+            pullOnOpen: async () => {},
+            pulledThisSession: () => false,
+            hasCaughtUp: async () => true,
+            startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+            getSyncStatus: async () => status,
+          },
+          'passkey-diag.js': { diagLine: (l) => lines.push(l) },
+          'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+          'mcp-responder.js': { refreshResponder: () => {} },
+        },
+      });
+      const flush = () => new Promise((r) => setTimeout(r, 0));
+      // sync.js reports each drain itself: only a return's own drain
+      // ({ resumed: true }) is logged, with its own arrived / failure class.
+      const settle = async (info) => { await drainOpts.onSettled(info); await flush(); };
+      await settle({ resumed: false, arrived: true, failed: null }); // not a return's pull: nothing logged
+      expect(lines).toEqual([]);
+      await settle({ resumed: true, arrived: true, failed: null });
+      await settle({ resumed: true, arrived: false, failed: null });
+      await settle({ resumed: true, arrived: false, failed: 'SyntaxError' }); // a rejected pull
+      status = { offline: false }; // the shared status now is not what that drain saw
+      await settle({ resumed: true, arrived: false, failed: 'offline' }); // the drain's own snapshot is logged
+      // A return while the device is offline starts no drain: logged at once.
+      vi.stubGlobal('navigator', { onLine: false });
+      state = 'visible';
+      doc.dispatchEvent(new dom.window.Event('visibilitychange'));
+      await flush();
+      expect(lines).toEqual([
+        'sync pull arrived=true',
+        'sync pull arrived=false',
+        'sync pull failed SyntaxError',
+        'sync pull failed offline',
+        'sync pull skipped offline',
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      dom.window.close();
+    }
+  });
+
   // bd med-kk1q.1: the boot eviction of the shim-served tags runs only after a
   // pull in this page load landed; an offline boot keeps the ApiCache rows and
   // evicts after the first drain that lands, once.
@@ -1005,8 +1064,9 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
         bootstrapIfNeeded: async () => {},
         // A merge passes a function of the current rows (read inside the
         // records lock); readAllRawRecords stands in for those rows here.
-        replaceAllRecords: async (input) => {
+        replaceAllRecords: async (input, opts) => {
           calls.replaceAllRecords += 1;
+          calls.replaceOpts = opts;
           if (typeof input === 'function') {
             calls.computed = await input(await mod.readAllRawRecords());
             calls.replaced = calls.computed.records;
@@ -1060,6 +1120,8 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     // in between would otherwise let the next open re-bootstrap the stale server
     // snapshot over the freshly imported records.
     expect(sync.calls.order.indexOf('mark')).toBeLessThan(sync.calls.order.indexOf('replace'));
+    // ...and the replace re-arms it in its own tx (bd med-yrq1).
+    expect(sync.calls.replaceOpts).toEqual({ armImport: true });
   });
 
   it('a corrupt backup aborts inside the real vaultToRecords, wiping nothing (med-deq.3)', async () => {

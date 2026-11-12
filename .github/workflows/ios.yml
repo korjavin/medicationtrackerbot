@@ -7,12 +7,13 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as nine restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as thirteen restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
-# eu (EU register), reminders (grant + cold notification), reminders-denied,
-# and pull-delete (account pull and deletion), joined by the `qa` gate. Lists: env QA_PARTS.
+# eu (EU register), health and health-denied (separate Health permission states),
+# held (open-session refresh), reminders and reminders-denied, and pull-delete
+# (account pull and deletion), joined by the `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -57,7 +58,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,reminders,reminders-denied,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,health,health-denied,held,reminders,reminders-denied,pull-delete,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -72,6 +73,9 @@ env:
      "update": ["FlowQAUpdateBannerTests"],
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
+     "health": ["FlowQAHealthImportTests"],
+     "health-denied": ["FlowQAHealthDeniedTests"],
+     "held": ["FlowQAHeldRefreshTests"],
      "reminders": ["FlowQARemindersTests"],
      "reminders-denied": ["FlowQARemindersDeniedTests"],
      "pull-delete": ["FlowQAPullDeleteTests"]}
@@ -382,24 +386,67 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # First available type per width.
+          # First available type per width. A job runs part `shard` of
+          # `shards`: the full list overran the 60 min cap (bd med-05az: 440 in
+          # run 42882605423, ~9 min setup, 105/138 scenes at ~38 min; 390 in
+          # run 43110294474, 51 min of scenes), so each width runs it in two
+          # halves (33-40 min per half there).
           - width: 390
             types: iPhone 16e,iPhone 16,iPhone 15
+            shard: 1
+            shards: 2
+          - width: 390
+            types: iPhone 16e,iPhone 16,iPhone 15
+            shard: 2
+            shards: 2
           - width: 440
             types: iPhone 17 Pro Max,iPhone 16 Pro Max
-    # Per device: one shared group would make the two matrix jobs cancel each other.
+            shard: 1
+            shards: 2
+          - width: 440
+            types: iPhone 17 Pro Max,iPhone 16 Pro Max
+            shard: 2
+            shards: 2
+    # Per job: one shared group would make the matrix jobs cancel each other.
     concurrency:
-      group: ${{ github.workflow }}-visual-${{ github.ref }}-${{ matrix.width }}
+      group: ${{ github.workflow }}-visual-${{ github.ref }}-${{ matrix.width }}-${{ matrix.shard }}
       cancel-in-progress: true
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
+      # This job's part of the catalog: a contiguous slice, so catalog order
+      # holds (later scenes can depend on earlier fixture writes). The filter
+      # mirrors VisualQATests.scenes(); a name it lets through that iOS
+      # rejects fails the run loudly (no scenes run). An explicit
+      # visual_scenes dispatch runs whole on shard 1; the other shards skip.
+      - name: Pick this job's scenes
+        id: scenes
+        env:
+          VISUAL_SCENES: ${{ inputs.visual_scenes }}
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ matrix.shards }}
+        run: |
+          if [ -n "$VISUAL_SCENES" ]; then
+            run=true; [ "$SHARD" -eq 1 ] || run=false
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          list="$(jq -r --argjson k "$SHARD" --argjson n "$SHARDS" '
+            [.scenes[] | select(.cloudOnly != true and .flowOnly != true and ((.platform | type) != "string" or .platform == "ios")) | .name]
+            | ((length + $n - 1) / $n | floor) as $size
+            | .[($k - 1) * $size : $k * $size] | join(",")' tests/visual/scenes.json)"
+          echo "part $SHARD/$SHARDS: $(tr ',' '\n' <<< "$list" | wc -l | tr -d ' ') scenes"
+          run=true; [ -n "$list" ] || run=false
+          { echo "run=$run"; echo "list=$list"; } >> "$GITHUB_OUTPUT"
+
       - name: Bundle the web app with the QA driver
+        if: steps.scenes.outputs.run == 'true'
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
       - name: Generate Xcode project and build for testing
+        if: steps.scenes.outputs.run == 'true'
         working-directory: ios
         run: |
           command -v xcodegen >/dev/null || brew install xcodegen
@@ -412,12 +459,15 @@ jobs:
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Create and boot the simulator
+        if: steps.scenes.outputs.run == 'true'
         run: ios/qa/boot-sim.sh "${{ matrix.types }}" "${{ matrix.width }}pt"
 
       - name: Run the scenes per device
+        if: steps.scenes.outputs.run == 'true'
         working-directory: ios
         env:
-          TEST_RUNNER_WG_QA_SCENES: ${{ inputs.visual_scenes }}
+          VISUAL_SCENES: ${{ inputs.visual_scenes }}
+          TEST_RUNNER_WG_QA_SCENES: ${{ inputs.visual_scenes || steps.scenes.outputs.list }}
         run: |
           while IFS='=' read -r dev udid; do
             echo "::group::$dev"
@@ -443,16 +493,18 @@ jobs:
             fi
             ls -l "$out"
             echo "::endgroup::"
-            if [ -n "$TEST_RUNNER_WG_QA_SCENES" ] && [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+            if [ -n "$VISUAL_SCENES" ] && [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
           done < "$RUNNER_TEMP/devices"
 
       - name: Summary
-        if: always()
+        if: always() && steps.scenes.outputs.run == 'true'
+        env:
+          SCENES: ${{ inputs.visual_scenes || steps.scenes.outputs.list }}
         run: |
-          scenes="$(jq -r '.scenes[] | select(.flowOnly != true) | .name' tests/visual/scenes.json)"
+          scenes="$(tr ',' ' ' <<< "$SCENES")"
           broken=""
           {
-            echo "## iOS visual QA"
+            echo "## iOS visual QA (${{ matrix.width }}pt, part ${{ matrix.shard }}/${{ matrix.shards }})"
             echo
             echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Full runs are evidence-only; explicit \`visual_scenes\` runs fail on XCTest errors."
             while IFS='=' read -r dev udid; do
@@ -482,9 +534,9 @@ jobs:
           fi
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.scenes.outputs.run == 'true'
         with:
-          name: ios-visual-${{ matrix.width }}
+          name: ios-visual-${{ matrix.width }}-${{ matrix.shard }}
           path: shots/
           retention-days: 1
           if-no-files-found: warn
@@ -548,6 +600,7 @@ jobs:
           QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
           QA_EU_PROBE: ${{ matrix.part == 'eu' && '1' || '0' }}
           QA_PULL_DELETE_PROBE: ${{ matrix.part == 'pull-delete' && '1' || '0' }}
+          QA_HELD_PROBE: ${{ matrix.part == 'held' && '1' || '0' }}
           QA_REMINDER_PROBE: ${{ (matrix.part == 'reminders' || matrix.part == 'reminders-denied') && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
@@ -572,8 +625,8 @@ jobs:
 
       - name: Create and boot the simulator
         env:
-          # Only core runs HealthWriteBackTests; the others skip the healthd wait.
-          QA_HEALTH_READY: ${{ matrix.part == 'core' && '1' || '0' }}
+          # Every Health part is the first Health ask on its own simulator.
+          QA_HEALTH_READY: ${{ (matrix.part == 'core' || matrix.part == 'health' || matrix.part == 'health-denied' || matrix.part == 'held') && '1' || '0' }}
         run: |
           ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt | tee "$RUNNER_TEMP/qa-boot.log"
           exit "${PIPESTATUS[0]}"
@@ -620,9 +673,10 @@ jobs:
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
           # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests
-          # and FlowQARemindersDeniedTests also consume the offline invite. Keep
-          # these consumers in separate parts. FlowQAPullDeleteTests claims its
-          # own (QA_PULL_DELETE_CLAIM_URL) (TEST_RUNNER_ → the runner's env).
+          # FlowQARemindersDeniedTests and FlowQAHeldRefreshTests also consume
+          # the offline invite. Keep these consumers in separate parts.
+          # FlowQAPullDeleteTests claims its own (QA_PULL_DELETE_CLAIM_URL)
+          # (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_PULL_DELETE_CLAIM_URL="$QA_PULL_DELETE_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
@@ -650,6 +704,10 @@ jobs:
           python3 qa/runner-summary.py "$RUNNER_TEMP/qa-boot.log" "$RUNNER_TEMP/qa-tests.json" >> "$GITHUB_STEP_SUMMARY" || echo "Runner summary unavailable (helper failed)" >> "$GITHUB_STEP_SUMMARY"
           cp "$RUNNER_TEMP/qa-tests.json" "$out/qa-tests-$PART.json"
           [ -d build/qa.xcresult ] || { echo "No result bundle" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          while IFS= read -r testid; do
+            safe="$(printf '%s' "$testid" | sed -E 's/[^A-Za-z0-9]+/-/g; s/-$//')"
+            xcrun xcresulttool get test-results activities --test-id "$testid" --path build/qa.xcresult > "$out/$safe-activities.json" || rm -f "$out/$safe-activities.json"
+          done < <(jq -r '.. | objects | select(.nodeType == "Test Case" and .result == "Failed") | .nodeIdentifier // empty' "$RUNNER_TEMP/qa-tests.json")
           xcrun xcresulttool export attachments --path build/qa.xcresult --output-path "$raw" || true
           # Same manifest mapping as the visual job: <flow>-<step>.png, plus
           # a failed test's UI hierarchy (the first exported) as <Class>-<test>-hierarchy.txt
@@ -659,7 +717,7 @@ jobs:
               while IFS=$'\t' read -r file name test; do
                 name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
                 case "$name" in
-                  *.png|*.json) cp "$raw/$file" "$out/$name" ;;
+                  *.png|*.json|*.ips|*.mp4) cp "$raw/$file" "$out/$name" ;;
                   "App UI hierarchy"*) [ -e "$out/$test-hierarchy.txt" ] || cp "$raw/$file" "$out/$test-hierarchy.txt" ;;
                 esac
               done

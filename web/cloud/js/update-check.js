@@ -18,6 +18,8 @@
 // We never reload on the user's behalf — a silent reload mid-form throws away
 // whatever they were typing.
 
+import { diagLine, startLifecycleDiag } from './passkey-diag.js';
+
 const POLL_MS = 60 * 60 * 1000;
 
 // buildIDFrom (internal/cloudserver/version.go) reports "dev" for an unstamped
@@ -31,7 +33,7 @@ export function bootBuildID(doc) {
 
 export async function fetchServerBuildID(fetchImpl) {
     const res = await fetchImpl('/api/version', { cache: 'no-store' });
-    if (!res.ok) throw new Error(`/api/version returned ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(`/api/version returned ${res.status}`), { status: res.status });
     const body = await res.json();
     return body?.build_id ?? '';
 }
@@ -415,18 +417,29 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
     // get the prompt again on the next cold start, which is the next time the
     // question is actually worth asking.
     let prompted = false;
+    // 'same' is logged only when the previous logged outcome differed, so an
+    // idle open app doesn't flood the shell log's 200-line window (med-ay7h).
+    let lastWasSame = false;
 
     const check = async () => {
         if (prompted) return;
         let serving;
         try {
             serving = await fetchServerBuildID(fetchImpl);
-        } catch {
+        } catch (e) {
+            lastWasSame = false;
             // Offline, or a deploy is mid-flight. Say nothing; the next
-            // foreground or tick asks again.
+            // foreground or tick asks again. The log gets the status or the
+            // error class, never its text.
+            diagLine(`update check failed ${e?.status ?? e?.name ?? 'error'}`);
             return;
         }
-        if (!serving || serving === DEV_BUILD_ID || serving === booted) return;
+        if (!serving || serving === DEV_BUILD_ID || serving === booted) {
+            if (!lastWasSame) diagLine('update check same');
+            lastWasSame = true;
+            return;
+        }
+        diagLine('update check new');
         prompted = true;
         showBanner();
     };
@@ -443,6 +456,10 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
 // Auto-start on the real app page. The meta tag is injected only into the
 // index.html cmd/cloud serves (injectCloudBoot), so importing this module from a
 // test — where no such tag exists — starts nothing and touches no network.
+// The app page's lifecycle lines start here too: this module runs once on every
+// account app document (cloud-boot.js is a classic script); local mode starts
+// them from local-boot.js.
 if (typeof document !== 'undefined' && bootBuildID(document)) {
+    startLifecycleDiag(window);
     startUpdateCheck();
 }

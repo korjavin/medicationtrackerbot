@@ -18,11 +18,23 @@ struct HealthDiagnosticView: View {
         let store = HKHealthStore()
         let type = HKQuantityType(.stepCount)
         let seed = UserDefaults.standard.bool(forKey: "wgQAHealthSeed")
+        let labels = UserDefaults.standard.bool(forKey: "wgQAHealthLabels")
         let kinds: Set<HKSampleType> = seed
             ? [type, HKQuantityType(.heartRate), HKQuantityType(.oxygenSaturation), HKCategoryType(.sleepAnalysis)]
             : [type]
+        // Match the app's real authorization contract: HealthKit requests the
+        // two BP quantities, not the derived correlation type.
+        let labelKinds: Set<HKSampleType> = [HKQuantityType(.bodyMass), HKQuantityType(.bloodPressureSystolic),
+                                            HKQuantityType(.bloodPressureDiastolic)]
         do {
-            try await store.requestAuthorization(toShare: seed ? kinds : [], read: Set(kinds.map { $0 as HKObjectType }))
+            // Match the page's HEALTH_KINDS (web/cloud/js/health-import.js):
+            // the Simulator can hang on a second authorization request, so a
+            // seed's single sheet determines every read type the app will ask.
+            let requested = labels ? kinds.union(labelKinds) : kinds
+            let read = seed || labels
+                ? Set(["bp", "weight", "sleep", "workout", "steps", "hr", "spo2"].flatMap(Health.readTypes))
+                : Set(requested.map { $0 as HKObjectType })
+            try await store.requestAuthorization(toShare: seed ? requested : [], read: read)
             result["authorizationCompleted"] = true
             if seed && !UserDefaults.standard.bool(forKey: "wgQAHealthSeededV1") {
                 let end = Date().addingTimeInterval(-4 * 3600)
@@ -36,6 +48,23 @@ struct HealthDiagnosticView: View {
                 try await store.save(samples)
                 UserDefaults.standard.set(true, forKey: "wgQAHealthSeededV1")
                 result["seeded"] = samples.count
+            }
+            if labels {
+                let at = Date().addingTimeInterval(-3600)
+                let mass = HKQuantityType(.bodyMass)
+                let sys = HKQuantityType(.bloodPressureSystolic), dia = HKQuantityType(.bloodPressureDiastolic)
+                if store.authorizationStatus(for: mass) == .sharingAuthorized {
+                    try await store.save(HKQuantitySample(type: mass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 73.4), start: at, end: at))
+                    result["weightSeeded"] = true
+                }
+                let bp = HKCorrelationType(.bloodPressure)
+                if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized {
+                    let unit = HKUnit.millimeterOfMercury()
+                    let s = HKQuantitySample(type: sys, quantity: HKQuantity(unit: unit, doubleValue: 123), start: at, end: at)
+                    let d = HKQuantitySample(type: dia, quantity: HKQuantity(unit: unit, doubleValue: 79), start: at, end: at)
+                    try await store.save(HKCorrelation(type: bp, start: at, end: at, objects: [s, d]))
+                    result["bpSeeded"] = true
+                }
             }
             let query = HKSampleQueryDescriptor(predicates: [.quantitySample(type: type)],
                                                 sortDescriptors: [], limit: 1)

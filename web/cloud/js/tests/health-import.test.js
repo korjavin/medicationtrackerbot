@@ -1732,6 +1732,29 @@ describe('Health write-back', () => {
         expect(diag).toHaveBeenCalledWith('[health] write batch reply 1 of 3');
     });
 
+    // bd med-vjxz.1: the diagnostic log gets a class word, never the shell's
+    // error text (which can carry values or names).
+    it('a failed write logs denied | quota | other, not the shell error text', async () => {
+        for (const id of ['w-a', 'w-b', 'w-c']) await records.put('weight', { recordId: id, clientTs: 4, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', weight: 80 });
+        health.writeAccess = vi.fn(async () => ({ granted: ALL, supported: ALL, readableFrom: 0 }));
+        health.write = vi.fn()
+            .mockResolvedValueOnce(['write denied for weight 80.0 kg', 'API call quota exceeded', 'Weight 80.0 kg rejected'])
+            .mockRejectedValueOnce(new Error('denied: Weight 80.0 kg'));
+        const lines = [];
+        const wb = startHealthWriteBack({ health, storage, records, diag: (l) => lines.push(l) });
+        storage.setItem('wg.health.dirty', JSON.stringify({ weight: { 'w-a': 4, 'w-b': 4, 'w-c': 4 } }));
+        await wb.drain();
+        storage.setItem('wg.health.dirty', JSON.stringify({ weight: { 'w-a': 4 } }));
+        await wb.drain();
+        expect(lines.filter((l) => l.startsWith('[health] write weight'))).toEqual([
+            '[health] write weight failed denied', // batch reply entries
+            '[health] write weight failed quota',
+            '[health] write weight failed other',
+            '[health] write weight failed denied', // a single write that threw
+        ]);
+        expect(lines.join('\n')).not.toMatch(/80|kg|exceeded/);
+    });
+
     it('120 dirty ids (absent from the vault) drain over three passes, none dropped', async () => {
         const ids = Array.from({ length: 120 }, (_, i) => `weight-${i}`);
         storage.setItem('wg.health.dirty', JSON.stringify({ weight: Object.fromEntries(ids.map((id) => [id, 1])) }));

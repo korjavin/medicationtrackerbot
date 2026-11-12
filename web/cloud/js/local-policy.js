@@ -51,6 +51,9 @@ import { clearLocalVault } from './account-delete.js';
 import { setTrialTransport } from './aiclient.js';
 import { createLocalTrial, createAttestClient, trialKeyGranted } from './local-trial.js';
 import { createVoiceLLMResponder } from './voice-llm-responder.js';
+// Lifecycle lines for the shell's diagnostic log (bd med-vjxz.1); local-boot.js
+// starts them, as update-check.js does on the account app page.
+export { startLifecycleDiag } from './passkey-diag.js';
 
 // Settings → Notifications fires this on the document once iOS permission is
 // granted, so the schedule lands now instead of on the next open. settings.js

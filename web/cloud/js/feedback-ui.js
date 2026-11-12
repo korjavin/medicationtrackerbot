@@ -31,6 +31,25 @@ function canRecordAudio() {
     return !!(w().MediaCapture && typeof w().MediaCapture.recordAudio === 'function');
 }
 
+// Lines logged before med-vjxz.1 can still sit in the shell's 200-line log:
+// paths with an account label (/d/, /i/) or a token (/s/, /mcp/), and Health
+// write failures carrying the store's raw error text (which can hold a value).
+// Mask both before the log leaves the phone; .1's class words pass unchanged.
+// Also the short hashes the operator could map back to an account by hashing
+// its own tables: the shells' account-label tag <sub-xxxxxx> (Diag.kt/.swift),
+// the passkey credential tag "id":"xxxxxx" (passkey-diag.js outcome, maybe
+// JSON-escaped once more by the shell) and the push token fingerprint
+// (Push.kt/.swift fingerprint).
+function scrubLog(text) {
+    return text
+        .replace(/<sub-[0-9a-f]{6}>/g, '<sub>')
+        .replace(/(\\*"id\\*":\\*")[0-9a-f]{6}(?=\\*")/g, '$1<tag>')
+        .replace(/push token [0-9a-f]{8}\b/g, 'push token <tag>')
+        .replace(/\/(d|i)\/[^/"\s]+/g, '/$1/<sub>')
+        .replace(/\/(s|mcp)\/[^/"\s]+/g, '/$1/<token>')
+        .replace(/(\[health\] (?:[^"\\\n]|\\.)*? failed )(?!(?:denied|quota|other|no result)(?:["\n]|$))(?:[^"\\\n]|\\.)*/g, '$1<redacted>');
+}
+
 function toast(message) {
     if (w().SyncManager && typeof w().SyncManager.showToast === 'function') {
         w().SyncManager.showToast(message, 'success');
@@ -90,6 +109,27 @@ function openFeedbackModal() {
     }
     body.appendChild(capture);
 
+    // "Attach the app log" (bd med-vjxz.4): only in a shell that answers
+    // diag.read (shell.ops, cached per page; false on the web). Default
+    // unticked; unticked, the bundle is exactly what it was before.
+    let logBox = null;
+    const native = w().MediaCapture && w().MediaCapture.__native;
+    if (native && typeof native.has === 'function') {
+        native.has('diag.read').then((has) => {
+            if (!has || settled) return;
+            const row = doc.createElement('label');
+            row.className = 'wg-feedback-modal__log';
+            logBox = doc.createElement('input');
+            logBox.type = 'checkbox';
+            logBox.setAttribute('data-feedback-log', '');
+            row.append(logBox, doc.createTextNode('Attach the app log'));
+            const caption = doc.createElement('p');
+            caption.className = 'wg-feedback-modal__chip';
+            caption.textContent = 'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your app version, phone model, system version and password-manager app (Android). No entries, no names, no account address.';
+            capture.after(row, caption);
+        }, () => { /* no shell answer — no checkbox */ });
+    }
+
     const chip = doc.createElement('p');
     chip.className = 'wg-feedback-modal__chip';
     chip.setAttribute('data-feedback-chip', '');
@@ -98,7 +138,7 @@ function openFeedbackModal() {
     // Local mode (bd med-ta2n.20): where it goes. .wg-local-only hides it in cloud.
     const localNote = doc.createElement('p');
     localNote.className = 'wg-feedback-modal__chip wg-local-only';
-    localNote.textContent = 'Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.';
+    localNote.textContent = 'Sent encrypted to the developer through our server; the server can\'t read it. Your records stay on this phone.';
     body.appendChild(localNote);
 
     // Why a send could not go out (local mode: no server key for this install,
@@ -243,6 +283,15 @@ function openFeedbackModal() {
         }
         if (audioBlob) {
             attachments.push({ type: 'audio', mime: audioBlob.type || 'audio/webm', bytes: await audioBlob.arrayBuffer() });
+        }
+        if (logBox && logBox.checked) {
+            // A shell that can't read its log sends the feedback without it.
+            try {
+                const text = await native.call('diag.read');
+                if (typeof text === 'string' && text) {
+                    attachments.push({ type: 'log', mime: 'text/plain', bytes: new TextEncoder().encode(scrubLog(text)) });
+                }
+            } catch (_) { /* no log — send the rest */ }
         }
         // The user may have cancelled (settle) during the stop/arrayBuffer
         // awaits — honor it and don't enqueue behind a closed modal.

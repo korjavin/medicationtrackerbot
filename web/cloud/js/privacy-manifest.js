@@ -760,7 +760,7 @@ export const PRIVACY_MANIFEST = [
     id: 'feedback',
     feature: 'In-app feedback',
     boundary: 'not-a-carve-out',
-    data: 'What you type, plus any screenshot or voice note you attach — age-encrypted in your browser to the developer\'s public key',
+    data: 'What you type, plus any screenshot or voice note you attach and, only if you tick it, the app\'s diagnostic log (app events, timings, error codes, Health import record counts, device header: app version and build, maker and model, OS and WebView version, autofill/credential provider package names; no health values, no account name) — age-encrypted in your browser to the developer\'s public key',
     destination: 'The operator stores the ciphertext blindly; the developer decrypts it offline',
     operatorVisibility: 'ciphertext',
     retention: 'Queued until the developer drains it; the app version and feedback kind travel as plaintext metadata',
@@ -776,7 +776,7 @@ export const PRIVACY_MANIFEST = [
       // third-party calls that section promises. Caught by codex review.
       category: 'visible',
       title: 'Feedback you send from inside the app',
-      detail: 'Feedback sent from the app is encrypted in your browser to the developer\'s key before it is uploaded, so the operator stores it without being able to read it — but the developer can, including any screenshot or voice note you attach. It carries no account id. Only what you type and attach is sent; the app version and the kind of feedback travel unencrypted so the operator knows something arrived. Feedback sent to the Telegram bot instead is a different path — see below.',
+      detail: 'Feedback sent from the app is encrypted in your browser to the developer\'s key before it is uploaded, so the operator stores it without being able to read it — but the developer can, including any screenshot or voice note you attach. It carries no account id. Only what you type and attach is sent; the app version and the kind of feedback travel unencrypted so the operator knows something arrived. If you tick \'Attach the app log\', the last 200 lines of the app\'s diagnostic log go with it, encrypted to the developer like the rest of your feedback. Feedback sent to the Telegram bot instead is a different path — see below.',
     },
   },
   {

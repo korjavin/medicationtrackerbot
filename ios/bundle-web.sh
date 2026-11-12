@@ -63,6 +63,8 @@ if [ "${QA:-}" = 1 ]; then
         cat "$repo/ios/qa/eu-probe.js" >> "$out/cloud/qa/softauthn.js"
     elif [ "${QA_PULL_DELETE_PROBE:-}" = 1 ]; then
         cat "$repo/ios/qa/pull-delete-probe.js" >> "$out/cloud/qa/softauthn.js"
+    elif [ "${QA_HELD_PROBE:-}" = 1 ]; then
+        cat "$repo/ios/qa/held-refresh-probe.js" >> "$out/cloud/qa/softauthn.js"
     elif [ "${QA_REMINDER_PROBE:-}" = 1 ]; then
         cat "$repo/ios/qa/reminder-probe.js" >> "$out/cloud/qa/softauthn.js"
     fi

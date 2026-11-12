@@ -42,8 +42,8 @@ mint() {
 }
 # FlowQACeremonyExitTests leaves its claim page; FlowQAOfflineAccountTests
 # claims its own (bd med-sz4k.6.1). FlowQAEURegisterTests,
-# FlowQARemindersTests and FlowQARemindersDeniedTests also consume the offline
-# invite; do not run these consumers together in one Simulator job.
+# FlowQARemindersTests, FlowQARemindersDeniedTests and FlowQAHeldRefreshTests
+# also consume the offline invite; do not run them together in one Simulator job.
 # FlowQAPullDeleteTests claims (and deletes) its own QA_PULL_DELETE_CLAIM_URL
 # (bd med-sz4k.6.3.4).
 mint QA_CLAIM_URL; hosts="$host"

@@ -248,7 +248,11 @@ describe('mount', () => {
       item(1, await encryptDoc({
         v: 1,
         text: 'first report',
-        attachments: [{ type: 'image', mime: 'image/png', data_b64: 'AQID' }],
+        attachments: [
+          { type: 'image', mime: 'image/png', data_b64: 'AQID' },
+          // The app log (bd med-vjxz.4) renders as text, never as markup.
+          { type: 'log', mime: 'text/plain', data_b64: btoa('visible\n<b>hidden</b>\n') },
+        ],
       })),
       item(2, 'bm90IGFuIGFnZSBmaWxlIGF0IGFsbA=='),
       item(3, await encryptDoc({ v: 1, text: 'third report', attachments: [] })),
@@ -267,6 +271,9 @@ describe('mount', () => {
     expect(rendered).toHaveLength(3);
     expect(rendered[0].querySelector('.fr-text').textContent).toBe('first report');
     expect(rendered[0].querySelector('img.fr-attachment')).not.toBeNull();
+    const log = rendered[0].querySelector('pre.fr-log');
+    expect(log.textContent).toBe('visible\n<b>hidden</b>\n');
+    expect(log.querySelector('b')).toBeNull();
     expect(rendered[1].querySelector('.fr-text')).toBeNull();
     expect(rendered[1].querySelector('.wizard-error').textContent).toBe(MSG.itemDecrypt);
     expect(rendered[2].querySelector('.fr-text').textContent).toBe('third report');

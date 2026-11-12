@@ -406,3 +406,10 @@ a.wg-btn {
   margin-top: 0.5rem;
   border-radius: var(--wg-radius-gloss);
 }
+
+/* The attached app log (med-vjxz.4): long lines wrap instead of widening the page. */
+.fr-log {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-sm);
+}
