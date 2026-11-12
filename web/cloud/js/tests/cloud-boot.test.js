@@ -374,8 +374,11 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
 
   // bd med-cabs: the med-prk.2 exercise-library backfill writes through the
   // domain op, never the UI-origin route — that route's recompute asks for
-  // notification permission, and boot must never ask (med-ckm5.4).
+  // notification permission, and boot must never ask (med-ckm5.4). It writes
+  // at now(), so only after a pull in this page load reached the tail, once.
   it('backfills ref-less plan exercises through domains.workout.updateExercise, never the route', async () => {
+    let pulled = false;
+    let drainOpts;
     const calls = [];
     const shimCall = async (endpoint, method) => { calls.push(`${method} ${String(endpoint).split('?')[0]}`); return null; };
     shimCall.unifyLegacy = async () => {};
@@ -393,9 +396,9 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
         'apishim.js': { installApiShim: () => shimCall },
         'sync.js': {
           pullOnOpen: async () => {},
-          pulledThisSession: () => false,
+          pulledThisSession: () => pulled,
           hasCaughtUp: async () => false,
-          startReconnectAutoDrain: () => () => {},
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
           getSyncStatus: async () => ({ authExpired: false }),
           readAllLiveRecords: async () => [refless, linked],
         },
@@ -404,6 +407,11 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       },
       console: { error() {}, warn() {}, info() {} },
     });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(updateExercise).not.toHaveBeenCalled(); // offline boot: no write over a stale mirror
+    pulled = true;
+    await drainOpts.onSettled();
+    await drainOpts.onSettled();
     await new Promise((r) => setTimeout(r, 0));
     expect(updateExercise).toHaveBeenCalledExactlyOnceWith(7, {
       exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, target_reps_max: 8, target_weight_kg: 60, order_index: 2,
