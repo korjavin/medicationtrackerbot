@@ -587,6 +587,23 @@ describe('shell diagnostic lines', () => {
         expect(JSON.stringify(ios.postMessage.mock.calls)).not.toMatch(/acct|example|Failed to fetch/);
     });
 
+    it('logs a repeated same outcome once, and again after a failed check', async () => {
+        shell('/');
+        const { doc, win } = setup();
+        const fetchImpl = vi.fn()
+            .mockResolvedValueOnce({ ok: true, json: async () => ({ build_id: '20260710-1000' }) })
+            .mockResolvedValueOnce({ ok: true, json: async () => ({ build_id: '20260710-1000' }) })
+            .mockResolvedValueOnce({ ok: false, status: 503 })
+            .mockResolvedValue({ ok: true, json: async () => ({ build_id: '20260710-1000' }) });
+        startUpdateCheck({ doc, win, fetchImpl, showBanner: vi.fn() });
+        await flush();
+        for (let i = 0; i < 3; i++) {
+            win.addEventListener.mock.calls.find(([t]) => t === 'focus')[1]();
+            await flush();
+        }
+        expect(lines()).toEqual(['update check same', 'update check failed 503', 'update check same']);
+    });
+
     it('installs nothing on the web (no shell bridge)', () => {
         vi.stubGlobal('window', {});
         const { doc, win } = setup();
