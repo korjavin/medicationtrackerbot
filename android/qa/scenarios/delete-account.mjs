@@ -134,9 +134,11 @@ export default async function deleteAccount(ctx) {
     r.cancelReceipts = seen.map((q) => `${q.method} ${q.path}`);
     if (!seen.some((q) => q.method === 'POST' && q.path === '/api/account/reauth')) throw new Error(`no POST /api/account/reauth: ${r.cancelReceipts}`);
     if (seen.some((q) => q.method === 'DELETE' && q.path === '/api/account')) throw new Error('a cancelled passkey sent DELETE /api/account');
-    // The account still opens: reload, unlock, vault back.
-    await page.reload();
-    await unlock(ctx, page, r);
+    // The account is still there and usable: still on its host, vault unlocked, Delete re-armed
+    // (the delete step below then runs on this same session).
+    if (new URL(page.url()).host !== r.accountHost) throw new Error(`left the account: ${page.url()}`);
+    if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud?.ctx)))) throw new Error('cancelled passkey locked the vault');
+    if (await page.locator('#delete-account-open').isDisabled()) throw new Error('Delete stayed disabled after the cancel');
   });
   await ctx.step('Settings → Account → Delete → typed confirm', async () => {
     await openAccountPage(page);
