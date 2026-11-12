@@ -712,6 +712,79 @@ describe('showUpdateBanner', () => {
         showUpdateBanner({ doc, win, registration: { waiting: { postMessage: vi.fn() } } });
         expect(doc.getElementById('cloud-update-banner')).toBeNull();
     });
+
+    // med-s8q0.1: offline the banner shows only when a new worker is already
+    // downloaded (activation is local); otherwise it waits for the online event.
+    describe('offline', () => {
+        function network(onLine) {
+            const { doc, win } = setup();
+            const target = new EventTarget();
+            win.navigator = { onLine };
+            win.addEventListener = (...a) => target.addEventListener(...a);
+            const fire = (type) => {
+                win.navigator.onLine = type === 'online';
+                target.dispatchEvent(new Event(type));
+            };
+            const banners = () => doc.querySelectorAll('#cloud-update-banner');
+            return { doc, win, fire, banners };
+        }
+
+        it('nothing downloaded: no banner offline; online kicks the install once and shows one', () => {
+            const { doc, win, fire, banners } = network(false);
+            const registration = { waiting: null, update: vi.fn().mockResolvedValue() };
+            showUpdateBanner({ doc, win, registration });
+            expect(banners()).toHaveLength(0);
+
+            fire('online');
+            expect(registration.update).toHaveBeenCalledOnce();
+            expect(banners()).toHaveLength(1);
+        });
+
+        it('a banner up with nothing downloaded is removed offline and comes back online, once', () => {
+            const { doc, win, fire, banners } = network(true);
+            const registration = { waiting: null, update: vi.fn().mockResolvedValue() };
+            showUpdateBanner({ doc, win, registration });
+            expect(banners()).toHaveLength(1);
+
+            fire('offline');
+            expect(banners()).toHaveLength(0);
+            fire('online');
+            expect(banners()).toHaveLength(1);
+            expect(doc.body.textContent.match(/A new version is available/g)).toHaveLength(1);
+        });
+
+        it('a downloaded worker shows the banner offline and keeps it', () => {
+            const { doc, win, fire, banners } = network(false);
+            const registration = { waiting: { postMessage: vi.fn() } };
+            showUpdateBanner({ doc, win, registration });
+            expect(banners()).toHaveLength(1);
+
+            fire('offline');
+            expect(banners()).toHaveLength(1);
+        });
+
+        it('Later wins over the online re-show', () => {
+            const { doc, win, fire, banners } = network(true);
+            showUpdateBanner({ doc, win, registration: { waiting: null, update: vi.fn().mockResolvedValue() } });
+            doc.getElementById('cloud-update-dismiss').click();
+
+            fire('offline');
+            fire('online');
+            expect(banners()).toHaveLength(0);
+        });
+
+        it('two triggers on one page still give one banner across offline/online', () => {
+            const { doc, win, fire, banners } = network(true);
+            const registration = { waiting: null, update: vi.fn().mockResolvedValue() };
+            showUpdateBanner({ doc, win, registration });
+            showUpdateBanner({ doc, win, registration });
+
+            fire('offline');
+            fire('online');
+            expect(banners()).toHaveLength(1);
+            expect(registration.update).toHaveBeenCalledOnce();
+        });
+    });
 });
 
 // bd med-vjxz.1: lifecycle and update-check lines for the app shells'

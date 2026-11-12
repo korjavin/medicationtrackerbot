@@ -432,23 +432,55 @@ export function reloadProviderDocument(options = {}) {
 // (rule 4), no inline style (rule 3).
 const DISMISSED_ATTR = 'data-cloud-update-dismissed';
 
+// med-s8q0.1: the banner shows only when its tap can work — a new worker is
+// already downloaded (activation is local) or the device is online. Offline
+// with nothing downloaded: no banner, and one already up is removed; it comes
+// back on the online event (kicking the install again), not at the next poll.
+// Per window, the latest call's doc/registration/show; listeners armed once.
+const offlineGates = new WeakMap();
+
+function offlineGate(win) {
+    let gate = offlineGates.get(win);
+    if (gate) return gate;
+    gate = { pending: false };
+    offlineGates.set(win, gate);
+    win.addEventListener?.('offline', () => {
+        // Read live: the worker may have finished installing since the render.
+        if (gate.registration?.waiting) return;
+        const banner = gate.doc.getElementById('cloud-update-banner');
+        if (!banner) return;
+        banner.remove();
+        gate.pending = true;
+    });
+    win.addEventListener?.('online', () => {
+        if (!gate.pending) return;
+        gate.pending = false;
+        gate.registration?.update?.().catch(() => {});
+        gate.show();
+    });
+    return gate;
+}
+
 // Single entry point for both update triggers (SW-waiting and the build-ID
 // poll below). Two dedupes: the DOM id cloud-update-banner (a banner is already
 // up) and the dismissed latch (the user said "Later" this session).
 export function showUpdateBanner({ doc, win, registration } = {}) {
     doc ??= document;
     win ??= window;
+    const gate = offlineGate(win);
     const show = () => {
         if (doc.documentElement.hasAttribute(DISMISSED_ATTR)) return;
         if (doc.getElementById('cloud-update-banner')) return;
         // One banner, degraded wins (med-kk1q.6): its Reload also activates a waiting worker.
         if (doc.getElementById('boot-degraded-banner')) return;
+        if (!registration?.waiting && win.navigator?.onLine === false) { gate.pending = true; return; }
         renderUpdateBanner(
             doc,
             () => activateAndReload(registration, win),
             () => doc.documentElement.setAttribute(DISMISSED_ATTR, '1'),
         );
     };
+    Object.assign(gate, { doc, registration, show });
     // cloud-boot.js runs in <head>: state C can reach here before <body> exists.
     if (doc.body) show();
     else doc.addEventListener('DOMContentLoaded', show, { once: true });
