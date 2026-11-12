@@ -101,7 +101,8 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
 // the OLD worker, which serves '/' stale-while-revalidate: build A again, the
 // banner again, a second tap. Activation can take seconds on a phone (the old
 // worker drains its fetches, the new one deletes old caches), so we wait up to
-// UPDATE_RELOAD_DEADLINE_MS for controllerchange, then reject (timeout). An
+// UPDATE_RELOAD_DEADLINE_MS for controllerchange, then reject (timeout), or
+// reload if the controller did change and the page is somehow still here. An
 // UNCONTROLLED page (first load, hard reload) has no stale worker to be served
 // by and gets no reload from cloud-boot (hadController false), so it keeps a
 // 2 s fallback reload.
@@ -141,9 +142,16 @@ async function reloadViaWorker(registration, win) {
             win.setTimeout(() => win.location.reload(), 2000);
             return undefined;
         }
+        const before = sw.controller;
         return new Promise((resolve, reject) => {
             sw.addEventListener?.('controllerchange', () => resolve(), { once: true });
-            win.setTimeout(() => reject(updateFailure('timeout')), UPDATE_RELOAD_DEADLINE_MS);
+            win.setTimeout(() => {
+                // Still here with a NEW controller: nobody reloaded (this page
+                // was claimed after boot, so cloud-boot's hadController is
+                // false). The new worker serves '/' now, so a reload is current.
+                if (sw.controller !== before) win.location.reload();
+                else reject(updateFailure('timeout'));
+            }, UPDATE_RELOAD_DEADLINE_MS);
         });
     };
     if (registration.waiting) return dance(registration.waiting);

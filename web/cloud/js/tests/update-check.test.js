@@ -512,6 +512,22 @@ describe('showUpdateBanner', () => {
             expect(reload.disabled).toBe(true);
         });
 
+        it('controller changed but nobody reloaded (claimed after boot) → one reload at the deadline, under the new worker', async () => {
+            const { doc, win } = setup();
+            const sw = controlled(win);
+            const registration = { waiting: { postMessage: vi.fn() } };
+            showUpdateBanner({ doc, win, registration });
+
+            doc.getElementById('cloud-update-reload').click();
+            await vi.advanceTimersByTimeAsync(3000);
+            sw.controller = registration.waiting;
+            sw.dispatchEvent(new Event('controllerchange'));
+            await vi.advanceTimersByTimeAsync(6999);
+            expect(win.location.reload).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(win.location.reload).toHaveBeenCalledOnce();
+        });
+
         it('uncontrolled page (first load / hard reload): the 2 s fallback reload still fires', async () => {
             const { doc, win } = setup();
             win.setTimeout = (fn, ms) => setTimeout(fn, ms);
