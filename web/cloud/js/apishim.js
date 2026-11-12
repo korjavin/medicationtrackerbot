@@ -233,10 +233,17 @@ export function createApiRouter(ctx, {
   // read per call so a Settings change or a pull applies without a reload.
   // Unless it reads 'us', RxNav never runs (no name leaves the device) and
   // answers what local mode's null port does; an unreadable record is null,
-  // so neither register runs. With no field stored, slice 1's device-local key
-  // still decides ('eu' → 'eu', else 'us') and an 'eu' key is carried into the
-  // record once this page may write from its mirror (below).
+  // so neither register runs. No field stored → 'us'. Slice 1's device-local key
+  // is dropped on the first call and never read (bd med-3u28.9).
+  let legacyKeyDropped = false;
   const medRegister = async () => {
+    if (!legacyKeyDropped) {
+      legacyKeyDropped = true;
+      try {
+        const accountId = (targetWindow.MedTrackerCloud && targetWindow.MedTrackerCloud.ctx && targetWindow.MedTrackerCloud.ctx.accountId) || 'unknown';
+        targetWindow.localStorage.removeItem(`medRegister:${accountId}`);
+      } catch { /* storage unavailable: nothing to drop */ }
+    }
     let rec;
     try {
       rec = (await records.list('settings')).find((r) => r.recordId === 'settings' && !r.deleted);
@@ -244,9 +251,7 @@ export function createApiRouter(ctx, {
       return null;
     }
     if (rec && (rec.med_register === 'us' || rec.med_register === 'eu')) return rec.med_register;
-    if (legacyMedRegister() !== 'eu') return 'us';
-    await carryLegacyMedRegister().catch(() => {}); // a failed write retries on the next read
-    return 'eu';
+    return 'us';
   };
   const rxnorm = rxnormPort && {
     searchRxNorm: async (name) => ((await medRegister()) !== 'us'
@@ -255,37 +260,6 @@ export function createApiRouter(ctx, {
       ? [] : rxnormPort.checkInteractions(rxcuis)),
   };
   const emaPort = createEmaPort({ register: medRegister, loader: emaLoader });
-  // Slice 1's device-local key (bd med-3u28.2), read only while the record
-  // has no med_register. Kept, never removed: an open slice-1 tab on this
-  // origin still reads it (removal is a later release).
-  function legacyMedRegister() {
-    try {
-      const accountId = (targetWindow.MedTrackerCloud && targetWindow.MedTrackerCloud.ctx && targetWindow.MedTrackerCloud.ctx.accountId) || 'unknown';
-      return targetWindow.localStorage.getItem(`medRegister:${accountId}`);
-    } catch {
-      return null;
-    }
-  }
-  // The carry-over (bd med-3u28.6, Archie 16428): 'eu' key + no field → one
-  // setBodySettings({ med_register: 'eu' }) at now() (the user's own pick;
-  // rule 12 n/a). mergeGeneral writes the whole singleton from this mirror,
-  // so only once this page may derive from it: canFloor (a pull in this page
-  // load reached the tail, the move pickup settled). Local mode has no pull
-  // and no other device, so it carries at once. Idempotent by the field's
-  // presence; single-flight so concurrent reads write once.
-  let carrying = null;
-  function carryLegacyMedRegister() {
-    carrying = carrying || (async () => {
-      try {
-        if (!portFactory && !(await canFloor())) return;
-        const rec = (await records.list('settings')).find((r) => r.recordId === 'settings' && !r.deleted);
-        if (!rec || rec.med_register === undefined) await settings.setBodySettings({ med_register: 'eu' });
-      } finally {
-        carrying = null;
-      }
-    })();
-    return carrying;
-  }
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
   const reminderEffects = { ...cloudReminders, ...effects };
   const { sendTestPush, cancelMedRefire, cancelReminderRefire, rearmMedRefire } = reminderEffects;

@@ -489,9 +489,6 @@ describe('cloud medication identity through the real RxNorm port', () => {
                 .rejects.toMatchObject({ code: 'invalid_request' });
         });
 
-        // bd med-3u28.6 (c), Archie 16428: slice 1's device-local key is carried
-        // once this page may write from its mirror (canFloor); before that it
-        // is read, never written; the key stays (an open slice-1 tab reads it).
         const routerWith = (extra = {}) => createApiRouter({}, {
             records: env.records, win: env.window, rxnorm: { searchRxNorm: fetchRxnav, checkInteractions: fetchRxnav },
             now: () => Date.parse('2026-10-30T12:00:00Z'), timeZone: () => 'UTC',
@@ -499,59 +496,33 @@ describe('cloud medication identity through the real RxNorm port', () => {
         });
         const settingsWrites = (write) => write.mock.calls.filter(([type]) => type === 'settings');
 
-        it('before the first pull a slice-1 EU key decides but writes nothing; after it, one write and the key stays', async () => {
+        // bd med-3u28.9: the carry-over is gone. A leftover slice-1 key is
+        // removed on the first check and never decides anything.
+        it('a leftover key with no field stored: the field stays absent, the key is removed, no write', async () => {
             env.window.localStorage.setItem('medRegister:unknown', 'eu');
-            let pulled = false;
-            const router = routerWith({ canFloor: async () => pulled });
+            const router = routerWith({ canFloor: async () => true });
             const write = vi.spyOn(env.records, 'put');
-            expect(await router('/api/medications/rx-check?name=Lipitor', 'GET')).toEqual({ rxcui: '', normalized_name: '', warning: '' });
-            expect((await router('/api/settings', 'GET')).med_register).toBe('eu');
+            await router('/api/medications/rx-check?name=Lipitor', 'GET');
+            expect(env.window.localStorage.getItem('medRegister:unknown')).toBeNull();
             expect(settingsWrites(write)).toHaveLength(0);
-
-            pulled = true;
-            await router('/api/medications/rx-check?name=Lipitor', 'GET');
-            expect(settingsWrites(write)).toHaveLength(1);
-            expect(settingsWrites(write)[0][1]).toMatchObject({ med_register: 'eu' });
-            expect(env.window.localStorage.getItem('medRegister:unknown')).toBe('eu');
-            await router('/api/medications/rx-check?name=Lipitor', 'GET');
-            expect((await router('/api/settings', 'GET')).med_register).toBe('eu');
-            expect(settingsWrites(write)).toHaveLength(1);
-            expect(fetchRxnav).not.toHaveBeenCalled();
-        });
-
-        it('a pick pulled before the gate opens wins: the carry-over writes nothing over it', async () => {
-            env.window.localStorage.setItem('medRegister:unknown', 'eu');
-            let pulled = false;
-            const router = routerWith({ canFloor: async () => pulled });
-            const write = vi.spyOn(env.records, 'put');
-            await router('/api/medications/rx-check?name=Lipitor', 'GET');
-            // The pull lands another device's settings: a zone pin and US.
-            await env.records.put('settings', { recordId: 'settings', clientTs: 5, deleted: false, timezone: 'Asia/Tokyo', med_register: 'us' });
-            pulled = true;
+            expect((await env.records.list('settings')).find((r) => r.med_register !== undefined)).toBeUndefined();
             expect((await router('/api/settings', 'GET')).med_register).toBe('us');
-            expect(settingsWrites(write)).toHaveLength(1); // only the pull's own put
-            expect((await env.records.list('settings'))[0]).toMatchObject({ timezone: 'Asia/Tokyo', med_register: 'us' });
         });
 
-        it('local mode (no pull, one device) carries at once', async () => {
+        it('local mode: the key is removed and nothing is carried', async () => {
             env.window.localStorage.setItem('medRegister:unknown', 'eu');
             const write = vi.spyOn(env.records, 'put');
             const local = routerWith({ records: undefined, recordsPort: () => env.records, canFloor: async () => false, rxnorm: null });
-            expect((await local('/api/settings', 'GET')).med_register).toBe('eu');
-            expect(settingsWrites(write)).toHaveLength(1);
+            expect((await local('/api/settings', 'GET')).med_register).toBe('us');
+            expect(env.window.localStorage.getItem('medRegister:unknown')).toBeNull();
+            expect(settingsWrites(write)).toHaveLength(0);
         });
 
-        it('a stored pick is never overridden; a US key is ignored', async () => {
+        it('a stored pick is never overridden by a leftover key', async () => {
             await pick('us');
             env.window.localStorage.setItem('medRegister:unknown', 'eu');
-            const write = vi.spyOn(env.records, 'put');
             expect((await routerWith()('/api/settings', 'GET')).med_register).toBe('us');
-
-            await env.records.put('settings', { recordId: 'settings', clientTs: 6, deleted: false });
-            env.window.localStorage.setItem('medRegister:unknown', 'us');
-            expect((await routerWith()('/api/settings', 'GET')).med_register).toBe('us');
-            expect(settingsWrites(write)).toHaveLength(1); // the test's own put
-            expect(env.window.localStorage.getItem('medRegister:unknown')).toBe('us');
+            expect(env.window.localStorage.getItem('medRegister:unknown')).toBeNull();
         });
     });
 
