@@ -141,7 +141,7 @@ export default async function deleteAccount(ctx) {
     if (await page.locator('#delete-account-open').isDisabled()) throw new Error('Delete stayed disabled after the cancel');
   });
   await ctx.step('Settings → Account → Delete → typed confirm', async () => {
-    await openAccountPage(page);
+    // Still on Account & privacy after the cancel step.
     await page.locator('#delete-account-open').scrollIntoViewIfNeeded();
     await ctx.stableShot('delete-section');
     await page.click('#delete-account-open');
