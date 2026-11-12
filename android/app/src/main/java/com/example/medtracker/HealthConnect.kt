@@ -2,6 +2,7 @@ package com.example.medtracker
 
 import android.app.Activity
 import android.content.Context
+import android.os.Build
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.aggregate.AggregateMetric
@@ -130,7 +131,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         scope.cancel()
     }
 
-    private fun available() =
+    // Android 14+ only (bd med-5xx2): on 12/13 the separate Health Connect app's permission flow is out of scope.
+    private fun available() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
         HealthConnectClient.getSdkStatus(activity) == HealthConnectClient.SDK_AVAILABLE
 
     private suspend fun dispatch(op: String, args: JSONObject): Any = when (op) {

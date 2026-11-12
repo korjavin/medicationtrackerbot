@@ -5,15 +5,36 @@ the twin of the iOS app ([ios.md](ios.md)). It is **never built locally**:
 every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 [`.github/workflows/android.yml`](../.github/workflows/android.yml).
 
-**Requires Android 14 (API 34) or later.** Play does not offer or install the
-app on Android 13 and older (e.g. a Mi Note 10 on Android 12 / MIUI 13). The
-floor is a choice made in `med-nt9p`, not a bug: passkeys inside the WebView
-(`setWebAuthenticationSupport`) were assumed to need Android 14 (unverified
-below it), and Health Connect is built into the framework from 14 on. Lowering
-it is deferred (owner, 2026-11-12).
+**Requires Android 12 (API 31) or later** (bd med-5xx2; was 14 until then).
+Android 14+ behaves exactly as before. What is limited on Android 12 and 13:
+
+- **Health Connect** is part of the framework only from Android 14. On 12/13
+  the app does not integrate the separate Health Connect app (even when it is
+  installed): `HealthConnect.available()` is false below API 34, so
+  `health.authorize` answers `false`, `health.query` returns no samples and the
+  import/write-back stay off — no permission flow.
+- **Passkeys in the WebView**: unverified. The API 31 emulator image ships
+  WebView 91, which reports `WEB_AUTHENTICATION` unsupported (`shell webview
+  webauthn=unsupported`, authn-probe), so account mode cannot create or unlock a
+  passkey there; whether a Play-updated WebView on a real Android 12/13 phone
+  supports it is open until a device run.
+- **Emulator QA on API 31** is limited by that stock WebView 91: the web bundle
+  needs a current WebView (e.g. `crypto.randomUUID`, Chrome 92+), so app-level
+  scenarios fail there; a phone gets WebView updates from Play.
+- **Notifications** have no runtime permission below 13: Enable skips the
+  prompt and opens the app's notification settings only when they are off.
+- **Gallery picks** below 13 use the document chooser (filtered to the
+  page's image/video types), not the photo picker; the camera entry is the same.
+- **Back** below 13 arrives through `onBackPressed` (no `OnBackInvokedDispatcher`),
+  with the same page/history routing; no predictive-back peek.
+- **App-switcher snapshot** below 13 is not suppressed while the local lock is on
+  (`setRecentsScreenshotEnabled` is API 33; `FLAG_SECURE` would also block screenshots).
+
+CI's `lintDebug` checks only `NewApi`/`InlinedApi` and fails the build on any
+call newer than minSdk without a version check.
 
 - `android/` is a plain Gradle project (AGP 8.9, targetSdk 36, Kotlin 2.0, JDK 17,
-  minSdk 34). There is no committed Gradle wrapper: the runner pins the Gradle
+  minSdk 31). There is no committed Gradle wrapper: the runner pins the Gradle
   version (`gradle/actions/setup-gradle`), and nothing else ever builds it.
 - **Triggers:** PRs/pushes touching `android/**` or `android.yml` build a
   debug APK, run the unit tests and upload the APK as the
@@ -533,7 +554,7 @@ no exercises, sets or weights) added or changed on this phone into Health Connec
 privacy-manifest row; the rationale screen
 (`PermissionsRationaleActivity.kt`) states both. Health
 Connect is part of the Android 14 framework, so there is no provider app to
-install. [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
+install; on Android 12/13 the app reports it unavailable (see the top of this doc). [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
 answers the same `health.authorize {types, write?}` / `health.query {type, anchor,
 limit}` (and `{type: 'sleep', from, to}`) ops as `ios/App/Health.swift` with
 the same sample shapes (`bp` `{uuid, start, systolic, diastolic}`, `weight`
@@ -1907,7 +1928,7 @@ skips the release build and names what is missing). The run publishes a GitHub
 pre-release `android-v0.1.<run>` with `medtracker.apk`; send friends its link
 and an invite from `./cloud admin invite`.
 
-Friend, on an Android 14+ phone:
+Friend, on an Android 12+ phone:
 
 1. Open the release link and download `medtracker.apk`.
 2. Allow *Install unknown apps* for the browser or Files app when prompted,
@@ -1932,4 +1953,4 @@ means installing the newer release over the old one.
   services and a passkey provider (Google Password Manager or another).
   Devices without them (some de-Googled and Huawei phones) cannot create or
   unlock an account in the app.
-- Minimum Android 14 (API 34).
+- Minimum Android 12 (API 31); Health Connect needs Android 14 (see the top of this doc).

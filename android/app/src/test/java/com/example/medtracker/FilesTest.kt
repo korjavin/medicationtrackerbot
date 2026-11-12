@@ -58,6 +58,15 @@ class FilesTest {
     }
 
     @Test
+    @Config(sdk = [31])
+    fun android12GalleryUsesTheDocumentChooser() {
+        val pick = Intent(Intent.ACTION_GET_CONTENT)
+        val gallery = Files.chooserIntent(pick, null, false, listOf("image/*"), WebChromeClient.FileChooserParams.MODE_OPEN)
+        assertEquals(Intent.ACTION_CHOOSER, gallery.action)
+        assertSame(pick, gallery.getParcelableExtra<Intent>(Intent.EXTRA_INTENT))
+    }
+
+    @Test
     fun pickerResultPassesUrisAndCancellationToWebView() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val files = Files(activity, pickerFileUri = { Uri.fromFile(it) }, copyAsync = { job ->

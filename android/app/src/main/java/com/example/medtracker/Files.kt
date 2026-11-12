@@ -8,6 +8,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.Bundle
 import android.os.CancellationSignal
@@ -270,7 +271,7 @@ class Files(
             }
         }
         val intent = chooserIntent(pick, camera, capture, mimes, mode)
-        pickerResult = intent.action == MediaStore.ACTION_PICK_IMAGES
+        pickerResult = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && intent.action == MediaStore.ACTION_PICK_IMAGES
         try {
             activity.startActivityForResult(intent, REQ_CHOOSER)
         } catch (e: ActivityNotFoundException) {
@@ -373,7 +374,9 @@ class Files(
     internal companion object {
         internal fun chooserIntent(pick: Intent, camera: Intent?, capture: Boolean, mimes: List<String>?, mode: Int): Intent {
             if (capture && camera != null) return camera
-            if (!mimes.isNullOrEmpty() && mimes.all { it.startsWith("image/") || it.startsWith("video/") }) {
+            // The photo picker is API 33; Android 12 gets the document chooser below, filtered by EXTRA_MIME_TYPES.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                !mimes.isNullOrEmpty() && mimes.all { it.startsWith("image/") || it.startsWith("video/") }) {
                 return Intent(MediaStore.ACTION_PICK_IMAGES).apply {
                     if (mimes.all { it.startsWith("image/") }) type = "image/*"
                     else if (mimes.all { it.startsWith("video/") }) type = "video/*"

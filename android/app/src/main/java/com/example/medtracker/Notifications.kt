@@ -13,6 +13,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
@@ -80,7 +81,9 @@ class Notifications(private val activity: Activity, private val diag: (String) -
      */
     private fun step() {
         val enabled = notifying(activity)
-        val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        // Android 12 has no POST_NOTIFICATIONS (API 33): nothing to prompt for, only the settings switch.
+        val granted = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) manager(activity).areNotificationsEnabled()
+            else activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         val exact = alarms(activity).canScheduleExactAlarms()
         fun exit(result: String) = diag("shell notifications step stage=$stage granted=$granted enabled=$enabled canScheduleExactAlarms=$exact result=$result")
         val forced = settings
@@ -90,8 +93,10 @@ class Notifications(private val activity: Activity, private val diag: (String) -
             stage = 1
             val prefs = store(activity)
             val pkg = activity.packageName
+            // Below 33 the settings round trip is the ask: back with them still off reads 'denied', as on 14+.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && !forced) prefs.edit().putBoolean(ASKED, true).apply()
             when {
-                !forced && !granted && (!prefs.getBoolean(ASKED, false) ||
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !forced && !granted && (!prefs.getBoolean(ASKED, false) ||
                     activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) -> {
                     prefs.edit().putBoolean(ASKED, true).apply()
                     exit("runtime-prompt")
@@ -133,7 +138,9 @@ class Notifications(private val activity: Activity, private val diag: (String) -
         if (waiting.isNotEmpty()) {
             // Android can refuse without a prompt (no rationale / don't ask again). Keep Enable
             // pending through the settings round trip, where the user can actually allow it.
-            if (grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED &&
+            // Only API 33+ ever asks (step()).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED &&
                 !activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
                 stage = 0
                 settings = true

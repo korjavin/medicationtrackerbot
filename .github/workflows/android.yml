@@ -127,9 +127,10 @@ jobs:
           WG_BUNDLE_PREFIX: android
         run: ios/bundle-web.sh "${{ github.run_number }}"
 
-      - name: Build debug APK and run unit tests
+      # lintDebug: only NewApi/InlinedApi (app/build.gradle.kts), the minSdk 31 guard (bd med-5xx2).
+      - name: Build debug APK, run unit tests and API-level lint
         working-directory: android
-        run: gradle --no-daemon assembleDebug testDebugUnitTest
+        run: gradle --no-daemon assembleDebug testDebugUnitTest lintDebug
 
       # The bundle reached the APK (it is never committed: only the step above makes it), its
       # document loads the local entry, and no QA driver or test suite came along.
