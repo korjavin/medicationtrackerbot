@@ -2559,6 +2559,8 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         const bar = mountBar();
         expect(env.document.documentElement.classList.contains('wg-local-trial')).toBe(false);
         expect(shown(bar.querySelector('.wg-callbar__call'))).toBe(false);
+        expect(shown(bar.querySelector('.wg-callbar__photo'))).toBe(false);
+        expect(shown(bar.querySelector('.wg-callbar__gallery'))).toBe(false);
         const hint = bar.querySelector('.wg-callbar__trial-hint');
         expect(hint.textContent).toBe('Turn on the free trial in Settings → AI & integrations to call the agent.');
         expect(shown(hint)).toBe(true);
@@ -2596,6 +2598,9 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         expect(sock.url).toBe(`wss://${TRIAL_BASE}/api/attest/voice/device?call=tok-1`);
         expect(startSession.mock.calls[0][0]).toMatchObject({ signedUrl: SIGNED, customLlmExtraBody: { call: 'tok-1' } });
         expect(bar.dataset.state).toBe('in_call');
+        // Send photo rides the trial call (med-1em7): the local-vault CSS gate lets it through.
+        expect(shown(bar.querySelector('.wg-callbar__photo'))).toBe(true);
+        expect(shown(bar.querySelector('.wg-callbar__gallery'))).toBe(true);
         // No account route, no second mint.
         expect(fetched.filter(({ url }) => url.startsWith('/api/'))).toEqual([]);
 

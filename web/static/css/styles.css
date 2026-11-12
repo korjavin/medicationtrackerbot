@@ -7081,12 +7081,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
    call trigger and the gym share button are built in JS, so they are named
    here instead of carrying the class. settings.js isSettingsSectionHidden
    mirrors the class selectors. The call trigger shows only while the free
-   trial is on (local-policy.js sets .wg-local-trial, bd med-o7zq.23); its
-   Send photo needs the user's own ElevenLabs key, which needs an account. */
+   trial is on (local-policy.js sets .wg-local-trial, bd med-o7zq.23); so do
+   its Send photo buttons, which ride the anonymous trial call (bd med-adje,
+   med-1em7). */
 :root.wg-local-vault .wg-cloud-only,
 :root.wg-local-vault:not(.wg-local-trial) .wg-callbar__call,
-:root.wg-local-vault .wg-callbar__photo,
-:root.wg-local-vault .wg-callbar__gallery,
+:root.wg-local-vault:not(.wg-local-trial) .wg-callbar__photo,
+:root.wg-local-vault:not(.wg-local-trial) .wg-callbar__gallery,
 :root.wg-local-vault .wg-equipment-row__share-location,
 :root:not(.wg-local-vault) .wg-local-only {
     display: none !important;
