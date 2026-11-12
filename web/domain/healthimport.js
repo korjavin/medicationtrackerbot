@@ -35,7 +35,7 @@ import { createBPDomain, offsetMsAt } from './bp.js';
 import { createWeightDomain } from './weight.js';
 import { createVitalsDomain } from './vitals.js';
 import {
-  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId, sleepDayOf,
+  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId, healthNumericId, sleepDayOf, sleepDayOfRow,
 } from './healthsource.js';
 
 function positive(v) {
@@ -76,6 +76,10 @@ const WORKOUT_NAMES = {
 export const STRENGTH_TYPES = new Set([20, 50]);
 // Also the cap on a written-back workout's span (web/cloud/js/health-import.js).
 export const OPEN_SESSION_MS = 4 * HOUR_MS;
+// A Health-side deletion never removes a bp/weight/workout older than this
+// (bd med-w6gx.18.3, Archie 23697): under Health Connect's shortest
+// auto-delete (3 months ≈ 90 days), so retention never wipes the vault.
+export const DELETED_MAX_AGE_MS = 80 * 24 * HOUR_MS;
 
 function rfc3339(ms) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -156,7 +160,7 @@ export function sleepNights(samples, from, to) {
 }
 
 // createHealthImportDomain({ records, now, timeZone }) — records must carry
-// list, listRaw and putIfAbsent (web/cloud/js/sync.js recordsPort).
+// list, listRaw, putIfAbsent and del (web/cloud/js/sync.js recordsPort).
 export function createHealthImportDomain({ records, now, timeZone }) {
   const bp = createBPDomain({ records, now, timeZone });
   const weight = createWeightDomain({ records, now, timeZone });
@@ -236,8 +240,29 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // read picks one source per day (healthsource.js visibleSleep), so arrival
   // order never matters and nothing is lost.
   // skip.inBed = the In Bed samples sleepNights left out.
+  // `days` = { day: [total_minutes, start_time] } for each sleep day this read
+  // holds a whole Health night for (the runner keeps the fullest per day as
+  // this device's seen set).
+  //
+  // Health-side deletions (bd med-w6gx.18.3): a deleted sample has no dates,
+  // so the runner answers it with a window re-read carrying bounds.reconcile
+  // = { seen }. A live, unedited Health day row is tombstoned (at now(), a
+  // user-grade delete) only when its day is in `seen` (THIS device's store held
+  // that night: proof of disappearance, never absence, so a second device
+  // whose store never held it deletes nothing), the read holds no Health night
+  // for it, and the read reaches back before the row's start (an empty or
+  // windowed read proves nothing), and the row still holds this store's
+  // version (else skip.foreign: another store's fuller night replaced it and
+  // still exists there). A Mi Band night of that day keeps the row
+  // (skip.ledger: the tombstone would hide the band night too); a night that
+  // only shrank keeps its longer version (skip.shorter: fuller wins).
   async function importSleep(samples, bounds) {
     const skip = { inBed: 0, unsettled: 0, clipped: 0, exists: 0 };
+    const given = bounds && bounds.reconcile && bounds.reconcile.seen;
+    const seen = bounds && bounds.reconcile
+      ? new Map(given && typeof given === 'object' && !Array.isArray(given) ? Object.entries(given) : [])
+      : null;
+    if (seen) Object.assign(skip, { ledger: 0, shorter: 0, foreign: 0 });
     const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
     if (bounds && Number.isFinite(bounds.from) && Number.isFinite(bounds.to) && Array.isArray(samples)) {
       skip.inBed = samples.filter((s) => s && s.value === 0).length;
@@ -245,7 +270,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     const settledBy = now() - SLEEP_SETTLE_MS;
     const open = all.filter((n) => n.end > settledBy);
     const pending = open.length ? Math.min(...open.map((n) => n.start)) : undefined;
-    if (!all.length) return { added: 0, pending, nights: 0, skip };
+    if (!all.length && !seen) return { added: 0, pending, nights: 0, skip };
 
     const min = (v) => Math.round(v / MIN_MS);
     const days = new Map(); // day -> source -> nights
@@ -268,6 +293,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       if (id && id !== r.recordId) aliased.add(id);
     }
     let added = 0;
+    const folded = new Map(); // day -> best candidate
     for (const [day, bySrc] of days) {
       let best = null;
       for (const nights of bySrc.values()) {
@@ -300,6 +326,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
         // Sources arrive sorted by name: a tie keeps the first.
         if (!best || c.rank > best.rank) best = c;
       }
+      folded.set(day, best);
       const recordId = healthRecordId('sleep', day);
       // A Mi Band day (converted, bd med-0xad.4) with fewer asleep minutes
       // yields, whichever arrived first: the same pick the converter makes
@@ -322,7 +349,34 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });
       added++;
     }
-    return { added, pending, nights: all.length, skip };
+    let removed = 0;
+    if (seen) {
+      const starts = (Array.isArray(samples) ? samples : []).filter((s) => s && Number.isFinite(s.start)).map((s) => s.start);
+      const earliest = starts.length ? Math.min(...starts) : Infinity;
+      const ledgerDays = new Set(raw.filter((r) => !r.deleted && !String(r.recordId).includes('-hk-')).map(sleepDayOfRow));
+      for (const r of raw) {
+        const day = /^sleep-hk-(\d{4}-\d{2}-\d{2})$/.exec(r.recordId)?.[1];
+        if (!day || r.deleted || r.source !== HEALTH_SOURCE || r.user_modified || !seen.has(day)) continue;
+        const best = folded.get(day);
+        if (best) {
+          if (best.body.total_minutes < (Number(r.total_minutes) || 0)) skip.shorter++;
+          continue;
+        }
+        // The row must still hold THIS store's version: another store's longer
+        // night may have replaced the shared day row (fuller wins), and that
+        // night still exists there.
+        const mine = seen.get(day);
+        if (!Array.isArray(mine) || Number(r.total_minutes) !== mine[0] || r.start_time !== mine[1]) { skip.foreign++; continue; }
+        if (!(earliest < Date.parse(r.start_time))) continue;
+        if (ledgerDays.has(day)) { skip.ledger++; continue; }
+        await records.del('sleep', r.recordId);
+        removed++;
+      }
+    }
+    // What this store held per day: [total_minutes, start_time] of its version.
+    const daysSeen = Object.fromEntries([...folded].filter(([, b]) => b.whole)
+      .map(([day, b]) => [day, [b.body.total_minutes, b.body.start_time]]));
+    return { added, removed, pending, nights: all.length, skip, days: daysSeen };
   }
 
   async function importWorkouts(samples, have) {
@@ -371,7 +425,8 @@ export function createHealthImportDomain({ records, now, timeZone }) {
 
   // importSamples(kind, samples, bounds) → { added, skip } (sleep adds
   // `pending` and `nights`): what was new here, and why the rest was not
-  // written (counts only, for the diagnostics line in health-import.js). `bounds` is the whole query result ({from, to} for sleep). Malformed
+  // written (counts only, for the diagnostics line in health-import.js). `bounds` is the whole query result ({from, to} for sleep;
+  // `deleted` adds `removed` and skip.gone). Malformed
   // samples are skipped, never thrown on — one odd entry in Health must not
   // stall every later import behind the same anchor.
   // importVitals(kind, samples) → { added, skip }: steps / hr / spo2 into the
@@ -413,16 +468,21 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     const type = TYPE[kind];
     if (!type) throw new Error(`healthimport: unknown kind ${kind}`);
     if (kind === 'sleep') return importSleep(samples, bounds);
+    const raw = await records.listRaw(type);
+    // bounds.deleted (bd med-w6gx.18.3): the sample UUIDs deleted in Health
+    // since the anchor. A shell that predates it sends no key: nothing runs.
+    const gone = Array.isArray(bounds && bounds.deleted) ? await removeDeleted(type, bounds.deleted, raw) : null;
+    const withGone = (r) => (gone ? { ...r, removed: gone.removed, skip: { ...r.skip, gone: gone.gone, old: gone.old } } : r);
     // Tombstones included: a deleted reading stays deleted. A row restored by
     // an older client sits under a fresh id but keeps source_id — count it too
     // (deleting such an alias also tombstones its canonical id: healthsource.js).
     const have = new Set();
-    for (const r of await records.listRaw(type)) {
+    for (const r of raw) {
       have.add(r.recordId);
       const id = healthImportRecordId(type, r);
       if (id) have.add(id);
     }
-    if (kind === 'workout') return importWorkouts(samples, have);
+    if (kind === 'workout') return withGone(await importWorkouts(samples, have));
     const k = KINDS[kind];
     // Oldest first: a stable write order. (weight.create stores a derived row
     // without a trend, so every device writes the same body.)
@@ -439,7 +499,47 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       await k.create(s, { recordId, derived: true });
       added++;
     }
-    return { added, skip };
+    return withGone({ added, skip });
+  }
+
+  // Tombstones every live row of each deleted sample: its -hk- id, or an alias
+  // (an older client's restore under a fresh id) whose source_id is the UUID.
+  // A row entered in the app has neither, so it is never touched. A bp edit
+  // stays at its -hk- id and goes with it; a weight edit is a new row without
+  // source_id and stays. records.del stamps now(): a user-grade delete, never
+  // the floor. → { removed, gone } (gone = UUIDs with no live row here).
+  // A row whose own time is older than DELETED_MAX_AGE_MS is never removed
+  // (skip.old): a store's retention (Health Connect auto-delete after 3/18
+  // months, a source app's data wipe) deletes old readings in bulk, and this
+  // vault exists to keep them (Archie 23697).
+  async function removeDeleted(type, uuids, raw) {
+    const byId = new Map(); // canonical id -> live rows
+    for (const r of raw) {
+      if (r.deleted) continue;
+      for (const id of new Set([r.recordId, healthImportRecordId(type, r)])) {
+        if (!id) continue;
+        if (!byId.has(id)) byId.set(id, []);
+        byId.get(id).push(r);
+      }
+    }
+    const oldBefore = now() - DELETED_MAX_AGE_MS;
+    const at = (r) => (type === 'miband' ? Number(r.source_start_ms) : Date.parse(r.measured_at));
+    const done = new Set();
+    let removed = 0;
+    let gone = 0;
+    let old = 0;
+    for (const u of uuids) {
+      const hits = typeof u === 'string' && UUID_RE.test(u) ? byId.get(healthRecordId(type, u)) : null;
+      if (!hits) { gone++; continue; }
+      for (const r of hits) {
+        if (done.has(r.recordId)) continue;
+        done.add(r.recordId);
+        if (!(at(r) >= oldBefore)) { old++; continue; }
+        await records.del(type, r.recordId);
+        removed++;
+      }
+    }
+    return { removed, gone, old };
   }
 
   return { importSamples };

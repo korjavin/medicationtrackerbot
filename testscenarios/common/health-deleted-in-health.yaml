@@ -1,0 +1,26 @@
+id: health-deleted-in-health
+title: A reading, workout or night deleted in Health is gone in the app on the next open
+platforms: [web, android, ios]
+preconditions:
+  - Health import on, with BP, weight, workouts and sleep already imported on this phone
+steps:
+  - In the Health app, delete an imported BP reading, a weight and a workout; open the app
+  - In the Health app, delete a whole imported night; open the app on the phone that imported it
+  - Shorten another imported night in Health (delete some of its samples); open the app
+  - For a day that also has a Mi Band night, delete the Health night; open the app
+  - Edit an imported reading in Health; open the app
+invariants:
+  - A reading deleted in Health disappears from the app on the next import. A weight you edited in the app stays.
+  - Readings entered in the app are never removed by a Health deletion
+  - Turning on Health Connect auto-delete (3 or 18 months) never removes readings here; a reading older than ~80 days deleted in Health stays here
+  - The deleted night is gone on the next open of the phone that imported it, then on every synced device
+  - A device whose Health never held that night never deletes it on its own
+  - A night shortened in Health keeps its imported length
+  - A night deleted in Health while a Mi Band night exists for that day stays visible as Health import
+  - An edit in Health shows as the new reading with the old one gone on iOS (delete + add); on Android nothing changes
+  - The Health import count does not go down or up for deletions
+covered_by:
+  web: web/cloud/js/tests/health-import.test.js
+  android: manual  # web/cloud/js/tests/health-import.test.js covers the data logic; the shell's deleted list (med-w6gx.18.2) needs a device check
+  ios: manual  # web/cloud/js/tests/health-import.test.js covers the data logic; the shell's deleted list (med-w6gx.18.1) needs a device check
+source: [med-w6gx.18.3, med-w6gx.18.1, med-w6gx.18.2]

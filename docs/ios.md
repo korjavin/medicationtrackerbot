@@ -795,12 +795,27 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   and restore keeps Health rows trend-less, so the trend shown matches the
   trend after a restore. A history without Health rows
   reads exactly as stored.
-- **Known residuals:** a backup restored and re-exported by a client that
-  predates the `-hk-` tombstones loses them (it skips the unknown tombstone
-  types), so a later full Health rescan brings deleted readings back. A client
-  that predates this change sees Health weights without a trend and seeds a
-  new entry's trend from the raw weight. Neither can be fixed from this side.
-- **Not in v1:** deleting a sample in Health does not delete it here.
+- **Known residuals:** a client that predates this change sees Health weights
+  without a trend and seeds a new entry's trend from the raw weight; it cannot
+  be fixed from this side.
+- **Deleted in Health** (bd med-w6gx.18.3; the shell side is med-w6gx.18.1):
+  an anchored reply carries `deleted: [uuid…]` (HealthKit's
+  `deletedObjects`). Every live row of such a sample — its `-hk-` id, or an
+  older client's restore of it under a fresh id that keeps its `source_id` —
+  is tombstoned at `now()` (a user-grade delete, never the floor) and synced
+  like any delete. A reading entered in the app has neither and is never
+  touched. A **BP edited in the app** stays at its `bp-hk-` id, so it goes
+  with the Health deletion; a **weight edited in the app** is a new row
+  without `source_id`, so it stays. An edit in Health is a delete plus an add
+  there: the old reading goes, the new one is imported. Removals are pushed
+  (a removal-only run flushes) but never counted as imported; the diagnostics
+  line adds `deleted=N removed=M` and `skip.gone` (UUIDs with no live row
+  here). A shell without the key changes nothing. The tombstone of a `-hk-`
+  id owes Health nothing on write-back (it was never written there).
+  A reading (or workout) older than 80 days when its deletion arrives is
+  never removed (`skip.old`; one rule for both shells, against store
+  retention — [android.md](android.md)); deleting an old reading in Health
+  leaves it here. Sleep is bounded by its ~32-day seen window instead.
 
 ### Sleep and workouts (bd med-w6gx.7)
 
@@ -888,15 +903,44 @@ and weight only asks once, at the next open, for the new types.
   3h settle), the fuller version replaces it when it arrives (bd med-y1gh);
   days stuck short before that fix are re-read once, 30 days back. Deleting the
   day does not re-import it — the tombstone keeps it deleted (the safe
-  direction). A backup restored and re-exported by a client that predates the
-  `miband-hk-` / `sleep-hk-` tombstones loses them, as for BP and weight
-  above, so a later rescan brings a deleted Health workout or night back.
+  direction).
   A deleted Health workout leaves only a bodyless tombstone, so another
   source's copy of it (Strava writing the same run later, or a rescan that
-  reads the copy on a different page) can still appear and needs deleting too.
+  reads the copy on a different page) can still appear and needs deleting too;
+  a workout deleted in Health (below) frees its span the same way.
   A sleep page reads every sleep sample from 48h before the page's earliest
   new sample to 48h after its latest, so a page of out-of-order backfill can
   read a long stretch of history at once (slow, not wrong).
+- **Deleted in Health** (bd med-w6gx.18.3): a workout goes as a BP reading
+  does (above). A sleep deletion names no dates, so it is a **trigger**: the
+  runner re-reads the last 30 days + 48h by window (the trigger,
+  `wg.health.sleepReconcile`, is saved before the anchor moves and kept until
+  a re-read returns samples, so a failed or denied read retries next run)
+  and passes the sleep days
+  this device has seen (`wg.health.sleepSeen`, device-local: per day the
+  fullest version — total minutes and start — its own reads found, trimmed to
+  that window). It runs only once this session has pulled (the Mi Band guard
+  reads the mirror); the trigger waits until then. A live, unedited
+  `sleep-hk-<day>` row is tombstoned only when its day is seen here, the row
+  still holds this device's version (another store's fuller night that
+  replaced it still exists there: `skip.foreign`), the read
+  holds no Health night for it, the read returned samples, and one of them
+  starts before the row (the readable range reaches it). It is proof that the
+  night *disappeared from this device's store*, never that it is absent: a
+  second device whose Health never held the night (lagging iCloud Health, an
+  Android phone) deletes nothing. Residuals:
+  - **Shortened night:** a day whose Health version shrank but still has
+    samples keeps its longer imported version (fuller wins; `skip.shorter`).
+  - **Band-ledger ghost:** a day that also holds a Mi Band night keeps the
+    Health day row (a tombstone would hide the band night too, and the band
+    fold cannot replace a fuller Health row), so it stays visible as Health
+    import (`skip.ledger`).
+  - **Per-day permanence:** the tombstone keeps the whole day deleted, so
+    deleting a phone-only partial night before the Watch synced also blocks
+    that day's Watch version.
+  - **Toggle-off gap:** switching the toggle off forgets the seen days, and
+    switching it on rescans from no anchor: deletions made while it was off
+    are never seen, for any kind.
 
 ### Device check — sleep and workouts (TestFlight)
 

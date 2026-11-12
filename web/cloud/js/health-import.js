@@ -16,7 +16,7 @@
 // Losing them only costs a re-scan, which the deterministic recordIds absorb.
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
-import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
+import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled, pulledThisSession } from './sync.js';
 import { createHealthImportDomain, OPEN_SESSION_MS, STRENGTH_TYPES, overlaps } from '../../domain/healthimport.js';
 import { findLibraryRowByName, exerciseKey } from '../../domain/workout.js';
 import { localWallToUtcMs } from '../../domain/medschedule.js';
@@ -57,6 +57,16 @@ const SLEEP_PENDING_CAP_MS = 7 * 24 * 3600 * 1000;
 // anchor re-reads the whole history anyway. 30 days = Android's first read.
 // ponytail: a day stuck longer ago needs the switch-off/on rescan.
 const SLEEP_HEAL_MS = 30 * 24 * 3600 * 1000;
+// The sleep days (YYYY-MM-DD) this device's reads found a Health night for
+// (bd med-w6gx.18.3): a Health-side sleep deletion tombstones only a day in
+// it, so a second device whose store never held the night deletes nothing.
+// Trimmed to the reconcile window; cleared with the anchors and on switch-off.
+const SLEEP_SEEN_KEY = 'wg.health.sleepSeen';
+// Set (before the sleep anchor moves past a reply with deletions) until a
+// reconcile read returned samples: a failed or empty (denied) read retries on
+// the next run instead of losing the deletion with the consumed anchor.
+// ponytail: one extra window query per run while access stays denied.
+const SLEEP_RECONCILE_KEY = 'wg.health.sleepReconcile';
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -169,8 +179,12 @@ export function isHealthWriteEnabled(storage = globalThis.localStorage) {
 // A workout session is marked only once it is, or was, completed (a
 // completed_at survives an un-complete, which must remove its copy): creating,
 // starting, snoozing or skipping one has nothing to mirror.
+// A -hk- id is an imported slot, never written to Health: its tombstone owes
+// Health nothing (bd med-w6gx.18.3; a Health-side delete of 300 readings
+// would otherwise send 600 no-op removes).
 function writeBackEligible(recordType, row, storage) {
     if (!MARKS[recordType] || !isHealthWriteEnabled(storage)) return false;
+    if (String(row.recordId).includes('-hk-')) return false;
     if (row.deleted) return true;
     if (recordType === 'workoutsession') return row.status === 'completed' || Boolean(row.completed_at);
     return !row.source;
@@ -751,19 +765,30 @@ async function planCopy(health, records, kinds, { only = null, storage = null, r
 export function resetHealthAnchors(storage = globalThis.localStorage) {
     writeJSON(storage, ANCHORS_KEY, {});
     try { storage.removeItem(SLEEP_PENDING_KEY); } catch { /* storage blocked: nothing kept */ }
+    try { storage.removeItem(SLEEP_SEEN_KEY); } catch { /* storage blocked: nothing kept */ }
+    try { storage.removeItem(SLEEP_RECONCILE_KEY); } catch { /* storage blocked: nothing kept */ }
 }
 
 // One diagnostics line per kind per run (bd med-w6gx.30), counts only — no
 // times, no readings; for sleep the HealthKit value histogram (0 In Bed, 1
 // asleep, 2 awake, 3-5 stages), e.g.
 // [health] sleep returned=3 samples=3 values={0:1} nights=0 written=0 skip{inBed:1,unsettled:0,clipped:0,exists:0} anchor=moved
+// A run that saw Health-side deletions adds ` deleted=N removed=M` after written.
 function kindLine(kind, st) {
     const obj = (o) => `{${Object.keys(o).map((k) => `${k}:${o[k]}`).join(',')}}`;
     const vals = Object.fromEntries(Object.entries(st.values).sort((a, b) => Number(a[0]) - Number(b[0])));
     return `[health] ${kind} returned=${st.returned} samples=${st.samples}`
         + (kind === 'sleep' ? ` values=${obj(vals)} nights=${st.nights}` : '')
-        + ` written=${st.written} skip${obj(st.skip)} anchor=${st.anchor}`
+        + ` written=${st.written}`
+        + (st.deleted || st.removed ? ` deleted=${st.deleted} removed=${st.removed}` : '')
+        + ` skip${obj(st.skip)} anchor=${st.anchor}`
         + (st.error ? ` error=${st.error}` : '');
+}
+
+// { day: [total_minutes, start_time] }.
+function seenDays(storage) {
+    const v = readJSON(storage, SLEEP_SEEN_KEY, {});
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 }
 
 function timeZone() {
@@ -781,6 +806,9 @@ export async function runHealthImport(ctx, {
     flush = () => flushConfirmed(ctx),
     now = Date.now,
     diag = diagLine,
+    // The sleep reconcile reads the mirror for Mi Band nights (the ledger
+    // guard): it waits, trigger kept, until this session has pulled.
+    pulled = pulledThisSession,
 } = {}) {
     if (!health || !health.isSupported() || !isHealthImportEnabled(storage)) return null;
     const domain = createHealthImportDomain({ records, now, timeZone: timeZone() });
@@ -790,29 +818,48 @@ export async function runHealthImport(ctx, {
     // do is most likely switched off in Health's per-type access (statusText).
     const seen = { ...(last.seen || {}) };
     let added = 0;
+    // Rows tombstoned for Health-side deletions (bd med-w6gx.18.3): flushed,
+    // never counted as imported.
+    let removed = 0;
     let lastError = null;
     let failed = 0;
     for (const kind of HEALTH_KINDS) {
-        const st = { returned: 0, samples: 0, values: {}, nights: 0, written: 0, skip: {}, anchor: 'kept', error: null };
+        const st = { returned: 0, samples: 0, values: {}, nights: 0, written: 0, deleted: 0, removed: 0, skip: {}, anchor: 'kept', error: null };
         // One kind failing (e.g. a type this device was never asked access
         // for) must not stop the others; its anchor stays where it was.
         try {
             const pending = [];
-            const take = async (res) => {
+            const take = async (res, reconcile) => {
                 const samples = res && Array.isArray(res.samples) ? res.samples : [];
                 st.returned += (res && Number(res.returned)) || 0;
                 st.samples += samples.length;
+                // Gated on the array: an older shell sends no key, nothing runs.
+                if (res && Array.isArray(res.deleted)) st.deleted += res.deleted.length;
+                if (kind === 'sleep' && st.deleted > 0) writeJSON(storage, SLEEP_RECONCILE_KEY, true);
                 if (kind === 'sleep') {
                     for (const s of samples) {
                         const v = s && Number.isInteger(s.value) ? s.value : '?';
                         st.values[v] = (st.values[v] || 0) + 1;
                     }
                 }
-                // The whole result goes along: sleep reads its window ({from, to}).
-                const r = await domain.importSamples(kind, res && res.samples, res);
+                // The whole result goes along: sleep reads its window ({from, to}),
+                // the others its `deleted` UUIDs.
+                const r = await domain.importSamples(kind, res && res.samples, reconcile ? { ...res, reconcile } : res);
                 added += r.added;
                 st.written += r.added;
+                removed += r.removed || 0;
+                st.removed += r.removed || 0;
                 st.nights += r.nights || 0;
+                if (r.days && Object.keys(r.days).length) {
+                    // Per day the fullest version this store showed (a later
+                    // shorter read must not stop a whole deletion matching it).
+                    const keep = new Date(now() - SLEEP_HEAL_MS - 2 * DAY_MS).toISOString().slice(0, 10);
+                    const days = seenDays(storage);
+                    for (const [d, v] of Object.entries(r.days)) {
+                        if (!Array.isArray(days[d]) || v[0] >= days[d][0]) days[d] = v;
+                    }
+                    writeJSON(storage, SLEEP_SEEN_KEY, Object.fromEntries(Object.entries(days).filter(([d]) => d >= keep).sort()));
+                }
                 for (const [k, n] of Object.entries(r.skip || {})) st.skip[k] = (st.skip[k] || 0) + n;
                 // Saved before the caller moves the anchor past these samples:
                 // a later page failing must not lose an unsettled night.
@@ -864,6 +911,17 @@ export async function runHealthImport(ctx, {
                 }
                 if (!res || !res.more) break;
             }
+            // A sleep deletion names no dates: re-read the reconcile window and
+            // let the domain tombstone the seen days that lost their night.
+            // Also a trigger left by an earlier run whose read failed or was empty.
+            if (kind === 'sleep' && readJSON(storage, SLEEP_RECONCILE_KEY, false) === true && pulled()) {
+                const at = now();
+                const res = await health.query({ type: 'sleep', from: at - SLEEP_HEAL_MS - SLEEP_PAD_MS, to: at });
+                await take(res, { seen: seenDays(storage) });
+                if (res && Array.isArray(res.samples) && res.samples.length) {
+                    try { storage.removeItem(SLEEP_RECONCILE_KEY); } catch { /* storage blocked: retried next run */ }
+                }
+            }
             if (kind === 'sleep') {
                 // Marked once the heal read returned samples (a failure or a
                 // denied, empty read retries it), or once a first read without
@@ -900,7 +958,7 @@ export async function runHealthImport(ctx, {
     });
     // One chunked push for the whole batch instead of one POST per reading;
     // a failure leaves the rows pending for the next sync, nothing is lost.
-    if (added > 0) await flush().catch(() => {});
+    if (added + removed > 0) await flush().catch(() => {});
     // Every kind failed: the store could not be read at all (pull to refresh
     // shows the fix). One kind failing alone stays a log line.
     if (failed === HEALTH_KINDS.length) throw lastError;
@@ -1420,6 +1478,9 @@ export function startHealthImport(ctx, {
         if (!on) {
             writeJSON(storage, ENABLED_KEY, false);
             writeJSON(storage, WRITE_KEY, false); // import off → write off
+            // Deletions made while off are never seen: no tombstones until re-seen.
+            try { storage.removeItem(SLEEP_SEEN_KEY); } catch { /* storage blocked */ }
+            try { storage.removeItem(SLEEP_RECONCILE_KEY); } catch { /* storage blocked */ }
             writeEpoch++;
             writeHint = '';
             refresh();
