@@ -689,6 +689,11 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   wipes the vault. Residue: a source app's data wipe that reaches readings
   newer than 80 days removes those here too. Sleep needs no rule: the seen
   set and the re-read only cover the last ~32 days.
+  Sleep residues: when this store's longer night is the stored row and
+  another store holds a shorter copy that was never written, deleting the
+  night here tombstones the day for good, so the other store can't re-import
+  it; and identical copies in two stores (one wearable writing both) are
+  removed everywhere when deleted in one.
 - **Foreground only:** reads run only when the page asks (unlock, return to
   the app); no background reads, no background permission.
 - **Diagnostics (bd med-nt9p.59):** every `health.query` adds one line to the
