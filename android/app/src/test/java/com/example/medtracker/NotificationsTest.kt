@@ -57,6 +57,25 @@ class NotificationsTest {
     }
 
     @Test
+    @Config(sdk = [31])
+    fun android12EnableOpensSettingsWithoutARuntimePrompt() {
+        val activity = Robolectric.buildActivity(PermissionActivity::class.java).setup().get()
+        val nm = activity.getSystemService(NotificationManager::class.java)
+        shadowOf(nm).setNotificationsEnabled(false)
+        ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        val diagnostics = mutableListOf<String>()
+        val replies = mutableListOf<Any?>()
+        val notifications = Notifications(activity, diagnostics::add) { "qa.test" }
+        notifications.handle("notifications.requestPermission", null) { value, _ -> replies += value }
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, shadowOf(activity).nextStartedActivity.action)
+        notifications.onPause()
+        shadowOf(nm).setNotificationsEnabled(true)
+        notifications.onResume()
+        assertEquals(listOf("granted"), replies)
+        assertEquals(listOf("app-settings", "granted"), diagnostics.map { it.substringAfter("result=") })
+    }
+
+    @Test
     fun denialWithRationaleRepliesDeniedWithoutOpeningSettings() {
         val activity = Robolectric.buildActivity(PermissionActivity::class.java).setup().get()
         shadowOf(activity.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)

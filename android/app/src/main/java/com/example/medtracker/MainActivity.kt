@@ -47,6 +47,7 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
+import androidx.core.content.ContextCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -186,8 +187,8 @@ class MainActivity : Activity() {
      */
     private var loadGen = 0
     private var probedGen = -1
-    private val back = OnBackInvokedCallback {
-        if (pageCanStep == null) return@OnBackInvokedCallback web.goBack()
+    private fun stepBack() {
+        if (pageCanStep == null) return web.goBack()
         val gen = loadGen
         // The page owns its history: never web.goBack() here, its popstate would step AppBack again.
         web.evaluateJavascript("!document.dispatchEvent(new CustomEvent('wg:native-back',{cancelable:true}))") {
@@ -196,6 +197,8 @@ class MainActivity : Activity() {
             if (it != "true" && gen == loadGen) { pageCanStep = false; updateBack() }
         }
     }
+    /** The OnBackInvokedCallback (API 33+); below 33 [onBackPressed] routes Back instead. */
+    private var back: Any? = null
     private var backRegistered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1100,9 +1103,23 @@ class MainActivity : Activity() {
     private fun updateBack() {
         val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && (pageCanStep ?: web.canGoBack())
         if (want == backRegistered) return
-        if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
-        else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val cb = back as OnBackInvokedCallback? ?: OnBackInvokedCallback { stepBack() }.also { back = it }
+            if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb)
+            else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(cb)
+        }
         backRegistered = want
+    }
+
+    /**
+     * Android 12 (API 31/32, bd med-5xx2): no OnBackInvokedDispatcher, so Back arrives here; the same
+     * routing as the callback. API 33+ with enableOnBackInvokedCallback never calls this for Back.
+     */
+    @Deprecated("API 33+ routes Back through OnBackInvokedCallback (updateBack)")
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && backRegistered) stepBack()
+        else super.onBackPressed()
     }
 
     // MARK: native screens (kit token mirror, bd med-ckm5.14; Wg.kt + res/values/styles.xml)
@@ -1186,9 +1203,10 @@ class MainActivity : Activity() {
     /** The lock screen or the page, as the lock says; on unlock, what it held back. */
     private fun applyLock() {
         // No app-switcher snapshot while the lock is on (screenshots, and so the QA harness, still work).
-        setRecentsScreenshotEnabled(!(local && lock.on))
+        // API 33+ only: Android 12 keeps its app-switcher snapshot (FLAG_SECURE would also block screenshots).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!(local && lock.on))
         if (lock.on != screenOffRegistered) {
-            if (lock.on) registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
+            if (lock.on) ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
             else unregisterReceiver(screenOff)
             screenOffRegistered = lock.on
         }

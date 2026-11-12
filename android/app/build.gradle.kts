@@ -35,7 +35,8 @@ android {
 
     defaultConfig {
         applicationId = appPackage
-        minSdk = 34
+        // Android 12 (bd med-5xx2): API 32+ calls are version-gated; CI's lintDebug keeps it so.
+        minSdk = 31
         targetSdk = 36
         versionCode = versionCodeEnv
         versionName = "0.1.$versionCodeEnv"
@@ -88,6 +89,14 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    // Only the API-level checks gate CI: a call newer than minSdk without a version check.
+    lint {
+        checkOnly += setOf("NewApi", "InlinedApi")
+        error += "InlinedApi"
+        abortOnError = true
+        checkDependencies = false
     }
 }
 
