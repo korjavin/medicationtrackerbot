@@ -350,6 +350,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
             scene?.windows.first?.rootViewController?.dismiss(animated: false)
             Downloads.shared.dropExports()
+            PhotoPicker.drop()
             UIPrintInteractionController.shared.dismiss(animated: false)
         }
     }
@@ -787,6 +788,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         case "app.openSettings":
             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
             replyHandler(true, nil)
+        // Food → Gallery (bd med-w6gx.33, native/media-capture.js): PHPicker, not WebKit's sheet.
+        case "media.pickPhoto":
+            PhotoPicker.pick(reply: replyHandler)
         // The local → cloud move (bd med-o7zq.35, twin of Android med-nt9p.32.17):
         // the local page stashes its vault v1 JSON before local.leave; the new
         // account takes it and clears it once imported, so a failed import

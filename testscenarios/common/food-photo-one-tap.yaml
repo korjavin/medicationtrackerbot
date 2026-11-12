@@ -13,5 +13,5 @@ invariants:
   - A photo picked from Gallery appears in the Add sheet review
 covered_by:
   android: manual # Partial: android/app/src/test/java/com/example/medtracker/FilesTest.kt and android/qa/scenarios/food-photo.mjs cover intent selection, seeded image bytes and emulator flows; real camera and picker need a device
-  ios: manual
+  ios: ios/UITests/FlowQAFoodGalleryTests.swift#testGalleryOpensPhotoPicker # Partial: the Gallery half (Photos picker directly, cancel logs nothing, a picked sample reaches the review); Photo opening the camera stays a device check
 source: [med-nt9p.66, med-nt9p.67, med-nt9p.68, med-w6gx.33]

@@ -548,6 +548,21 @@
             window.showAddFoodModal({ view: 'describe' });
             document.getElementById('food-add-describe-text').value = 'breakfast';
             document.getElementById('food-add-primary-btn').click();
+        } else if (step.photoTrace) {
+            // The photo the Add sheet's review got (bd med-w6gx.33), without a
+            // provider on CI: the parse records the File into flow.memo.photo
+            // and never answers, so the review stays in its analysing state.
+            window.CloudFoodAI = Object.assign({}, window.CloudFoodAI, {
+                parseMealFromPhoto: async (file) => {
+                    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+                    // exif: photo.js' DateTimeOriginal read, what eaten_at comes from.
+                    const exif = typeof window.readFoodPhotoExifDate === 'function' ? await window.readFoodPhotoExifDate(file) : null;
+                    qa.memo.photo = { name: file.name, type: file.type, size: file.size, jpeg: head[0] === 0xFF && head[1] === 0xD8,
+                        exif: exif ? exif.toISOString() : null };
+                    if (qa.report?.flow) publish({ ...qa.report, flow: { ...qa.report.flow, memo: qa.memo } });
+                    return new Promise(() => {});
+                },
+            });
         } else if (step.scanStaple) {
             // FC1 (med-5jq.7) without a food DB on CI: the scanned barcode's
             // remote row and the matching food of the user's are step.scanStaple's.

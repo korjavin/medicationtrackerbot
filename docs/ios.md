@@ -1716,6 +1716,22 @@ was removed by the shell bead; what the build sets up stays (all in
   calls the shared bridge op `app.openSettings` (`{}` → `true`, opens
   `UIApplication.openSettingsURLString`, both modes; Android twin med-r1j2.19);
   `notifications.openSettings` is unchanged.
+- **Gallery → PHPicker** (bd med-w6gx.33, `App/PhotoPicker.swift`). WKWebView
+  answers `<input type=file accept=image/*>` without `capture` with its own
+  Photo Library / Take Photo / Choose File sheet and offers no hook to skip
+  it, so `pickPhoto({capture: false})` (Food → Add → Gallery, barcode from a
+  photo, the voice call's Gallery) goes to the shared bridge op
+  `media.pickPhoto` (both modes) when `shell.ops` lists it
+  (`web/static/js/native/media-capture.js`; an older shell keeps the input).
+  `{}` → `{name, type, lastModified (ms), data (base64)}`; cancel or a
+  swipe-down → `null`; a second call while a picker is up → `"busy"`; the
+  lock closing the picker → `null`. `PHPickerViewController` (images, one,
+  `.current` representation) runs out of process: no photo-library
+  permission, no Info.plist key. The bytes are the item's JPEG file
+  (`loadFileRepresentation` of `public.jpeg` when the item offers it, else
+  `public.image`), never re-encoded, so EXIF stays and the page's eaten_at
+  comes from DateTimeOriginal. Base64 over the reply costs ~1.4× the file (a
+  few MB). Photo (camera, `capture` on) stays the input.
 
 Production must serve the AASA: set `IOS_TEAM_ID` / `IOS_BUNDLE_ID` in the
 cloud env (docs/environment.md) and check that

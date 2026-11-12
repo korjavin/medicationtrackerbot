@@ -106,6 +106,7 @@ const BRIEF_JS = path.join(REPO_ROOT, 'web/static/js/features/brief.js');
 // depend on these globals being present at module-eval time.
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const NATIVE_WEB_MEDIA_CAPTURE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
+const NATIVE_MEDIA_CAPTURE_JS = path.join(REPO_ROOT, 'web/static/js/native/media-capture.js');
 const NATIVE_WEB_BARCODE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/barcode.js');
 const NATIVE_CLIPBOARD_JS = path.join(REPO_ROOT, 'web/static/js/native/clipboard.js');
 const NATIVE_BACK_JS = path.join(REPO_ROOT, 'web/static/js/native/back.js');
@@ -284,6 +285,7 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   // cached-fetch.js and features/tab-controller.js.
   evalFileCached(window, NATIVE_INDEX_JS);
   evalFileCached(window, NATIVE_WEB_MEDIA_CAPTURE_JS);
+  evalFileCached(window, NATIVE_MEDIA_CAPTURE_JS);
   evalFileCached(window, NATIVE_WEB_BARCODE_JS);
   evalFileCached(window, NATIVE_CLIPBOARD_JS);
   evalFileCached(window, NATIVE_BACK_JS);

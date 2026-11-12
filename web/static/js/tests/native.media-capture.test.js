@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const WEB_MC_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
+const IOS_MC_JS = path.join(REPO_ROOT, 'web/static/js/native/media-capture.js');
 
 function loadEnv({ mediaDevices, bridge } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -42,6 +43,7 @@ function loadEnv({ mediaDevices, bridge } = {}) {
     if (bridge) window.webkit = { messageHandlers: { wgNative: { postMessage: bridge } } };
     evalFile(NATIVE_INDEX_JS);
     evalFile(WEB_MC_JS);
+    evalFile(IOS_MC_JS);
     return { window, cleanup: () => dom.window.close() };
 }
 
@@ -395,5 +397,93 @@ describe('native/web/media-capture.js — web impl', () => {
         const res = await env.window.MediaCapture.openSettings();
         expect(res).toEqual({ opened: false, hint: 'Turn on Camera in iOS Settings → Med Tracker.' });
         expect(sent).toEqual(['shell.ops']);
+    });
+});
+
+// bd med-w6gx.33: on iOS, Gallery (pickPhoto { capture: false }) is the
+// shell's PHPicker (media.pickPhoto), not WebKit's three-way sheet.
+describe('native/media-capture.js — ios impl', () => {
+    let env;
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    const JPEG = [0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x10, 0x45, 0x78];
+    function shell(ops, replies = {}) {
+        const sent = [];
+        const bridge = (msg) => {
+            sent.push(msg.op);
+            if (msg.op === 'shell.ops') return Promise.resolve(ops);
+            if (msg.op in replies) return replies[msg.op] instanceof Error ? Promise.reject(replies[msg.op]) : Promise.resolve(replies[msg.op]);
+            return Promise.reject(new Error('unsupported: ' + msg.op));
+        };
+        return { sent, bridge };
+    }
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    it('is installed as window.MediaCapture inside the iOS shell only', () => {
+        env = loadEnv();
+        expect(env.window.MediaCapture).toBe(env.window.MediaCapture.__native.getImpl('MediaCapture', 'web'));
+        env.cleanup();
+        env = loadEnv({ bridge: shell([]).bridge });
+        expect(env.window.MediaCapture).toBe(env.window.MediaCapture.__native.getImpl('MediaCapture', 'ios'));
+    });
+
+    it('(a) Gallery with media.pickPhoto listed: one bridge call, a File with the shell\'s name/type/lastModified and bytes', async () => {
+        const data = Buffer.from(JPEG).toString('base64');
+        const s = shell(['shell.ops', 'media.pickPhoto'], { 'media.pickPhoto': { name: 'IMG_0001.jpg', type: 'image/jpeg', lastModified: 1762900000000, data } });
+        env = loadEnv({ bridge: s.bridge });
+        const stubs = installCanvasStubs(env.window);
+        try {
+            const file = await env.window.MediaCapture.pickPhoto({ capture: false });
+            expect(s.sent).toEqual(['shell.ops', 'media.pickPhoto']);
+            expect(stubs.log.inputs).toEqual([]);
+            expect(file).toBeInstanceOf(env.window.File);
+            expect(file.name).toBe('IMG_0001.jpg');
+            expect(file.type).toBe('image/jpeg');
+            expect(file.lastModified).toBe(1762900000000);
+            const bytes = await new Promise((resolve) => {
+                const reader = new env.window.FileReader();
+                reader.onload = () => resolve([...new Uint8Array(reader.result)]);
+                reader.readAsArrayBuffer(file);
+            });
+            expect(bytes).toEqual(JPEG);
+        } finally { stubs.restore(); }
+    });
+
+    it('(b) a cancelled picker (null reply) → null; a failing op → MediaCaptureError', async () => {
+        env = loadEnv({ bridge: shell(['media.pickPhoto'], { 'media.pickPhoto': null }).bridge });
+        expect(await env.window.MediaCapture.pickPhoto({ capture: false })).toBeNull();
+        env.cleanup();
+        env = loadEnv({ bridge: shell(['media.pickPhoto'], { 'media.pickPhoto': new Error('busy') }).bridge });
+        await expect(env.window.MediaCapture.pickPhoto({ capture: false })).rejects.toMatchObject({ name: 'MediaCaptureError', message: 'busy' });
+    });
+
+    it('(c) an older shell without media.pickPhoto: the hidden input, opened inside the tap, no bridge call', async () => {
+        const s = shell(['shell.ops', 'app.openSettings']);
+        env = loadEnv({ bridge: s.bridge });
+        await tick(); // the load-time shell.ops answer is in
+        const stubs = installCanvasStubs(env.window);
+        try {
+            const promise = env.window.MediaCapture.pickPhoto({ capture: false });
+            const input = stubs.log.inputs[0];
+            expect(input.click).toHaveBeenCalledTimes(1); // synchronously, while the gesture lasts
+            expect(input.hasAttribute('capture')).toBe(false);
+            input.dispatchEvent(new env.window.Event('cancel'));
+            expect(await promise).toBeNull();
+            expect(s.sent).toEqual(['shell.ops']);
+        } finally { stubs.restore(); }
+    });
+
+    it('(d) the camera (capture on) stays the web input with capture, no bridge call', async () => {
+        const s = shell(['media.pickPhoto'], { 'media.pickPhoto': null });
+        env = loadEnv({ bridge: s.bridge });
+        const stubs = installCanvasStubs(env.window);
+        try {
+            env.window.MediaCapture.pickPhoto();
+            const input = stubs.log.inputs[0];
+            expect(input.click).toHaveBeenCalledTimes(1);
+            expect(input.getAttribute('capture')).toBe('environment');
+            await tick();
+            expect(s.sent).toEqual(['shell.ops']);
+        } finally { stubs.restore(); }
     });
 });

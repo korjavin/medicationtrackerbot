@@ -49,7 +49,8 @@ enum LocalOrigin {
                             // joined account only (a no-op replying true anywhere else).
                             "local.erase",
                             "back.state", // the page's AppBack.canStep(): the left-edge swipe only while true (bd med-y7b4.4)
-                            "app.openSettings"] // AD13 "Allow camera in Settings" (bd med-r1j2.18, media-capture.js)
+                            "app.openSettings", // AD13 "Allow camera in Settings" (bd med-r1j2.18, media-capture.js)
+                            "media.pickPhoto"] // Food → Gallery via PHPicker (bd med-w6gx.33, PhotoPicker.swift)
 
     /// The left-edge swipe (bd med-y7b4.4, contract in web/static/js/native/back.js):
     /// the page's AppBack.step(); true = it stepped back, false = at the root,
