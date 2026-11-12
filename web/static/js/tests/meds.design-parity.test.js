@@ -48,6 +48,15 @@ describe('Meds design parity (Round 2, Task 4)', () => {
         expect(window.mountNextActionCard).toBeUndefined();
     });
 
+    // bd med-5uwb.1: My meds replaced the Schedule dose-slot buckets; taking
+    // lives on the Timeline. The forecast read and its bucket helpers stay gone.
+    it('the Schedule dose-slot bucket helpers are no longer defined', () => {
+        const { window } = env;
+        ['loadUpcomingDoses', '_medsUpcomingState', '_nextDoseByMedId', '_resolveNextDose', '_openBucketTake', '_formatHourHeader']
+            .forEach((name) => expect(window[name], name).toBeUndefined());
+        expect(typeof window.pendingSlotLabel).toBe('function');
+    });
+
     it('#med-modal is a kit pushed page (.wg-page), not a floating modal', () => {
         const { document } = env;
         const modal = document.getElementById('med-modal');

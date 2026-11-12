@@ -219,6 +219,52 @@ describe('cloud shim contract — meds CRUD flows (features/meds.js over web/dom
         expect(list).toHaveLength(0);
     });
 
+    // bd med-h1wk: the domain update replaces the record, so the list row's
+    // archive (and its boot replay) must send the full record.
+    it('archiving from the list row keeps dates, tz policy and stock tracking; so does the replay', async () => {
+        const { window } = env;
+        const full = {
+            schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), supplement: false,
+            start_date: '2026-09-01T00:00:00.000Z', end_date: '2026-12-01T00:00:00.000Z',
+            tz_shift_policy: 'strict', inventory_count: 12, pack_size: 28,
+        };
+        await window.apiCall('/api/medications', 'POST', { name: 'Losartan', dosage: '50mg', ...full });
+        await window.apiCall('/api/medications', 'POST', { name: 'Ramipril', dosage: '5mg', ...full });
+        const [losartan, ramipril] = await window.apiCall('/api/medications');
+        window.medications = [losartan, ramipril];
+
+        await (await window.deleteMed(losartan.id)).flush();
+        expect(await window._archiveMedById(ramipril.id)).toBe(true);
+
+        const list = await window.apiCall('/api/medications?archived=true');
+        list.forEach((med) => expect(med).toMatchObject({
+            archived: true, start_date: full.start_date, end_date: full.end_date,
+            tz_shift_policy: 'strict', inventory_count: 12, pack_size: 28,
+        }));
+    });
+
+    // bd med-5uwb.1: Stop tracking sets tracking off through the same full
+    // update and deletes nothing — the ledger survives.
+    it('Stop tracking turns tracking off, keeps the rest of the record and the restock ledger', async () => {
+        const { window } = env;
+        await window.apiCall('/api/medications', 'POST', {
+            name: 'Amoxicillin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+            start_date: '2026-09-01T00:00:00.000Z', end_date: '2026-09-10T00:00:00.000Z', tz_shift_policy: 'strict', inventory_count: 9,
+        });
+        const [med] = await window.apiCall('/api/medications');
+        await window.apiCall(`/api/medications/${med.id}/restock`, 'POST', { quantity: 21 });
+        window.medications = await window.apiCall('/api/medications');
+
+        expect(await window.stopTrackingMed(med.id)).toBe(true);
+
+        const [after] = await window.apiCall('/api/medications');
+        expect(after.inventory_count).toBeUndefined();
+        expect(after).toMatchObject({
+            archived: false, start_date: '2026-09-01T00:00:00.000Z', end_date: '2026-09-10T00:00:00.000Z', tz_shift_policy: 'strict',
+        });
+        expect((await window.apiCall(`/api/medications/${med.id}/restocks`)).map((r) => r.quantity)).toEqual([21]);
+    });
+
     it('restock starts tracking inventory (COALESCE-to-0) and is reflected in listRestocks + the medications list', async () => {
         const { window, document } = env;
         fillMedForm(window, document, { name: 'Metformin', dosage: '500mg' });

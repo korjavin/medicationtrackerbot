@@ -1,67 +1,67 @@
-// Meds schedule sub-tab (kit v2 M1, med-xso6.18; Phase 5 Task 4 before it).
+// Meds My meds list (kit v2 MY1, MY1 · end; bd med-5uwb.1), the `schedule`
+// sub-tab.
 //
-// Exercises renderMeds(): scheduled entries group by their next dose slot into
-// `.wg-meds-bucket` sections ("HH:MM · in Xh Ym" eyebrow + a "Take N" head
-// action), due doses get "HH:MM" buckets with a Pending chip and "Log late",
-// as-needed and archived meds collapse into their own buckets below, and each
-// row is a kit `.wg-row.wg-meds-row` (tap edits; Edit/Delete behind the
-// WGRowActions overflow menu; as-needed rows keep a per-row Log).
+// Exercises renderMeds(): one `.wg-row.wg-meds-row` per medication in exactly
+// one `.wg-section[data-group]` — Needs a refill, Scheduled, When needed, Not
+// in use, the Archived fold — then a neutral Add medication. Rows: tap edits,
+// Edit / Delete (+ "Log a dose") behind the ⋯ More menu, as-needed rows keep a
+// per-row Log, refill rows open the stock sheet, tracked Not-in-use rows carry
+// Stop tracking (an optimistic full-record update, bd med-h1wk).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
-function toLocalTime(date) {
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
-}
+const DAILY = JSON.stringify({ type: 'daily', times: ['08:20', '21:30'] });
+const AS_NEEDED = JSON.stringify({ type: 'as_needed' });
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-// `upcoming` seeds GET /api/medications/upcoming — the plan-aware forecast the
-// Schedule tab buckets by (bd med-gut.1). The default `null` makes the route
-// answer with null, i.e. NO forecast available (offline, or the legacy bot
-// server), which is the path that still falls back to the device-local
-// computation — the behaviour the pre-med-gut cases below were written for.
-// An explicit `[]` is a different thing: a forecast that answered and has
-// nothing upcoming.
-async function seedMedications(window, meds, upcoming = null) {
+async function seedMedications(window, meds) {
     window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh(meds);
     });
-    window.apiCall = vi.fn(async (endpoint) => {
-        if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) {
-            return upcoming;
-        }
-        return [];
-    });
+    window.apiCall = vi.fn(async () => []);
     await window.loadMeds();
 }
 
-// Wire shape of one /api/medications/upcoming row (web/domain/medintake.js's
-// upcomingDoses). local_date/local_time/day_offset are computed in the TRACKED
-// timezone by the domain, which is the whole point — the browser only knows
-// the device zone.
-function upcomingDose({
-    id, name, dosage = '', at, localDate, localTime, dayOffset = 0, step = null
-}) {
-    const row = {
-        medication_id: id,
-        med_name: name,
-        dosage,
-        scheduled_at: at.toISOString(),
-        local_date: localDate,
-        local_time: localTime,
-        day_offset: dayOffset,
-        source: step ? 'tz_step' : 'schedule'
-    };
-    if (step) {
-        row.step_number = step.number;
-        row.total_steps = step.total;
-        row.note = step.note;
-    }
-    return row;
+async function flushMicrotasks() {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
-describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
+function deferred() {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+}
+
+const daysAgo = (n) => new Date(Date.now() - n * DAY_MS).toISOString();
+// The editor's stored day: the local calendar day as UTC midnight.
+function storedDay(offsetDays) {
+    const d = new Date(Date.now() + offsetDays * DAY_MS);
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { iso: `${ymd}T00:00:00.000Z`, label: new Date(d.getFullYear(), d.getMonth(), d.getDate()).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) };
+}
+
+const rowOf = (document, id) => document.querySelector(`#med-list .wg-meds-row[data-med-id="${id}"]`);
+const metaOf = (document, id) => rowOf(document, id).querySelector('.wg-meds-row__schedule').textContent;
+const groupIds = (document, group) => Array.from(document.querySelectorAll(`#med-list [data-group="${group}"] .wg-meds-row`)).map((r) => r.dataset.medId);
+
+// One med per group, plus a second refill and an archived one.
+function everyGroup() {
+    return [
+        { id: 1, name: 'Metformin', dosage: '1000 mg', schedule: DAILY, archived: false, inventory_count: 6, last_taken_at: daysAgo(0) },
+        { id: 2, name: 'Ibuprofen', dosage: '400 mg', schedule: AS_NEEDED, archived: false, inventory_count: -17, last_taken_at: daysAgo(1) },
+        { id: 3, name: 'Candecor', dosage: '16 mg', schedule: JSON.stringify({ type: 'daily', times: ['21:30'] }), archived: false, inventory_count: 141 },
+        { id: 4, name: 'Vitamin D3', dosage: '20000 IU', schedule: JSON.stringify({ type: 'weekly', days: [0], times: ['08:20'] }), archived: false },
+        { id: 5, name: 'Paracetamol', dosage: '500 mg', schedule: AS_NEEDED, archived: false, inventory_count: 12, last_taken_at: daysAgo(3) },
+        { id: 6, name: 'Amoxicillin', dosage: '500 mg', schedule: DAILY, archived: false, inventory_count: 9, end_date: storedDay(-10).iso, last_taken_at: daysAgo(40) },
+        { id: 7, name: 'Prednisolone', dosage: '5 mg', schedule: AS_NEEDED, archived: false, inventory_count: 20, last_taken_at: daysAgo(45) },
+        { id: 8, name: 'Omeprazole', dosage: '20 mg', schedule: DAILY, archived: true, inventory_count: 0 },
+    ];
+}
+
+describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
     let env;
 
     beforeEach(() => {
@@ -74,320 +74,130 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         env = null;
     });
 
-    it('groups scheduled meds by next dose slot into `.wg-meds-bucket` sections with a "Take N" action', async () => {
+    it('every med shows once, in groups in order with data-group, and Add medication ends the list', async () => {
         const { window, document } = env;
-        const now = new Date();
-        // Two meds share one dose instant (~+1h) and a third is later (~+4h).
-        const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
-        inOneHour.setMinutes(5, 0, 0);
-        const alsoInOneHour = inOneHour; // same slot
-        const fourHoursOut = new Date(inOneHour.getTime() + 3 * 60 * 60 * 1000);
-
-        await seedMedications(window, [
-            {
-                id: 1,
-                name: 'Allopurinol',
-                dosage: '100mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }),
-                archived: false
-            },
-            {
-                id: 2,
-                name: 'Bisoprolol',
-                dosage: '5mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(alsoInOneHour)] }),
-                archived: false
-            },
-            {
-                id: 3,
-                name: 'Metformin',
-                dosage: '500mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(fourHoursOut)] }),
-                archived: false
-            }
-        ]);
+        await seedMedications(window, everyGroup());
 
         const list = document.getElementById('med-list');
-        const sections = list.querySelectorAll('.wg-meds-bucket__label');
-        expect(sections.length).toBeGreaterThanOrEqual(2);
+        const sections = Array.from(list.querySelectorAll(':scope > .wg-section'));
+        expect(sections.map((s) => s.dataset.group)).toEqual(['refill', 'scheduled', 'as-needed', 'not-in-use', 'archived']);
+        expect(sections.slice(0, 4).map((s) => s.querySelector('.wg-eyebrow').textContent))
+            .toEqual(['Needs a refill', 'Scheduled', 'When needed', 'Not in use']);
+        // Out before Low; the rest by name.
+        expect(groupIds(document, 'refill')).toEqual(['2', '1']);
+        expect(groupIds(document, 'scheduled')).toEqual(['3', '4']);
+        expect(groupIds(document, 'as-needed')).toEqual(['5']);
+        expect(groupIds(document, 'not-in-use')).toEqual(['6', '7']);
+        expect(groupIds(document, 'archived')).toEqual(['8']);
+        const ids = Array.from(list.querySelectorAll('.wg-meds-row')).map((r) => r.dataset.medId).sort();
+        expect(ids).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
 
-        // First section header matches HH:MM · in ...
-        const firstHeader = sections[0].textContent.trim();
-        expect(firstHeader).toMatch(/^\d{2}:\d{2} · in /);
-
-        const rows = list.querySelectorAll('.wg-meds-row');
-        expect(rows.length).toBe(3);
-        rows.forEach((row) => {
-            expect(row.classList.contains('wg-row')).toBe(true);
-            expect(row.classList.contains('med-item')).toBe(true);
-        });
-
-        // Both +1h meds cluster in the first bucket; its head action takes both.
-        const buckets = list.querySelectorAll('.wg-meds-bucket');
-        expect(buckets.length).toBeGreaterThanOrEqual(2);
-        const names = Array.from(buckets[0].querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent);
-        expect(names).toEqual(['Allopurinol', 'Bisoprolol']);
-        expect(buckets[0].querySelector('.wg-meds-bucket__action').textContent).toBe('Take 2');
-        expect(buckets[1].querySelector('.wg-meds-bucket__action').textContent).toBe('Take 1');
-    });
-
-    it('"Take N" opens the confirm modal for the bucket\'s meds at the slot instant', async () => {
-        const { window, document } = env;
-        const slot = new Date(Date.now() + 60 * 60 * 1000);
-        slot.setMinutes(5, 0, 0);
-        const spy = vi.fn();
-        window.showMedicationConfirmModal = spy;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', dosage: '100mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(slot)] }), archived: false },
-            { id: 2, name: 'Bisoprolol', dosage: '5mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(slot)] }), archived: false }
-        ]);
-        document.querySelector('#med-list .wg-meds-bucket__action').click();
+        const add = list.lastElementChild;
+        expect(add.matches('button.wg-btn.wg-btn--block')).toBe(true);
+        expect(add.classList.contains('wg-btn--primary')).toBe(false);
+        expect(add.textContent).toBe('Add medication');
+        const spy = vi.spyOn(window, 'showAddModal').mockImplementation(() => {});
+        add.click();
         expect(spy).toHaveBeenCalledTimes(1);
-        const [ids, , scheduledAt, mode] = spy.mock.calls[0];
-        expect(ids).toEqual([1, 2]);
-        expect(new Date(scheduledAt).getTime()).toBe(slot.getTime());
-        expect(mode).toBe('confirm');
+
+        // Taking scheduled doses lives on the Timeline now.
+        expect(list.querySelector('.wg-meds-bucket__action')).toBeNull();
+        expect(list.textContent).not.toMatch(/Take \d|Log late/);
     });
 
-    it('the take sheet for an upcoming, unmaterialized slot hides Snooze and Skip', () => {
+    it('row meta per group: when · stock, weekly days, When needed, Not in use', async () => {
         const { window, document } = env;
-        const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-        window.showMedicationConfirmModal([1], ['Allopurinol'], future, 'confirm', []);
-        expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(true);
-        expect(document.getElementById('med-confirm-skip-btn').classList.contains('hidden')).toBe(true);
+        await seedMedications(window, [
+            ...everyGroup(),
+            { id: 9, name: 'Zinc', schedule: JSON.stringify({ type: 'weekly', days: [1, 3, 5], times: ['08:20'] }), archived: false, inventory_count: 30, last_taken_at: daysAgo(2) },
+            { id: 10, name: 'Old cream', schedule: AS_NEEDED, archived: false },
+        ]);
+        expect(metaOf(document, 1)).toBe('08:20, 21:30 · 6 left · lasts 3 days');
+        expect(metaOf(document, 2)).toBe('When needed');
+        expect(metaOf(document, 3)).toBe('21:30 · 141 left · lasts 141 days');
+        expect(metaOf(document, 4)).toBe('Sundays 08:20 · stock not tracked');
+        expect(metaOf(document, 9)).toBe('Mon, Wed, Fri 08:20 · 30 left · lasts 70 days');
+        expect(metaOf(document, 5)).toBe('Last 3 days ago · 12 left');
+        expect(metaOf(document, 6)).toBe(`Ended ${storedDay(-10).label} · 9 left`);
+        expect(metaOf(document, 7)).toBe('Last 45 days ago · 20 left');
+        expect(metaOf(document, 10)).toBe('Never taken');
 
-        window.showMedicationConfirmModal([1], ['Allopurinol'], new Date(Date.now() - 60000).toISOString(), 'confirm', []);
-        expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('med-confirm-skip-btn').classList.contains('hidden')).toBe(false);
+        // The Out/Low chip only in Needs a refill; none on Scheduled rows.
+        expect(rowOf(document, 2).querySelector('.wg-meds-stock__chip').textContent).toBe('Out · 17 over');
+        expect(rowOf(document, 2).querySelector('.wg-meds-stock__chip').classList.contains('wg-chip--danger')).toBe(true);
+        expect(rowOf(document, 1).querySelector('.wg-meds-stock__chip').textContent).toBe('Low');
+        expect(rowOf(document, 1).querySelector('.wg-meds-stock__chip').classList.contains('wg-chip--warn')).toBe(true);
+        [3, 4, 5, 6, 7, 9].forEach((id) => expect(rowOf(document, id).querySelector('.wg-chip--warn, .wg-chip--danger')).toBeNull());
+
+        // Trailing buttons: Update (refill), Log (When needed), Stop tracking
+        // (tracked Not in use only), none on Scheduled.
+        expect(rowOf(document, 1).querySelector('.wg-meds-stock__update').textContent).toBe('Update');
+        expect(rowOf(document, 5).querySelector('.wg-meds-row__log-btn').textContent).toBe('Log');
+        expect(rowOf(document, 6).querySelector('.wg-meds-row__stop').textContent).toBe('Stop tracking');
+        expect(rowOf(document, 10).querySelector('.wg-meds-row__stop')).toBeNull();
+        expect(rowOf(document, 3).querySelector('.wg-meds-row__actions .wg-btn--sm')).toBeNull();
     });
 
-    it('a due PENDING intake renders a Pending bucket first whose "Log late" confirms that intake', async () => {
+    it('Needs a refill: Update opens the stock sheet for that med', async () => {
         const { window, document } = env;
-        const missedAt = new Date(Date.now() - 2 * 60 * 1000);
-        missedAt.setSeconds(0, 0);
-        const later = new Date(Date.now() + 60 * 60 * 1000);
-        const spy = vi.fn();
-        window.showMedicationConfirmModal = spy;
-        const meds = [
-            { id: 7, name: 'Losartan', dosage: '50mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(missedAt)] }), archived: false },
-            { id: 8, name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(later)] }), archived: false }
-        ];
-        window.DataStore.loadSWR = vi.fn(async (options) => { await options.onFresh(meds); });
-        window.apiCall = vi.fn(async (endpoint) => {
-            if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
-                return [{ occId: 'intake-7-x', medId: 7, name: 'Losartan', plannedAt: missedAt.toISOString(), state: 'due' }];
-            }
-            if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) return null;
-            return [];
+        await seedMedications(window, everyGroup());
+        rowOf(document, 1).querySelector('.wg-meds-stock__update').click();
+        const sheet = document.getElementById('stock-sheet');
+        expect(sheet).not.toBeNull();
+        expect(sheet.querySelector('.wg-eyebrow').textContent).toBe('Metformin · 1000 mg');
+    });
+
+    it('the Archived fold is collapsed on every render and toggles; archived rows carry no stock', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [
+            ...everyGroup(),
+            { id: 11, name: 'Atorvastatin', schedule: DAILY, archived: true, inventory_count: 3 },
+        ]);
+        const section = document.querySelector('#med-list [data-group="archived"]');
+        const fold = section.querySelector('.wg-meds-fold');
+        const rows = section.querySelector('.wg-meds-archived');
+        expect(fold.querySelector('.wg-row__title').textContent).toBe('Archived');
+        expect(fold.querySelector('.wg-row__meta').textContent).toBe('2 meds');
+        expect(fold.getAttribute('role')).toBe('button');
+        expect(fold.getAttribute('aria-expanded')).toBe('false');
+        expect(rows.hidden).toBe(true);
+
+        fold.click();
+        expect(fold.getAttribute('aria-expanded')).toBe('true');
+        expect(rows.hidden).toBe(false);
+        fold.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(rows.hidden).toBe(true);
+
+        fold.click();
+        window.renderMeds();
+        expect(document.querySelector('#med-list .wg-meds-archived').hidden).toBe(true);
+
+        ['8', '11'].forEach((id) => {
+            const row = rowOf(document, id);
+            expect(row.classList.contains('wg-row--muted')).toBe(true);
+            expect(row.querySelector('.wg-meds-row__archived').textContent).toBe('Archived');
+            expect(row.querySelector('.wg-meds-stock__chip, .wg-meds-stock__update, .wg-chip--warn, .wg-chip--danger')).toBeNull();
+            expect(row.textContent).not.toMatch(/left|Out/);
         });
-        await window.loadMeds();
-
-        const buckets = document.querySelectorAll('#med-list .wg-meds-bucket');
-        const first = buckets[0];
-        // Pending, never "missed" (owner, med-wi09): a Pending chip + sky lead.
-        expect(first.querySelector('.wg-meds-bucket__label').textContent).toMatch(/^\d{2}:\d{2}( · yesterday)?$/);
-        expect(first.querySelector('.wg-chip--pending').textContent).toBe('Pending');
-        expect(first.querySelector('.wg-eyebrow--danger')).toBeNull();
-        expect(first.querySelector('.wg-row__lead--sky')).not.toBeNull();
-        expect(first.querySelector('.wg-row__lead--danger')).toBeNull();
-        expect(Array.from(first.querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent)).toEqual(['Losartan']);
-        // The missed med is not repeated under an upcoming bucket.
-        expect(document.querySelectorAll('#med-list .wg-meds-row[data-med-id="7"]').length).toBe(1);
-
-        const action = first.querySelector('.wg-meds-bucket__action');
-        expect(action.textContent).toBe('Log late');
-        action.click();
-        expect(spy).toHaveBeenCalledTimes(1);
-        const [ids, , scheduledAt, mode, intakeIds] = spy.mock.calls[0];
-        expect(ids).toEqual([7]);
-        expect(scheduledAt).toBe(missedAt.toISOString());
-        expect(mode).toBe('confirm');
-        expect(intakeIds).toEqual(['intake-7-x']);
+        expect(document.querySelectorAll('#med-list .wg-meds-row[data-med-id="8"]')).toHaveLength(1);
     });
 
-    // bd med-ry7b.4: the Schedule tab's pending buckets are the pending set the
-    // Meds badge and the timeline focus card count — every due or snoozed
-    // dose of any day (GET /api/doses?status=due,snoozed&to=now), no 24h window.
-    it('pending buckets list a dose due 3 days ago and one snoozed today, from the one pending read', async () => {
+    it('row tap edits; Edit / Delete / "Log a dose" live in the overflow; When needed rows keep a Log button', async () => {
         const { window, document } = env;
-        const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-        old.setSeconds(0, 0);
-        const snoozed = new Date(Date.now() - 2 * 60 * 1000);
-        snoozed.setSeconds(0, 0);
-        const meds = [
-            { id: 7, name: 'Losartan', dosage: '50mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(old)] }), archived: false },
-            { id: 8, name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(snoozed)] }), archived: false }
-        ];
-        const reads = [];
-        window.DataStore.loadSWR = vi.fn(async (options) => { await options.onFresh(meds); });
-        window.apiCall = vi.fn(async (endpoint) => {
-            if (typeof endpoint === 'string' && endpoint.startsWith('/api/doses')) {
-                reads.push(endpoint);
-                return [
-                    { occId: 'intake-7-old', medId: 7, plannedAt: old.toISOString(), state: 'due' },
-                    { occId: 'intake-8-now', medId: 8, plannedAt: snoozed.toISOString(), state: 'snoozed', snoozedUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString() }
-                ];
-            }
-            if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) return [];
-            return [];
-        });
-        await window.loadMeds();
-
-        expect(reads.length).toBeGreaterThan(0);
-        reads.forEach((path) => {
-            const p = new URL(path, 'https://x.test').searchParams;
-            expect(p.get('status')).toBe('due,snoozed');
-            expect(p.get('from')).toBeNull();
-        });
-
-        const pending = Array.from(document.querySelectorAll('#med-list .wg-meds-bucket'))
-            .filter((b) => b.querySelector('.wg-chip--pending'));
-        const labels = pending.map((b) => b.querySelector('.wg-meds-bucket__label').textContent);
-        expect(labels).toHaveLength(2);
-        expect(labels[0]).toBe(`${toLocalTime(old)} · 3 days ago`);
-        // Right after midnight 2 min ago was yesterday.
-        expect(labels[1]).toMatch(new RegExp(`^${toLocalTime(snoozed)}( · yesterday)?$`));
-        expect(pending.map((b) => Array.from(b.querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent)))
-            .toEqual([['Losartan'], ['Metformin']]);
-    });
-
-    it('renders the inventory tag in both normal and low-stock states', async () => {
-        const { window, document } = env;
-        const now = new Date();
-        const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
-
         await seedMedications(window, [
-            {
-                id: 1,
-                name: 'Aspirin',
-                dosage: '75mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }),
-                archived: false,
-                inventory_count: 2 // one per day ⇒ 2 days of stock ⇒ low (<7)
-            },
-            {
-                id: 2,
-                name: 'Metformin',
-                dosage: '500mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }),
-                archived: false,
-                inventory_count: 60 // plenty
-            }
-        ]);
-
-        const aspirinRow = Array.from(document.querySelectorAll('.wg-meds-row'))
-            .find((el) => el.textContent.includes('Aspirin'));
-        const metforminRow = Array.from(document.querySelectorAll('.wg-meds-row'))
-            .find((el) => el.textContent.includes('Metformin'));
-
-        const lowTag = aspirinRow.querySelector('.wg-meds-row__inventory');
-        expect(lowTag).not.toBeNull();
-        expect(lowTag.classList.contains('wg-chip')).toBe(true);
-        expect(lowTag.classList.contains('wg-chip--warn')).toBe(true);
-        expect(lowTag.textContent).toBe('2 left');
-
-        const okTag = metforminRow.querySelector('.wg-meds-row__inventory');
-        expect(okTag).not.toBeNull();
-        expect(okTag.classList.contains('wg-chip--ok')).toBe(true);
-        expect(okTag.textContent).toBe('60 left');
-    });
-
-    it('renders negative and zero stock as Out labels, never a negative count', async () => {
-        const { window, document } = env;
-        const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
-        const sched = JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] });
-        await seedMedications(window, [
-            { id: 1, name: 'Aspirin', dosage: '75mg', schedule: sched, archived: false, inventory_count: -17 },
-            { id: 2, name: 'Metformin', dosage: '500mg', schedule: sched, archived: false, inventory_count: 0 }
-        ]);
-        const tagOf = (n) => Array.from(document.querySelectorAll('.wg-meds-row'))
-            .find((el) => el.textContent.includes(n)).querySelector('.wg-meds-row__inventory');
-        expect(tagOf('Aspirin').textContent).toBe('Out \u00B7 17 over');
-        expect(tagOf('Aspirin').classList.contains('wg-chip--danger')).toBe(true);
-        expect(tagOf('Metformin').textContent).toBe('Out');
-        expect(tagOf('Metformin').classList.contains('wg-chip--danger')).toBe(true);
-    });
-
-    it('an optimistic (not yet committed) med row shows the shared Pending sync chip', async () => {
-        const { window, document } = env;
-        const sched = JSON.stringify({ type: 'daily', times: [toLocalTime(new Date(Date.now() + 60 * 60 * 1000))] });
-        await seedMedications(window, [
-            { id: 'local_optimistic_1', name: 'Queued', schedule: sched, archived: false, _optimistic: true },
-            { id: 2, name: 'Synced', schedule: sched, archived: false }
-        ]);
-        const rowOf = (n) => Array.from(document.querySelectorAll('.wg-meds-row')).find((el) => el.textContent.includes(n));
-        const chip = rowOf('Queued').querySelector('.wg-chip--pending');
-        expect(chip).not.toBeNull();
-        expect(chip.textContent).toBe('Pending');
-        expect(rowOf('Synced').querySelector('.wg-chip--pending')).toBeNull();
-    });
-
-    it('collapses as-needed and archived meds into separate section-label groups after the scheduled ones', async () => {
-        const { window, document } = env;
-        const now = new Date();
-        const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
-
-        await seedMedications(window, [
-            {
-                id: 1,
-                name: 'Scheduled Med',
-                dosage: '10mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }),
-                archived: false
-            },
-            {
-                id: 2,
-                name: 'PRN Med',
-                dosage: '1 tab',
-                schedule: JSON.stringify({ type: 'as_needed' }),
-                archived: false
-            },
-            {
-                id: 3,
-                name: 'Archived Med',
-                dosage: '2mg',
-                schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
-                archived: true
-            }
-        ]);
-
-        const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
-            .map((h) => h.textContent.trim());
-        expect(headers.length).toBe(3);
-        expect(headers[0]).toMatch(/^\d{2}:\d{2} · in /);
-        expect(headers[1]).toBe('As needed');
-        expect(headers[2]).toBe('Archived');
-
-        const archivedRow = Array.from(list.querySelectorAll('.wg-meds-row'))
-            .find((el) => el.textContent.includes('Archived Med'));
-        expect(archivedRow.classList.contains('archived')).toBe(true);
-
-        const prnRow = Array.from(list.querySelectorAll('.wg-meds-row'))
-            .find((el) => el.textContent.includes('PRN Med'));
-        expect(prnRow).not.toBeNull();
-        expect(prnRow.querySelector('.wg-meds-row__schedule').textContent).toBe('As Needed');
-    });
-
-    it('row tap edits; Edit / Delete / "Log a dose" live in the overflow; as-needed rows keep a Log button', async () => {
-        const { window, document } = env;
-        const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
-
-        await seedMedications(window, [
-            { id: 42, name: 'Soon Med', dosage: '10mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }), archived: false },
-            { id: 43, name: 'PRN Med', dosage: '1 tab', schedule: JSON.stringify({ type: 'as_needed' }), archived: false }
+            { id: 42, name: 'Soon Med', dosage: '10mg', schedule: DAILY, archived: false },
+            { id: 43, name: 'PRN Med', dosage: '1 tab', schedule: AS_NEEDED, archived: false, last_taken_at: daysAgo(1) },
         ]);
 
         const editSpy = vi.spyOn(window, 'showEditModal').mockImplementation(() => {});
         const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
         const deleteSpy = vi.spyOn(window, 'deleteMed').mockImplementation(() => {});
 
-        const row = document.querySelector('.wg-meds-row[data-med-id="42"]');
-        expect(row).not.toBeNull();
+        const row = rowOf(document, 42);
+        expect(row.closest('[data-group]').dataset.group).toBe('scheduled');
         expect(row.classList.contains('wg-swipe')).toBe(true);
-        // Scheduled rows: the bucket head owns Take; no per-row Log button.
         expect(row.querySelector('.wg-meds-row__log-btn')).toBeNull();
-        expect(row.querySelector('.icon-action-btn')).toBeNull();
+        expect(row.querySelector('.wg-swipe__more')).not.toBeNull();
 
         clickRowAction(row, 'Log a dose');
         expect(logSpy).toHaveBeenCalledWith(42, 'Soon Med');
@@ -400,8 +210,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         row.querySelector('.wg-meds-row__info').click();
         expect(editSpy).toHaveBeenCalledWith(42);
 
-        const prnLog = document.querySelector('.wg-meds-row[data-med-id="43"] .wg-meds-row__log-btn');
-        expect(prnLog).not.toBeNull();
+        const prnLog = rowOf(document, 43).querySelector('.wg-meds-row__log-btn');
         expect(prnLog.classList.contains('wg-btn')).toBe(true);
         logSpy.mockClear();
         editSpy.mockClear();
@@ -410,158 +219,58 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(editSpy).not.toHaveBeenCalled();
     });
 
-    it('Add medication is the ghost icon button in the Meds app bar, not inside a sub-tab pane', () => {
-        const { document } = env;
-        const btn = document.getElementById('add-btn');
-        expect(btn).not.toBeNull();
-        expect(btn.classList.contains('wg-btn')).toBe(true);
-        expect(btn.classList.contains('wg-btn--ghost')).toBe(true);
-        expect(btn.classList.contains('wg-toolbar-btn')).toBe(false);
-        expect(document.querySelector('#meds-view .wg-appbar').contains(btn)).toBe(true);
-        expect(document.getElementById('med-schedule-tab').contains(btn)).toBe(false);
-        expect(document.querySelector('.wg-meds-schedule-header')).toBeNull();
-        expect(btn.textContent.trim()).toBe('');
-    });
-
-
-    // bd med-gut.1 — the Schedule tab used to bucket by a naive device-local
-    // next-dose (medication-utils.getNextScheduledDate), which ignored the
-    // tracked IANA timezone and any approved tz transition plan, so it
-    // disagreed with Home's next-intake card. It now buckets by
-    // GET /api/medications/upcoming, which runs the same plan-aware engine.
-    it('buckets by the plan-aware forecast rather than the device-local schedule', async () => {
+    it('an optimistic (not yet committed) med row shows the shared Pending sync chip', async () => {
         const { window, document } = env;
-        // The stored schedule says 08:00; the forecast says 05:30 (an approved
-        // transition plan shifted the dose). The header must follow the
-        // forecast, exactly like Home's next-intake card does.
-        const shifted = new Date(Date.now() + 90 * 60 * 1000);
-
         await seedMedications(window, [
-            {
-                id: 7,
-                name: 'Metformin',
-                dosage: '500mg',
-                schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
-                archived: false
-            }
-        ], [
-            upcomingDose({
-                id: 7,
-                name: 'Metformin',
-                dosage: '500mg',
-                at: shifted,
-                localDate: '2026-08-16',
-                localTime: '05:30',
-                step: { number: 1, total: 2, note: 'Metformin (strict — gradual shift): step 1/2' }
-            })
+            { id: 'local_optimistic_1', name: 'Queued', schedule: DAILY, archived: false, _optimistic: true },
+            { id: 2, name: 'Synced', schedule: DAILY, archived: false },
         ]);
-
-        const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
-            .map((h) => h.textContent.trim());
-        // Bucket header carries the forecast's tracked-timezone clock time,
-        // never the 08:00 written on the medication.
-        expect(headers[0]).toMatch(/^05:30 · in /);
-        expect(headers.some((h) => h.startsWith('08:00'))).toBe(false);
-        expect(headers).not.toContain('Scheduled');
+        const chip = rowOf(document, 'local_optimistic_1').querySelector('.wg-chip--pending');
+        expect(chip.textContent).toBe('Pending');
+        expect(rowOf(document, 2).querySelector('.wg-chip--pending')).toBeNull();
     });
 
-    // bd med-gut.1 — a forecast that answered with no row for a medication is
-    // a real answer (course ended, starts past the horizon, every slot inside
-    // it already handled). Recomputing it device-locally would resurrect the
-    // bogus bucket this change removes.
-    it('puts a med the forecast has no dose for in the no-time "Scheduled" group', async () => {
-        const { window, document } = env;
-
-        await seedMedications(window, [
-            {
-                id: 4,
-                name: 'FinishedCourse',
-                dosage: '10mg',
-                schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
-                archived: false
-            }
-        ], []);
-
-        const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
-            .map((h) => h.textContent.trim());
-        // The forecast lives in its own sub-tab now (bd med-4oxj), so the
-        // Schedule list carries the no-time group and nothing else.
-        expect(headers).toEqual(['Scheduled']);
-        expect(list.querySelectorAll('.wg-meds-row').length).toBe(1);
-    });
-
-    // bd med-gut.1 — a legacy "HH:MM" schedule string used to fail
-    // parseMedicationSchedule's bare JSON.parse, so the med lost its next dose
-    // and dropped into the no-time "Scheduled" bucket.
-    it('gives a legacy "HH:MM" schedule string a real hour bucket', async () => {
-        const { window, document } = env;
-
-        await seedMedications(window, [
-            {
-                id: 3,
-                name: 'LegacyMed',
-                dosage: '10mg',
-                schedule: '08:00',
-                archived: false
-            }
-        ]);
-
-        const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
-            .map((h) => h.textContent.trim());
-        expect(headers).toEqual([expect.stringMatching(/^08:00 · in /)]);
-        expect(headers).not.toContain('Scheduled');
-
-        const row = list.querySelector('.wg-meds-row');
-        expect(row.querySelector('.wg-meds-row__schedule').textContent).toBe('Daily at 08:00');
-    });
-
-    // bd med-aec1 — course dates read as copy, not "12.09.2026, – N/A".
+    // bd med-aec1 — course dates read as copy, after the meta.
     it('renders course dates as "since"/"until"/range copy and omits open ends', async () => {
         const { document, window } = env;
-        const daily = JSON.stringify({ type: 'daily', times: ['09:00'] });
         await seedMedications(window, [
-            { id: 11, name: 'StartOnly', schedule: daily, start_date: '2026-09-12T00:00:00.000Z', archived: false },
-            { id: 12, name: 'Bounded', schedule: daily, start_date: '2026-09-12T00:00:00.000Z', end_date: '2026-10-01T00:00:00.000Z', archived: false },
-            { id: 13, name: 'EndOnly', schedule: daily, end_date: '2026-10-01T00:00:00.000Z', archived: false },
-            { id: 14, name: 'Open', schedule: daily, archived: false }
+            { id: 11, name: 'StartOnly', schedule: DAILY, start_date: '2026-09-12T00:00:00.000Z', archived: false },
+            { id: 12, name: 'Bounded', schedule: DAILY, start_date: '2026-09-12T00:00:00.000Z', end_date: '2099-10-01T00:00:00.000Z', archived: false },
+            { id: 13, name: 'EndOnly', schedule: DAILY, end_date: '2099-10-01T00:00:00.000Z', archived: false },
+            { id: 14, name: 'Open', schedule: DAILY, archived: false },
         ]);
         const dates = (id) => {
-            const el = document.querySelector(`.wg-meds-row[data-med-id="${id}"] .wg-meds-row__dates`);
+            const el = rowOf(document, id).querySelector('.wg-meds-row__dates');
             return el ? el.textContent : null;
         };
-        // Wall-clock day of the stored date part, in the runtime locale ("Sep 12" in en).
-        const day = (m, d) => new Date(2026, m, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-        expect(dates(11)).toBe(`· since ${day(8, 12)}`);
-        expect(dates(12)).toBe(`· ${day(8, 12)} – ${day(9, 1)}`);
-        expect(dates(13)).toBe(`· until ${day(9, 1)}`);
+        const day = (y, m, d) => new Date(y, m, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        expect(dates(11)).toBe(`· since ${day(2026, 8, 12)}`);
+        expect(dates(12)).toBe(`· ${day(2026, 8, 12)} – ${day(2099, 9, 1)}`);
+        expect(dates(13)).toBe(`· until ${day(2099, 9, 1)}`);
         expect(dates(14)).toBeNull();
+        // Tags follow the meta.
+        const meta = rowOf(document, 13).querySelector('.wg-meds-row__meta');
+        expect(meta.firstElementChild.classList.contains('wg-meds-row__schedule')).toBe(true);
     });
 
-    it('rendering twice replaces the list cleanly (no duplicate section headers)', async () => {
+    it('a course ending today is still Scheduled; one that ended yesterday with no dose is Not in use', async () => {
         const { window, document } = env;
-        const now = new Date();
-        const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
-
         await seedMedications(window, [
-            {
-                id: 1,
-                name: 'Scheduled Med',
-                dosage: '10mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }),
-                archived: false
-            }
+            { id: 1, name: 'Today', schedule: DAILY, archived: false, end_date: storedDay(0).iso },
+            { id: 2, name: 'Yesterday', schedule: DAILY, archived: false, end_date: storedDay(-1).iso },
         ]);
+        expect(groupIds(document, 'scheduled')).toEqual(['1']);
+        expect(groupIds(document, 'not-in-use')).toEqual(['2']);
+    });
 
+    it('rendering twice replaces the list cleanly (no duplicate sections)', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [{ id: 1, name: 'Scheduled Med', dosage: '10mg', schedule: DAILY, archived: false }]);
         window.renderMeds();
-
         const list = document.getElementById('med-list');
-        const headers = list.querySelectorAll('.wg-meds-bucket__label');
-        expect(headers.length).toBe(1);
-        const rows = list.querySelectorAll('.wg-meds-row');
-        expect(rows.length).toBe(1);
+        expect(list.querySelectorAll('.wg-section')).toHaveLength(1);
+        expect(list.querySelectorAll('.wg-meds-row')).toHaveLength(1);
+        expect(list.querySelectorAll('.wg-btn--block')).toHaveLength(1);
     });
 
     it('zero medications renders the kit empty state whose action opens Add (med-xso6.4)', async () => {
@@ -571,15 +280,25 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
 
         const list = document.getElementById('med-list');
         const empty = list.querySelector('.wg-empty');
-        expect(empty).not.toBeNull();
         expect(empty.querySelector('.wg-empty__title').textContent).toBe('No medications yet');
-        expect(list.querySelectorAll('.wg-meds-row').length).toBe(0);
+        expect(list.querySelectorAll('.wg-meds-row')).toHaveLength(0);
+        expect(list.querySelector('.wg-btn--block')).toBeNull();
 
         const action = empty.querySelector('.wg-empty__acts button');
         expect(action.classList.contains('wg-btn--primary')).toBe(true);
         const spy = vi.spyOn(window, 'showAddModal').mockImplementation(() => {});
         action.click();
         expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('Add medication is the ghost icon button in the Meds app bar, not inside a sub-tab pane', () => {
+        const { document } = env;
+        const btn = document.getElementById('add-btn');
+        expect(btn.classList.contains('wg-btn')).toBe(true);
+        expect(btn.classList.contains('wg-btn--ghost')).toBe(true);
+        expect(document.querySelector('#meds-view .wg-appbar').contains(btn)).toBe(true);
+        expect(document.getElementById('med-schedule-tab').contains(btn)).toBe(false);
+        expect(btn.textContent.trim()).toBe('');
     });
 
     it('hides the app-bar Add while the visible pane\'s empty state carries its own Add (M4)', async () => {
@@ -590,16 +309,82 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         window.renderMeds();
         expect(addBtn.hidden).toBe(true);
 
-        // Another pane without an empty-state Add shows it again.
         window.loadTimeline = () => {};
         window.switchMedTab('timeline');
         expect(addBtn.hidden).toBe(false);
 
-        // Once there is a med, Schedule keeps the app-bar Add.
-        const sched = JSON.stringify({ type: 'daily', times: ['08:00'] });
-        await seedMedications(window, [{ id: 1, name: 'Aspirin', schedule: sched, archived: false }]);
+        // With a med, My meds keeps the app-bar Add next to its own neutral one.
+        await seedMedications(window, [{ id: 1, name: 'Aspirin', schedule: DAILY, archived: false }]);
         window.switchMedTab('schedule');
         window.renderMeds();
         expect(addBtn.hidden).toBe(false);
+    });
+
+    describe('Stop tracking (bd med-5uwb.1 + med-h1wk full payload)', () => {
+        const tracked = () => ({
+            id: 6, name: 'Amoxicillin', dosage: '500 mg', schedule: DAILY, archived: false, supplement: true,
+            start_date: '2026-09-01T00:00:00.000Z', end_date: storedDay(-10).iso, tz_shift_policy: 'strict',
+            inventory_count: 9, pack_size: 21, last_taken_at: daysAgo(40),
+            stock: { counted: 21, counted_at: '2026-09-01T10:00:00Z', seed: false, refills: [], taken: 12 },
+        });
+
+        it('flips the row at once, POSTs the full record with tracking off, and the row stays under Not in use', async () => {
+            const { window, document } = env;
+            await seedMedications(window, [tracked()]);
+            const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+            const applySpy = vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
+            const post = deferred();
+            const calls = [];
+            window.apiCall = vi.fn((endpoint, method, body) => {
+                if (method === 'POST') { calls.push({ endpoint, body }); return post.promise; }
+                return Promise.resolve([]);
+            });
+            window.loadMeds = vi.fn();
+
+            rowOf(document, 6).querySelector('.wg-meds-row__stop').click();
+            await flushMicrotasks();
+
+            // Optimistic: no count, no button before the POST resolves.
+            expect(metaOf(document, 6)).toBe(`Ended ${storedDay(-10).label}`);
+            expect(rowOf(document, 6).querySelector('.wg-meds-row__stop')).toBeNull();
+            expect(applySpy).toHaveBeenCalledWith('medications', expect.any(Function), ['medications']);
+            const flipped = applySpy.mock.calls[0][1]([tracked(), { id: 7, inventory_count: 5 }]);
+            expect(flipped[0]).toMatchObject({ id: 6, inventory_count: null, pack_size: null });
+            expect(flipped[1]).toEqual({ id: 7, inventory_count: 5 });
+
+            expect(calls).toEqual([{
+                endpoint: '/api/medications/6',
+                body: {
+                    name: 'Amoxicillin', dosage: '500 mg', schedule: DAILY, archived: false, supplement: true,
+                    start_date: '2026-09-01T00:00:00.000Z', end_date: storedDay(-10).iso,
+                    inventory_count: null, pack_size: null, tz_shift_policy: 'strict',
+                },
+            }]);
+            // Nothing is deleted: no DELETE, no ledger route.
+            expect(window.apiCall.mock.calls.some(([e, m]) => m === 'DELETE' || /restock|stock-audit/.test(e))).toBe(false);
+
+            post.resolve({ status: 'updated' });
+            await flushMicrotasks();
+            expect(handle.commit).toHaveBeenCalled();
+            expect(handle.rollback).not.toHaveBeenCalled();
+            expect(window.loadMeds).toHaveBeenCalled();
+            expect(groupIds(document, 'not-in-use')).toEqual(['6']);
+        });
+
+        it('a failed write rolls back: the count and the button return', async () => {
+            const { window, document } = env;
+            await seedMedications(window, [tracked()]);
+            const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+            vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
+            window.apiCall = vi.fn(async (_e, method) => (method === 'POST' ? null : []));
+
+            rowOf(document, 6).querySelector('.wg-meds-row__stop').click();
+            await flushMicrotasks();
+
+            expect(handle.rollback).toHaveBeenCalled();
+            expect(handle.commit).not.toHaveBeenCalled();
+            expect(metaOf(document, 6)).toBe(`Ended ${storedDay(-10).label} · 9 left`);
+            expect(rowOf(document, 6).querySelector('.wg-meds-row__stop')).not.toBeNull();
+        });
     });
 });

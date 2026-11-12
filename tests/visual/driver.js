@@ -1114,10 +1114,50 @@
             if (row) await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [row.occId] });
             await window.DataStore.invalidateTags(['medications', 'history']);
             await settle();
+        } else if (step.myMeds) {
+            await myMedsSetup();
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }
         await sleep(50);
+    }
+
+    // My meds (kit MY1, bd med-5uwb.1): the seed has one med (Lisinopril,
+    // Scheduled), so add one or two per group through the app's own API —
+    // Needs a refill (Low; Out after a dose), Scheduled (weekly, untracked),
+    // When needed (taken 3 days ago), Not in use (an ended course, an
+    // as-needed never taken), Archived (two). Idempotent by name; the writes
+    // stay, so the meds-my-meds* scenes run after noPlan's replace, where no
+    // later scene reads the Meds or Today screens.
+    async function myMedsSetup() {
+        const day = (n) => `${localDate(new Date(Date.now() - n * 86400000))}T00:00:00.000Z`;
+        const daily = (times) => JSON.stringify({ type: 'daily', times });
+        const prn = JSON.stringify({ type: 'as_needed' });
+        const meds = [
+            { name: 'Metformin', dosage: '1000 mg', schedule: daily(['08:20', '21:30']), inventory_count: 6 },
+            { name: 'Ibuprofen', dosage: '400 mg', schedule: prn, inventory_count: 0, takenDaysAgo: 1 },
+            { name: 'Vitamin D3', dosage: '20000 IU', schedule: JSON.stringify({ type: 'weekly', days: [0], times: ['08:20'] }) },
+            { name: 'Paracetamol', dosage: '500 mg', schedule: prn, inventory_count: 12, takenDaysAgo: 3 },
+            { name: 'Amoxicillin', dosage: '500 mg', schedule: daily(['08:00']), inventory_count: 9, start_date: day(24), end_date: day(10) },
+            { name: 'Prednisolone', dosage: '5 mg', schedule: prn, inventory_count: 20 },
+            { name: 'Omeprazole', dosage: '20 mg', schedule: daily(['07:00']), archive: true },
+            { name: 'Atorvastatin', dosage: '20 mg', schedule: daily(['21:00']), archive: true },
+        ];
+        const have = new Set(((await window.apiCall('/api/medications?archived=true')) || []).map((m) => m.name));
+        for (const { takenDaysAgo, archive, ...med } of meds) {
+            if (have.has(med.name)) continue;
+            const res = await window.apiCall('/api/medications', 'POST', { archived: false, supplement: false, ...med });
+            if (!res || !res.id) throw new Error(`myMeds: could not add ${med.name}`);
+            if (takenDaysAgo) {
+                await window.apiCall('/api/medications/log-past', 'POST', { medication_id: res.id, taken_at: new Date(Date.now() - takenDaysAgo * 86400000).toISOString() });
+            }
+            if (archive) {
+                const row = ((await window.apiCall('/api/medications?archived=true')) || []).find((m) => m.id === res.id);
+                await window.apiCall(`/api/medications/${res.id}`, 'POST', { ...row, archived: true });
+            }
+        }
+        await window.DataStore.invalidateTags(['medications', 'history']);
+        await settle();
     }
 
     function localDate(d) {

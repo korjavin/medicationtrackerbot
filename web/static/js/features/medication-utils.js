@@ -11,6 +11,7 @@
 //   - MedicationUtils.getNextScheduledDate(schedule, now?)
 //   - MedicationUtils.getMedicationScheduleText(med, schedule)
 //   - MedicationUtils.getLastTakenTimeMs(medication)
+//   - MedicationUtils.groupMyMeds(meds, { now, stockState })
 //   - MedicationUtils.renderDayPicks / setPickedDays / getPickedDays(container)
 //
 // Backwards-compat: the four functions remain available as bare
@@ -106,6 +107,40 @@ window.MedicationUtils = (function () {
         return medication.last_taken_at ? new Date(medication.last_taken_at).getTime() : 0;
     }
 
+    // My meds (kit MY1, bd med-5uwb.1): every med in exactly one group, the
+    // one source of truth for the list and the app-bar refill count.
+    // Precedence: archived; Not in use (no active schedule and no dose in 30
+    // days); Needs a refill (tracked and stockState(med) !== 'ok', Out before
+    // Low); When needed (as_needed); Scheduled (the rest). A schedule is
+    // active unless it is as_needed or its end_date's date part (the editor
+    // stores the picked day as UTC midnight) is before today's local date.
+    // Every group is by name; refill keeps that order inside Out and Low.
+    const MY_MEDS_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
+
+    function groupMyMeds(meds, { now = Date.now(), stockState = () => 'ok' } = {}) {
+        const nowMs = now instanceof Date ? now.getTime() : now;
+        const d = new Date(nowMs);
+        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const groups = { refill: [], scheduled: [], asNeeded: [], notInUse: [], archived: [] };
+        (Array.isArray(meds) ? meds.filter(Boolean) : [])
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+            .forEach((med) => {
+                if (med.archived) { groups.archived.push(med); return; }
+                const asNeeded = (parseMedicationSchedule(med.schedule) || {}).type === 'as_needed';
+                const end = String(med.end_date || '').split('T')[0];
+                const active = !asNeeded && !(end && end < today);
+                const last = Date.parse(med.last_taken_at || '');
+                const recent = Number.isFinite(last) && nowMs - last < MY_MEDS_IDLE_MS;
+                const tracked = med.inventory_count !== null && med.inventory_count !== undefined;
+                if (!active && !recent) groups.notInUse.push(med);
+                else if (tracked && stockState(med) !== 'ok') groups.refill.push(med);
+                else (asNeeded ? groups.asNeeded : groups.scheduled).push(med);
+            });
+        const rank = (m) => (stockState(m) === 'danger' ? 0 : 1);
+        groups.refill.sort((a, b) => rank(a) - rank(b));
+        return groups;
+    }
+
     // Weekday picker (kit .wg-picks > .wg-pick[aria-pressed]) — the one
     // builder behind the Med editor "Days" and the Plan editor "Repeats on"
     // rows (med-xso6.10). Markup ships an empty `.wg-picks[data-day-picks]`;
@@ -151,6 +186,7 @@ window.MedicationUtils = (function () {
         getNextScheduledDate,
         getMedicationScheduleText,
         getLastTakenTimeMs,
+        groupMyMeds,
         renderDayPicks,
         setPickedDays,
         getPickedDays,

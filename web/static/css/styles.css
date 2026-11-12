@@ -6408,9 +6408,26 @@ body:has(.wg-callbar--dock) .wg-toasts {
     border: 0;
 }
 
-/* Meds Schedule + Stock (kit v2 M1/M3, med-xso6.18) are kit .wg-section /
+/* Meds My meds + Stock (kit v2 MY1/M3) are kit .wg-section /
    .wg-row / .wg-card markup; only these glue rules are screen-specific. */
 .wg-meds-bucket + .wg-meds-bucket {
+    margin-top: var(--space-md);
+}
+
+/* My meds Archived fold (MY1 · end): the archived rows under the folded row. */
+.wg-meds-archived {
+    margin-top: var(--space-sm);
+}
+
+.wg-meds-archived[hidden] {
+    display: none;
+}
+
+.wg-meds-fold {
+    cursor: pointer;
+}
+
+#med-list > .wg-meds-add {
     margin-top: var(--space-md);
 }
 
