@@ -76,6 +76,10 @@ const WORKOUT_NAMES = {
 export const STRENGTH_TYPES = new Set([20, 50]);
 // Also the cap on a written-back workout's span (web/cloud/js/health-import.js).
 export const OPEN_SESSION_MS = 4 * HOUR_MS;
+// A Health-side deletion never removes a bp/weight/workout older than this
+// (bd med-w6gx.18.3, Archie 23697): under Health Connect's shortest
+// auto-delete (3 months ≈ 90 days), so retention never wipes the vault.
+export const DELETED_MAX_AGE_MS = 80 * 24 * HOUR_MS;
 
 function rfc3339(ms) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -468,7 +472,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     // bounds.deleted (bd med-w6gx.18.3): the sample UUIDs deleted in Health
     // since the anchor. A shell that predates it sends no key: nothing runs.
     const gone = Array.isArray(bounds && bounds.deleted) ? await removeDeleted(type, bounds.deleted, raw) : null;
-    const withGone = (r) => (gone ? { ...r, removed: gone.removed, skip: { ...r.skip, gone: gone.gone } } : r);
+    const withGone = (r) => (gone ? { ...r, removed: gone.removed, skip: { ...r.skip, gone: gone.gone, old: gone.old } } : r);
     // Tombstones included: a deleted reading stays deleted. A row restored by
     // an older client sits under a fresh id but keeps source_id — count it too
     // (deleting such an alias also tombstones its canonical id: healthsource.js).
@@ -504,30 +508,38 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // stays at its -hk- id and goes with it; a weight edit is a new row without
   // source_id and stays. records.del stamps now(): a user-grade delete, never
   // the floor. → { removed, gone } (gone = UUIDs with no live row here).
+  // A row whose own time is older than DELETED_MAX_AGE_MS is never removed
+  // (skip.old): a store's retention (Health Connect auto-delete after 3/18
+  // months, a source app's data wipe) deletes old readings in bulk, and this
+  // vault exists to keep them (Archie 23697).
   async function removeDeleted(type, uuids, raw) {
-    const byId = new Map(); // canonical id -> live recordIds
+    const byId = new Map(); // canonical id -> live rows
     for (const r of raw) {
       if (r.deleted) continue;
       for (const id of new Set([r.recordId, healthImportRecordId(type, r)])) {
         if (!id) continue;
         if (!byId.has(id)) byId.set(id, []);
-        byId.get(id).push(r.recordId);
+        byId.get(id).push(r);
       }
     }
+    const oldBefore = now() - DELETED_MAX_AGE_MS;
+    const at = (r) => (type === 'miband' ? Number(r.source_start_ms) : Date.parse(r.measured_at));
     const done = new Set();
     let removed = 0;
     let gone = 0;
+    let old = 0;
     for (const u of uuids) {
       const hits = typeof u === 'string' && UUID_RE.test(u) ? byId.get(healthRecordId(type, u)) : null;
       if (!hits) { gone++; continue; }
-      for (const id of hits) {
-        if (done.has(id)) continue;
-        done.add(id);
-        await records.del(type, id);
+      for (const r of hits) {
+        if (done.has(r.recordId)) continue;
+        done.add(r.recordId);
+        if (!(at(r) >= oldBefore)) { old++; continue; }
+        await records.del(type, r.recordId);
         removed++;
       }
     }
-    return { removed, gone };
+    return { removed, gone, old };
   }
 
   return { importSamples };

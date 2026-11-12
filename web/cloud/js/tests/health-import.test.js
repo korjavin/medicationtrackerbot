@@ -1413,16 +1413,16 @@ describe('Apple Health import', () => {
                     expect(records.rows.get(id).clientTs).toBeGreaterThanOrEqual(before);
                 }
                 expect(records.rows.get('bp-manual').deleted).toBe(false);
-                expect(line('bp')).toBe('[health] bp returned=0 samples=0 written=0 deleted=4 removed=3 skip{invalid:0,exists:0,gone:2} anchor=kept');
-                expect(line('weight')).toBe('[health] weight returned=0 samples=0 written=0 deleted=1 removed=1 skip{invalid:0,exists:0,gone:0} anchor=kept');
-                expect(line('workout')).toMatch(/ deleted=1 removed=1 skip\{invalid:0,exists:0,overlap:0,gone:0\}/);
+                expect(line('bp')).toBe('[health] bp returned=0 samples=0 written=0 deleted=4 removed=3 skip{invalid:0,exists:0,gone:2,old:0} anchor=kept');
+                expect(line('weight')).toBe('[health] weight returned=0 samples=0 written=0 deleted=1 removed=1 skip{invalid:0,exists:0,gone:0,old:0} anchor=kept');
+                expect(line('workout')).toMatch(/ deleted=1 removed=1 skip\{invalid:0,exists:0,overlap:0,gone:0,old:0\}/);
                 // A removal-only run is pushed, and never counted as imported.
                 expect(flush).toHaveBeenCalledTimes(1);
                 expect(JSON.parse(storage.getItem('wg.health.last'))).toMatchObject({ added: 0, total: 4 });
                 // The same deletions again: nothing live is left, all gone.
                 flush.mockClear();
                 expect(await go(shell(data, deleted))).toEqual({ added: 0 });
-                expect(line('bp')).toMatch(/ deleted=4 removed=0 skip\{invalid:0,exists:0,gone:4\}/);
+                expect(line('bp')).toMatch(/ deleted=4 removed=0 skip\{invalid:0,exists:0,gone:4,old:0\}/);
                 expect(flush).not.toHaveBeenCalled();
                 // A rescan does not bring them back.
                 storage.setItem('wg.health.anchors', '{}');
@@ -1440,7 +1440,29 @@ describe('Apple Health import', () => {
                 await go(shell(data, { bp: [U1], weight: [U2] }));
                 expect(records.rows.get(`bp-hk-${U1}`).deleted).toBe(true);
                 expect(records.rows.get(edited.id)).toMatchObject({ deleted: false, weight: 71 });
-                expect(line('weight')).toMatch(/ deleted=1 removed=0 skip\{invalid:0,exists:0,gone:1\}/);
+                expect(line('weight')).toMatch(/ deleted=1 removed=0 skip\{invalid:0,exists:0,gone:1,old:0\}/);
+            });
+
+            // Archie 23697: a store's retention (Health Connect auto-delete after
+            // 3/18 months, a source app's data wipe) deletes old readings in bulk;
+            // a reading older than 80 days stays here.
+            it('a BP or workout older than 80 days deleted in Health stays; a 10-day-old one goes', async () => {
+                const D = 24 * H;
+                const data = {
+                    bp: [bpSample(U1, NOW - 100 * D, 120, 80), bpSample(U3, NOW - 10 * D, 118, 76)],
+                    workout: [run(1, NOW - 100 * D, NOW - 100 * D + H, 37), run(2, NOW - 10 * D, NOW - 10 * D + H, 37)],
+                };
+                await go(shell(data));
+                // An alias of the old reading is tested on its own time.
+                await records.put('bp', { ...records.rows.get(`bp-hk-${U1}`), recordId: 'bp-alias', clientTs: 5 });
+                await go(shell(data, { bp: [U1, U3], workout: [uid(1), uid(2)] }));
+                expect(records.rows.get(`bp-hk-${U1}`).deleted).toBe(false);
+                expect(records.rows.get('bp-alias').deleted).toBe(false);
+                expect(records.rows.get(`bp-hk-${U3}`).deleted).toBe(true);
+                expect(records.rows.get(`miband-hk-${uid(1)}`).deleted).toBe(false);
+                expect(records.rows.get(`miband-hk-${uid(2)}`).deleted).toBe(true);
+                expect(line('bp')).toMatch(/ deleted=2 removed=1 skip\{invalid:0,exists:0,gone:0,old:2\}/);
+                expect(line('workout')).toMatch(/ deleted=2 removed=1 skip\{.*gone:0,old:1\}/);
             });
 
             it('a reply without deleted (an older shell) changes nothing and reads no extra window', async () => {

@@ -801,6 +801,10 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   line adds `deleted=N removed=M` and `skip.gone` (UUIDs with no live row
   here). A shell without the key changes nothing. The tombstone of a `-hk-`
   id owes Health nothing on write-back (it was never written there).
+  A reading (or workout) older than 80 days when its deletion arrives is
+  never removed (`skip.old`; one rule for both shells, against store
+  retention — [android.md](android.md)); deleting an old reading in Health
+  leaves it here. Sleep is bounded by its ~32-day seen window instead.
 
 ### Sleep and workouts (bd med-w6gx.7)
 

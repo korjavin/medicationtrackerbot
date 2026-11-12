@@ -12,6 +12,7 @@ steps:
 invariants:
   - A reading deleted in Health disappears from the app on the next import. A weight you edited in the app stays.
   - Readings entered in the app are never removed by a Health deletion
+  - Turning on Health Connect auto-delete (3 or 18 months) never removes readings here; a reading older than ~80 days deleted in Health stays here
   - The deleted night is gone on the next open of the phone that imported it, then on every synced device
   - A device whose Health never held that night never deletes it on its own
   - A night shortened in Health keeps its imported length
