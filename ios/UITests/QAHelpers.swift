@@ -107,6 +107,15 @@ enum QA {
         if tip.waitForExistence(timeout: 1) { app.buttons["Continue"].firstMatch.tap() }
     }
 
+    /// WKWebView's form accessory bar has Done; else the keyboard's own key.
+    static func hideKeyboard(_ app: XCUIApplication) {
+        guard app.keyboards.firstMatch.exists else { return }
+        let done = app.toolbars.buttons["Done"]
+        if done.exists { done.tap() } else { app.keyboards.buttons.matching(NSPredicate(format: "label IN[c] {'return', 'done', 'go'}")).firstMatch.tap() }
+        let end = Date().addingTimeInterval(5)
+        while app.keyboards.firstMatch.exists && Date() < end { Thread.sleep(forTimeInterval: 0.2) }
+    }
+
     /// The CI Simulator renders without a GPU: a heavy page can show its
     /// previous frame for seconds after the DOM (and the probes) moved on, so
     /// shoot once two screenshots a second apart match. Two identical blank
