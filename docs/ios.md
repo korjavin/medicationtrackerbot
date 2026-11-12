@@ -816,6 +816,11 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   never removed (`skip.old`; one rule for both shells, against store
   retention — [android.md](android.md)); deleting an old reading in Health
   leaves it here. Sleep is bounded by its ~32-day seen window instead.
+  Sleep residues: when this store's longer night is the stored row and
+  another store holds a shorter copy that was never written, deleting the
+  night here tombstones the day for good, so the other store can't re-import
+  it; and identical copies in two stores (one wearable writing both) are
+  removed everywhere when deleted in one.
 
 ### Sleep and workouts (bd med-w6gx.7)
 
