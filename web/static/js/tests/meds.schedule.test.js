@@ -161,9 +161,10 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
         const { window, document } = env;
         await seedMedications(window, everyGroup());
         const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
-        // Prednisolone: as-needed, idle 45 days → Not in use, Log before Stop tracking.
+        // Prednisolone: as-needed, idle 45 days → Not in use; one button, Log
+        // instead of Stop tracking (Iris; Track stock is in the editor).
         const idle = rowOf(document, 7);
-        expect([...idle.querySelectorAll('.wg-meds-row__actions .wg-btn')].map((b) => b.textContent)).toEqual(['Log', 'Stop tracking']);
+        expect([...idle.querySelectorAll('.wg-meds-row__actions .wg-btn')].map((b) => b.textContent)).toEqual(['Log']);
         idle.querySelector('.wg-meds-row__log-btn').click();
         expect(logSpy).toHaveBeenCalledWith(7, 'Prednisolone');
         // Ibuprofen: as-needed and Out → Needs a refill; logging lives in the overflow.

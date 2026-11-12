@@ -129,7 +129,9 @@ window.MedicationUtils = (function () {
                 const asNeeded = (parseMedicationSchedule(med.schedule) || {}).type === 'as_needed';
                 const end = String(med.end_date || '').split('T')[0];
                 const active = !asNeeded && !(end && end < today);
-                const last = Date.parse(med.last_taken_at || '');
+                // A never-taken med's 30-day clock starts at its start/creation,
+                // so a newly added as-needed med stays under When needed.
+                const last = Date.parse(med.last_taken_at || med.start_date || med.created_at || '');
                 const recent = Number.isFinite(last) && nowMs - last < MY_MEDS_IDLE_MS;
                 const tracked = med.inventory_count !== null && med.inventory_count !== undefined;
                 if (!active && !recent) groups.notInUse.push(med);

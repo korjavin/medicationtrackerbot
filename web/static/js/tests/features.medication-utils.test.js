@@ -254,7 +254,11 @@ describe('features/medication-utils.js — MedicationUtils (Plan 2026-05-13, Tas
             ['ends today', { schedule: DAILY, end_date: '2026-11-12T00:00:00.000Z' }, 'scheduled'],
             ['as-needed taken 10 days ago', { schedule: PRN, last_taken_at: ago(10) }, 'asNeeded'],
             ['as-needed taken 31 days ago', { schedule: PRN, last_taken_at: ago(31) }, 'notInUse'],
-            ['as-needed never taken', { schedule: PRN }, 'notInUse'],
+            ['as-needed never taken, no start or creation date', { schedule: PRN }, 'notInUse'],
+            // Never taken: the 30-day clock starts at start_date ?? created_at (Iris).
+            ['as-needed never taken, created 3 days ago', { schedule: PRN, created_at: ago(3) }, 'asNeeded'],
+            ['as-needed never taken, created 40 days ago', { schedule: PRN, created_at: ago(40) }, 'notInUse'],
+            ['as-needed never taken, started 5 days ago (created long before)', { schedule: PRN, start_date: ago(5), created_at: ago(90) }, 'asNeeded'],
             ['daily never taken', { schedule: DAILY }, 'scheduled'],
             ['Out as-needed taken yesterday', { id: 1, schedule: PRN, inventory_count: -3, last_taken_at: ago(1) }, 'refill'],
             ['Out ended course', { id: 1, schedule: DAILY, inventory_count: 0, end_date: '2026-10-01T00:00:00.000Z' }, 'notInUse'],

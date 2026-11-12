@@ -322,15 +322,15 @@ function renderMeds() {
     }));
     // Not in use (Iris, MY1 review): no ⋯ More — the row tap opens the editor
     // (Archived switch, Delete) — and no course tag: the meta says "Ended …".
-    // An idle as-needed med (never taken, too) keeps its Log: no Timeline slot.
+    // One button per row (Iris): an idle as-needed med logs (no Timeline slot;
+    // Track stock lives in the editor); an ended course offers Stop tracking.
     add('Not in use', 'not-in-use', g.notInUse, (m, s) => ({
         meta: _myMedsIdleMeta(m, now),
         dates: false,
         more: false,
-        trail: [
-            (s && s.type) === 'as_needed' && _buildMedsLogButton(m),
-            _medsTracked(m) && _medsButton('wg-btn--ghost wg-meds-row__stop', 'Stop tracking', () => stopTrackingMed(m.id)),
-        ].filter(Boolean),
+        trail: (s && s.type) === 'as_needed' ? [_buildMedsLogButton(m)]
+            : _medsTracked(m) ? [_medsButton('wg-btn--ghost wg-meds-row__stop', 'Stop tracking', () => stopTrackingMed(m.id))]
+                : [],
     }));
     // Archived rows show no dose times (they read as live reminders): just
     // "Last <date>" when known, beside the Archived chip.
