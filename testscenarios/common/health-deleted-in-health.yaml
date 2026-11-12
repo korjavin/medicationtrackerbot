@@ -10,7 +10,7 @@ steps:
   - For a day that also has a Mi Band night, delete the Health night; open the app
   - Edit an imported reading in Health; open the app
 invariants:
-  - The deleted BP reading, weight and workout are gone from the app on the same phone
+  - A reading deleted in Health disappears from the app on the next import. A weight you edited in the app stays.
   - Readings entered in the app are never removed by a Health deletion
   - The deleted night is gone on the next open of the phone that imported it, then on every synced device
   - A device whose Health never held that night never deletes it on its own
