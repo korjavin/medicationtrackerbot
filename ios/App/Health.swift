@@ -31,8 +31,11 @@ import HealthKit
 ///     an HK UUID, so an imported row's id (weight-hk-<uuid>) deletes nothing.
 ///     The anchored bp/weight/hr/workout queries drop what this app wrote with
 ///     that identity, so the write-back is never imported back.
-///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
-///     (returned: added + deleted objects HealthKit handed back)
+///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more, deleted}
+///     (returned: added + deleted objects HealthKit handed back; deleted (bd
+///     med-w6gx.18.1, bp/weight/sleep/workout only): the uuidString of every
+///     deleted object on the page — a bp correlation's own uuid — unfiltered by
+///     source, [] when none; an edit in Health is a delete plus a new uuid)
 ///   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
 ///     (no anchor: re-reads nights still settling — web/cloud/js/health-import.js)
 ///   health.query {type: "steps", from, to} → {samples: [{day, steps, tz}], returned: days, more: false}
@@ -347,6 +350,8 @@ enum Health {
         var samples: [[String: Any]] = []
         var window: [String: Any] = [:]
         var anchorPrefix = ""
+        // bp/weight/sleep/workout only (bd med-w6gx.18.1): hr/spo2 carry no key.
+        var deleted: [String]?
         let newAnchor: HKQueryAnchor
         let returned: Int
         switch args["type"] as? String {
@@ -365,6 +370,7 @@ enum Health {
             }
             newAnchor = r.newAnchor
             returned = r.addedSamples.count + r.deletedObjects.count
+            deleted = r.deletedObjects.map(\.uuid.uuidString)
         case "weight":
             let r = try await HKAnchoredObjectQueryDescriptor(
                 predicates: [.quantitySample(type: bodyMass)],
@@ -375,6 +381,7 @@ enum Health {
             }
             newAnchor = r.newAnchor
             returned = r.addedSamples.count + r.deletedObjects.count
+            deleted = r.deletedObjects.map(\.uuid.uuidString)
         case "sleep":
             // The anchor finds what is new; the answer is every sleep sample
             // around it (all sources), with the window it covers as from/to.
@@ -388,6 +395,7 @@ enum Health {
             }
             newAnchor = r.newAnchor
             returned = r.addedSamples.count + r.deletedObjects.count
+            deleted = r.deletedObjects.map(\.uuid.uuidString)
         case "workout":
             let r = try await HKAnchoredObjectQueryDescriptor(
                 predicates: [.workout()],
@@ -406,6 +414,7 @@ enum Health {
             }
             newAnchor = r.newAnchor
             returned = r.addedSamples.count + r.deletedObjects.count
+            deleted = r.deletedObjects.map(\.uuid.uuidString)
         case "hr", "spo2":
             // Every sample, workout-rate heart rate included, except the
             // pulses this app wrote back (returned and the anchor stay as the
@@ -430,8 +439,9 @@ enum Health {
             throw Failure("unknown type: \(t ?? "")")
         }
         let archived = try NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true)
-        let page: [String: Any] = ["samples": samples, "anchor": anchorPrefix + archived.base64EncodedString(),
+        var page: [String: Any] = ["samples": samples, "anchor": anchorPrefix + archived.base64EncodedString(),
                                    "returned": returned, "more": returned >= limit]
+        if let deleted { page["deleted"] = deleted }
         return page.merging(window) { a, _ in a }
     }
 

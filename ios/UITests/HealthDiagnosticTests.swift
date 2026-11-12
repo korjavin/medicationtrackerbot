@@ -119,7 +119,9 @@ final class HealthDiagnosticTests: XCTestCase {
 
 /// The Health write-back through Health.handle (bd med-8f4s.3; hr .8; workout
 /// .10): write, replace, own-id import filter, an imported row's id deletes
-/// nothing, delete leaves nothing; (.18) readableFrom 0 with full access and
+/// nothing, delete leaves nothing; (med-w6gx.18.1) a Health-side delete of a
+/// weight sample, a BP correlation and a sleep sample is the kept anchor's
+/// `deleted` (the correlation's own uuid), [] when none, absent on hr; (.18) readableFrom 0 with full access and
 /// readableFromMs ([:] → 0, two types → the later date in ms), the OS gate
 /// readableFrom(osMajor:) (26 → 0, 27 threw → omitted), equal/lower-version
 /// replays resolve true (a store error verified by held(), whose true/false
