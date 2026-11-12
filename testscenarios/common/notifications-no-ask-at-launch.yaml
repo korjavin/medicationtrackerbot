@@ -10,7 +10,7 @@ invariants:
   - No notification permission sheet appears at launch
   - The in-context ask appears only after the user's own write (med-ckm5.4)
 covered_by:
-  web: web/cloud/js/tests/cloud-boot.test.js#backfills ref-less plan exercises through domains.workout.updateExercise, never the route
+  web: web/cloud/js/tests/cloud-boot.test.js#backfills ref-less plan exercises through domains.workout.linkExerciseLibrary, never the route
   android: manual
   ios: ios/UITests/FlowQAOfflineAccountTests.swift#testOfflineColdOpen  # med-wqj8 F6 rows 12/14/19 were this bug: the boot exercise-library backfill's ask sheet covered Today
 source: [med-cabs, med-wqj8]

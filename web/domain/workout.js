@@ -1315,6 +1315,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, updated);
   }
 
+  // linkExerciseLibrary is the boot backfill (med-prk.2, the JS mirror of
+  // migration 076): every live plan exercise with a name but no
+  // exercise_library_id gets linked to its by-name library row. A read-side
+  // transition (docs/cloud-mode.md guard 3), so it is a link-only CAS on the
+  // version it read, stamped exactly row.clientTs + 1 (repointSlot precedent,
+  // bd med-qsq3), never updateExercise's six-field rewrite at now(): any real
+  // edit, here or on another device, wins (bd med-czhv). Resolves the number
+  // of rows attempted.
+  async function linkExerciseLibrary() {
+    const refless = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE)).filter((r) => (
+      (r.exercise_name || '').trim() && r.exercise_library_id == null
+    ));
+    for (const row of refless) {
+      const libId = await promoteExerciseToLibrary(row, null);
+      await records.putIfUnchanged(WORKOUT_RECORD_TYPES.EXERCISE, { ...row, exercise_library_id: libId, clientTs: 0 }, row);
+    }
+    return refless.length;
+  }
+
   async function deleteExercise(id) {
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, id);
     if (exercise) await records.del(WORKOUT_RECORD_TYPES.EXERCISE, exercise.recordId);
@@ -4293,6 +4312,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     createExercise,
     listExercises,
     updateExercise,
+    linkExerciseLibrary,
     deleteExercise,
     createLibraryItem,
     listLibrary,

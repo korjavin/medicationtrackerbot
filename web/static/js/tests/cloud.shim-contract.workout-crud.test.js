@@ -7,7 +7,8 @@
 // (network-mocked) workout.*.test.js / features.workout-*.test.js files keep
 // running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createStampingRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createWorkoutDomain } from '../../../domain/workout.js';
 
 describe('cloud shim contract — workout groups/variants/exercises/library CRUD', () => {
     let env;
@@ -560,5 +561,53 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         await window.apiCall(`/api/workout/exercise-library/delete?id=${item.id}`, 'DELETE');
         list = await window.apiCall('/api/workout/exercise-library');
         expect(list).toHaveLength(0);
+    });
+});
+
+// bd med-czhv: the boot backfill (med-prk.2) is a read-side transition, so it
+// links through putIfUnchanged at exactly row.clientTs + 1 (repointSlot
+// precedent) and never rewrites another field or beats a newer edit.
+describe('workout.linkExerciseLibrary — link-only CAS backfill', () => {
+    const ex = (over) => ({
+        recordId: `workoutexercise-${over.id}`, clientTs: 1000, deleted: false, variant_id: 1,
+        exercise_name: 'Squat', exercise_library_id: null, target_sets: 3, target_reps_min: 5,
+        target_reps_max: 8, target_weight_kg: 60, order_index: 0, ...over,
+    });
+    const lib = { recordId: 'library-1', clientTs: 500, deleted: false, id: 40, name: 'Squat' };
+    const domainOn = (records) => createWorkoutDomain({ records, now: () => 2_000_000, timeZone: 'UTC' });
+    const stored = async (records, id) => (await records.list('workoutexercise')).find((r) => r.id === id);
+
+    it('links an unlinked row to its by-name library row at row.clientTs + 1, other fields untouched', async () => {
+        const row = ex({ id: 7, order_index: 2 });
+        const records = createStampingRecordsPort({ workoutexercise: [row], exerciselibrary: [lib] });
+        expect(await domainOn(records).linkExerciseLibrary()).toBe(1);
+        expect(await stored(records, 7)).toEqual({ ...row, recordType: 'workoutexercise', exercise_library_id: 40, clientTs: 1001 });
+    });
+
+    it('a row edited between the read and the CAS keeps the edit', async () => {
+        const row = ex({ id: 7 });
+        const records = createStampingRecordsPort({ workoutexercise: [row], exerciselibrary: [lib] });
+        const cas = records.putIfUnchanged.bind(records);
+        records.putIfUnchanged = async (type, body, expected) => {
+            await records.put(type, { ...expected, target_sets: 5, clientTs: 3000 }); // a real edit lands
+            return cas(type, body, expected);
+        };
+        await expect(domainOn(records).linkExerciseLibrary()).resolves.toBe(1);
+        const after = await stored(records, 7);
+        expect(after.target_sets).toBe(5);
+        expect(after.clientTs).toBe(3000);
+        expect(after.exercise_library_id).toBeNull();
+    });
+
+    it('writes neither already-linked nor blank-name rows', async () => {
+        const linked = ex({ id: 8, exercise_library_id: 40 });
+        const blank = ex({ id: 9, exercise_name: '   ' });
+        const records = createStampingRecordsPort({ workoutexercise: [linked, blank], exerciselibrary: [lib] });
+        const cas = vi.spyOn(records, 'putIfUnchanged');
+        expect(await domainOn(records).linkExerciseLibrary()).toBe(0);
+        expect(cas).not.toHaveBeenCalled();
+        expect(await records.list('workoutexercise')).toEqual([
+            { ...linked, recordType: 'workoutexercise' }, { ...blank, recordType: 'workoutexercise' },
+        ]);
     });
 });
