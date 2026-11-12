@@ -59,10 +59,7 @@ function showEditModal(id) {
     if (med) fillMedEditor(med);
 }
 
-// Relative-time formatter shared between the Schedule hour-header rows and
-// the Today dashboard. Round-2 Task 4 dropped the Schedule-tab next-action
-// card (it duplicated the History/Today next-intake surface), so this helper
-// is no longer invoked from a card — it still backs `_formatHourHeader`.
+// "in 2h 5m" / "overdue": the timeline's next-dose chip.
 function _formatNextActionRelative(diffMs) {
     if (diffMs <= 0) return 'overdue';
     const totalMinutes = Math.round(diffMs / 60000);
@@ -73,42 +70,15 @@ function _formatNextActionRelative(diffMs) {
     return `in ${minutes}m`;
 }
 
-// Schedule sub-tab render (kit v2 M1, med-xso6.18). Doses group into
-// `.wg-section` buckets: missed doses (still PENDING past their slot) first,
-// then one bucket per upcoming dose slot, then Scheduled (no next dose),
-// As needed and Archived. A bucket head carries its action — "Log late" /
-// "Take N" — and its rows are kit `.wg-row`s: tap edits, swipe / overflow
-// for Edit / Delete, as-needed rows keep a per-row Log.
-
-function _formatHourHeader(timeLabel, date, now) {
-    const rel = _formatNextActionRelative(date.getTime() - now.getTime());
-    return `${timeLabel} · ${rel}`;
-}
-
 function _pad2(n) {
     return String(n).padStart(2, '0');
 }
 
-// Calendar-day + wall-clock slot key: one bucket per dose instant, so a
-// bucket's "Take N" confirms exactly one scheduled_at.
-function _slotKey(date) {
-    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${_pad2(date.getHours())}:${_pad2(date.getMinutes())}`;
-}
-
-// Plan-aware dose forecast for the Schedule tab (bd med-gut.1/med-gut.2).
-// GET /api/medications/upcoming runs the SAME engine Home's next-intake card
-// uses (web/domain/medintake.js → planDosesWithTzPlan), so an approved tz
-// transition plan, the tracked IANA timezone, and start/end dates all land in
-// the buckets. Kept in module state because renderMeds() is synchronous and is
-// called from four places inside loadMeds().
-const MEDS_UPCOMING_DAYS = 7;
-let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-state: plan-aware upcoming doses + due (pending) intakes behind the Schedule buckets
-
 // The pending set (bd med-ry7b.4): every due or snoozed dose up to now, of
 // any day since the ledger start (the route defaults from to 0 when status is
 // set). One read, cached under MEDS_TIMELINE_PENDING_KEY: the timeline's focus
-// card + "+N more pending", the Schedule tab's pending buckets and the Meds
-// tab badge + app-bar sub (features/app-nav.js) and Today's Next up
+// card + "+N more pending", the Meds tab badge + app-bar sub
+// (features/app-nav.js) and Today's Next up
 // (features/today-loader.js, bd med-ry7b.7) all count it. While a write's
 // optimistic flip is pending fetchFresh yields null and the flipped rows are
 // read back instead of the pre-write projection.
@@ -125,70 +95,12 @@ function readCachedPendingDoses() {
 }
 
 // "08:00" / "08:00 · yesterday" / "08:00 · 3 days ago": a pending dose's slot
-// (the Schedule tab's pending buckets, Today's Next up).
+// (Today's Next up).
 function pendingSlotLabel(at, now = new Date()) {
     const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const time = `${_pad2(at.getHours())}:${_pad2(at.getMinutes())}`;
     const daysAgo = Math.round((day(now) - day(at)) / 86400000);
     return daysAgo <= 0 ? time : daysAgo === 1 ? `${time} · yesterday` : `${time} · ${daysAgo} days ago`;
-}
-
-async function loadUpcomingDoses() {
-    const read = (path) => Promise.resolve().then(() => apiCall(path)).catch(() => null);
-    const [res, doses] = await Promise.all([
-        read(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`),
-        readPendingDoses().catch(() => null),
-    ]);
-    // `available` separates "the forecast answered, and this med simply has
-    // no upcoming dose" from "there is no forecast to consult" (offline /
-    // route unavailable) — only the latter may fall back to the device-local
-    // computation.
-    _medsUpcomingState.available = Array.isArray(res);
-    _medsUpcomingState.doses = Array.isArray(res) ? res : [];
-    _medsUpcomingState.due = (Array.isArray(doses) ? doses : []).filter((r) => r && (r.state === 'due' || r.state === 'snoozed'));
-    return _medsUpcomingState.doses;
-}
-
-// The route returns doses ascending by scheduled_at, so the first row per
-// medication is that medication's NEXT dose.
-function _nextDoseByMedId() {
-    const byMed = new Map();
-    (_medsUpcomingState.doses || []).forEach((dose) => {
-        const key = String(dose.medication_id);
-        if (!byMed.has(key)) byMed.set(key, dose);
-    });
-    return byMed;
-}
-
-// Resolves a med's next dose to {at, key, timeLabel}, or null when it has
-// none. Falls back to the device-local computation only when the forecast is
-// unavailable (offline cold start, or the legacy bot server, which has no such
-// route) — never when the forecast answered.
-function _resolveNextDose(med, schedule, nextDoses, now) {
-    const dose = nextDoses.get(String(med.id));
-    if (dose && dose.scheduled_at && dose.local_date && dose.local_time) {
-        const at = new Date(dose.scheduled_at);
-        if (!Number.isNaN(at.getTime())) {
-            return {
-                at,
-                key: `${dose.local_date}-${dose.local_time}`,
-                timeLabel: String(dose.local_time)
-            };
-        }
-    }
-    // A forecast that simply has no row for this medication is a real answer —
-    // the course ended, it starts past the horizon, or every slot inside the
-    // horizon is already taken/skipped. Recomputing it device-locally would
-    // resurrect exactly the wrong bucket this change removes; the med belongs
-    // in the no-next-dose "Scheduled" group instead.
-    if (_medsUpcomingState.available) return null;
-    const at = window.MedicationUtils.getNextScheduledDate(schedule, now);
-    if (!at) return null;
-    return {
-        at,
-        key: _slotKey(at),
-        timeLabel: `${_pad2(at.getHours())}:${_pad2(at.getMinutes())}`
-    };
 }
 
 function _medsEl(tag, className, text) {
@@ -204,57 +116,31 @@ function _medsIcon(name, extraClass) {
     return ico;
 }
 
-// One schedule bucket: `.wg-section` with an eyebrow head, an optional head
-// action and a `.wg-list` of rows. tone: 'dot' (upcoming); pending: a due
-// slot, labelled with a Pending chip (no "missed" state — owner, med-wi09).
-function _buildMedsBucket(label, { tone, pending, action, rows }) {
+// One list group: `.wg-section` with an eyebrow head (none for the Archived
+// fold) and a `.wg-list` of rows; data-group names the My meds group.
+function _buildMedsBucket(label, { rows, group }) {
     const section = _medsEl('section', 'wg-section wg-meds-bucket');
-    const head = _medsEl('div', 'wg-section__head');
-    const eyebrow = _medsEl('span', `wg-eyebrow${tone ? ` wg-eyebrow--${tone}` : ''} wg-meds-bucket__label`, label);
-    if (pending) {
-        const stack = _medsEl('span', 'wg-hstack');
-        stack.appendChild(eyebrow);
-        stack.appendChild(window.WGChip.create({ text: 'Pending', state: 'pending', small: true }));
-        head.appendChild(stack);
-    } else {
-        head.appendChild(eyebrow);
+    if (group) section.dataset.group = group;
+    if (label) {
+        const head = _medsEl('div', 'wg-section__head');
+        head.appendChild(_medsEl('span', 'wg-eyebrow wg-meds-bucket__label', label));
+        section.appendChild(head);
     }
-    if (action) {
-        const btn = _medsEl('button', `wg-btn wg-btn--sm${action.ghost ? ' wg-btn--ghost' : ''} wg-meds-bucket__action`, action.label);
-        btn.type = 'button';
-        btn.addEventListener('click', action.onClick);
-        head.appendChild(btn);
-    }
-    section.appendChild(head);
     const list = _medsEl('div', 'wg-list');
     rows.forEach((row) => list.appendChild(row));
     section.appendChild(list);
     return section;
 }
 
-// Opens the take sheet for one dose slot, preselecting the bucket's meds.
-// Missed rows carry their occIds; an upcoming slot's occId is its
-// deterministic slot id, derived by the take sheet (meds-history.js
-// _medConfirmOccId) — POST /api/doses/act either way.
-function _openBucketTake(meds, scheduledAt, intakeIds) {
-    showMedicationConfirmModal(meds.map((m) => m.id), meds.map((m) => m.name), scheduledAt, 'confirm', intakeIds || []);
-}
-
-function _buildMedsLogButton(med) {
-    const btn = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-row__log-btn', 'Log');
+function _medsButton(className, label, onClick) {
+    const btn = _medsEl('button', `wg-btn wg-btn--sm ${className}`, label);
     btn.type = 'button';
-    btn.addEventListener('click', () => {
-        logMedicationPast(med.id, med.name);
-    });
+    btn.addEventListener('click', onClick);
     return btn;
 }
 
-function _buildMedsInventoryTag(med) {
-    // Stock chip: formatStock() already speaks the kit states (ok/warn/danger).
-    const stock = formatStock(med.inventory_count, med);
-    const chip = window.WGChip.create({ text: stock.label, state: stock.state, small: true });
-    chip.classList.add('wg-meds-row__inventory');
-    return chip;
+function _buildMedsLogButton(med) {
+    return _medsButton('wg-meds-row__log-btn', 'Log', () => logMedicationPast(med.id, med.name));
 }
 
 // Course dates as row copy: "since Sep 12", "until Oct 1", "Sep 12 – Oct 1";
@@ -276,17 +162,64 @@ function _formatMedDateRange(startIso, endIso) {
     return '';
 }
 
-// A schedule row (kit .wg-row): title "Name · dose", meta = schedule · dates ·
-// Rx plus status chips. Tap edits; swipe / overflow reveals Edit and Delete.
-// As-needed rows keep a per-row Log; scheduled rows log off-schedule doses
-// from the overflow menu (their bucket head owns Take / Log late).
-// opts.missed (a due dose) paints the lead in the pending tone.
+// My meds row meta (kit MY1). When: daily "08:20, 21:30"; weekly one day
+// "Sundays 08:20", several "Mon, Wed, Fri 08:20"; as-needed "When needed".
+const MEDS_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MEDS_WEEKDAYS_LONG = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+
+function _myMedsWhen(med, schedule) {
+    const type = schedule && schedule.type;
+    if (type === 'as_needed') return 'When needed';
+    if (type !== 'daily' && type !== 'weekly') return String(med.schedule || '');
+    const times = (Array.isArray(schedule.times) ? schedule.times : []).join(', ');
+    if (type === 'daily') return times;
+    const days = Array.isArray(schedule.days) ? schedule.days : [];
+    const names = days.length === 1 ? MEDS_WEEKDAYS_LONG[days[0]] : days.map((d) => MEDS_WEEKDAYS[d]).join(', ');
+    return [names, times].filter(Boolean).join(' ');
+}
+
+const _medsTracked = (med) => med.inventory_count !== null && med.inventory_count !== undefined;
+
+// "17 left · lasts 8 days" / "stock not tracked"; '' at Out (its chip says it).
+function _myMedsStock(med, schedule) {
+    if (!_medsTracked(med)) return 'stock not tracked';
+    if ((schedule && schedule.type) === 'as_needed') return med.inventory_count > 0 ? `${med.inventory_count} left` : '';
+    return _stockMeta(med);
+}
+
+// "N left", or Out's own label ("Out", "Out · 3 over") with no chip.
+function _myMedsLeft(med) {
+    return med.inventory_count > 0 ? `${med.inventory_count} left` : formatStock(med.inventory_count, med).label;
+}
+
+// "today" / "yesterday" / "N days ago", by calendar day.
+function _myMedsAgo(iso, now) {
+    const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const n = Math.round((day(now) - day(new Date(iso))) / 86400000);
+    return n <= 0 ? 'today' : n === 1 ? 'yesterday' : `${n} days ago`;
+}
+
+// Not in use: "Ended 2 Oct" for a course that ended, else "Last N days ago",
+// else "Never taken"; "· N left" when tracked.
+function _myMedsIdleMeta(med, now) {
+    const end = String(med.end_date || '').split('T')[0];
+    const ended = end && end < `${now.getFullYear()}-${_pad2(now.getMonth() + 1)}-${_pad2(now.getDate())}`;
+    const head = ended ? `Ended ${_formatMedDay(med.end_date)}`
+        : med.last_taken_at ? `Last ${_myMedsAgo(med.last_taken_at, now)}` : 'Never taken';
+    return _medsTracked(med) ? `${head} · ${_myMedsLeft(med)}` : head;
+}
+
+// A My meds row (kit .wg-row): title "Name · dose", meta = opts.meta (default:
+// when the med is taken), opts.chip, then the tags — course dates, Rx, EU,
+// Supplement, Archived, sync. opts.trail: the row's own buttons. Tap edits;
+// swipe / the ⋯ More button carry Edit / Delete (+ "Log a dose" on live rows
+// without their own Log button). opts.more false drops the More button.
 function _buildMedsRow(med, parsedSchedule, opts = {}) {
     const row = _medsEl('div', 'wg-row wg-meds-row med-item');
     row.dataset.medId = String(med.id);
     if (med.archived) row.classList.add('archived', 'wg-row--muted');
 
-    const lead = _medsEl('span', opts.missed ? 'wg-row__lead wg-row__lead--sky' : 'wg-row__lead');
+    const lead = _medsEl('span', 'wg-row__lead');
     lead.appendChild(_medsIcon('pill'));
     row.appendChild(lead);
 
@@ -297,10 +230,11 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     body.appendChild(title);
 
     const meta = _medsEl('span', 'wg-row__meta wg-meds-row__meta');
-    meta.appendChild(_medsEl('span', 'wg-meds-row__schedule',
-        window.MedicationUtils.getMedicationScheduleText(med, parsedSchedule)));
-    const dates = _formatMedDateRange(med.start_date, med.end_date);
-    if (dates) meta.appendChild(_medsEl('span', 'wg-meds-row__dates', `· ${dates}`));
+    const text = opts.meta !== undefined ? opts.meta : _myMedsWhen(med, parsedSchedule);
+    if (text) meta.appendChild(_medsEl('span', 'wg-meds-row__schedule', text));
+    if (opts.chip) meta.appendChild(opts.chip);
+    const dates = opts.dates !== false && _formatMedDateRange(med.start_date, med.end_date);
+    if (dates) meta.appendChild(_medsEl('span', 'wg-meds-row__dates', dates));
     if (med.normalized_name) {
         meta.appendChild(_medsEl('span', 'wg-meds-row__rx', `Rx ${med.normalized_name}`));
     }
@@ -309,9 +243,6 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     if (med.ema && med.ema.for_name === med.name) {
         meta.appendChild(_medsEl('span', 'wg-meds-row__eu',
             `EU ${String(med.ema.substances).split('|').map((s) => s.trim()).filter(Boolean).join(' + ')}`));
-    }
-    if (med.inventory_count !== null && med.inventory_count !== undefined) {
-        meta.appendChild(_buildMedsInventoryTag(med));
     }
     if (med.supplement) {
         meta.appendChild(_medsEl('span', 'wg-tag wg-meds-row__supplement', 'Supplement'));
@@ -327,32 +258,35 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     row.appendChild(body);
 
     const trail = _medsEl('span', 'wg-row__trail wg-meds-row__actions');
-    const asNeeded = (parsedSchedule && parsedSchedule.type) === 'as_needed';
-    if (asNeeded && !med.archived) trail.appendChild(_buildMedsLogButton(med));
+    (opts.trail || []).forEach((btn) => trail.appendChild(btn));
+    const ownLog = !!trail.querySelector('.wg-meds-row__log-btn');
     row.appendChild(trail);
 
     return window.WGRowActions.attach(row, {
         label: med.name,
         trail,
         tapEdits: true,
+        more: opts.more,
         onEdit: () => showEditModal(med.id),
         onDelete: () => deleteMed(med.id),
-        extra: asNeeded || med.archived
+        // Every live med can be logged: from its own Log button, else the
+        // overflow (an as-needed med in Needs a refill included).
+        extra: ownLog || med.archived
             ? []
             : [{ label: 'Log a dose', icon: 'plus', onClick: () => logMedicationPast(med.id, med.name) }],
     });
 }
 
+// My meds (kit MY1, MY1 · end; bd med-5uwb.1): one row per med in exactly one
+// group (MedicationUtils.groupMyMeds) — Needs a refill, Scheduled, When
+// needed, Not in use, the Archived fold — then a neutral Add medication.
+// Taking scheduled doses lives on the Timeline.
 function renderMeds() {
     // A page torn down while loadMeds awaited its reads has nothing to paint.
     const list = document && document.getElementById('med-list');
     if (!list) return;
     list.replaceChildren();
     const now = new Date();
-
-    const scheduledEntries = [];
-    const asNeeded = [];
-    const archived = [];
 
     if (medications.length === 0) {
         list.appendChild(createEmptyState({
@@ -365,112 +299,90 @@ function renderMeds() {
         return;
     }
 
-    const nextDoses = _nextDoseByMedId();
-
-    // Missed buckets: pending (due / snoozed) doses grouped by their exact slot. A med
-    // with a missed dose shows there, not again under its next dose.
-    const medById = new Map(medications.map((m) => [String(m.id), m]));
-    const missedBuckets = new Map(); // scheduled_at -> { at, entries, intakeIds }
-    (_medsUpcomingState.due || []).forEach((dose) => {
-        const med = medById.get(String(dose.medId));
-        const at = new Date(dose.plannedAt);
-        if (!med || med.archived || Number.isNaN(at.getTime())) return;
-        const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
-        if ((schedule?.type || 'daily') === 'as_needed') return;
-        if (!missedBuckets.has(dose.plannedAt)) {
-            missedBuckets.set(dose.plannedAt, { at, entries: [], intakeIds: [] });
-        }
-        const bucket = missedBuckets.get(dose.plannedAt);
-        if (bucket.entries.some((e) => e.med === med)) return;
-        bucket.entries.push({ med, schedule });
-        if (dose.occId !== undefined && dose.occId !== null) bucket.intakeIds.push(dose.occId);
+    const g = window.MedicationUtils.groupMyMeds(medications, {
+        now,
+        stockState: (m) => formatStock(m.inventory_count, m).state,
     });
-    const missedMedIds = new Set();
-    missedBuckets.forEach((b) => b.entries.forEach((e) => missedMedIds.add(e.med)));
+    const parse = (m) => window.MedicationUtils.parseMedicationSchedule(m.schedule);
+    const whenStock = (m, s) => [_myMedsWhen(m, s), _myMedsStock(m, s)].filter(Boolean).join(' · ');
+    const add = (label, group, meds, opts) => {
+        const rows = meds.map((m) => { const s = parse(m); return _buildMedsRow(m, s, opts(m, s)); });
+        if (rows.length) list.appendChild(_buildMedsBucket(label, { group, rows }));
+    };
 
-    medications.forEach((med) => {
-        const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
-        const scheduleType = schedule?.type || 'daily';
-
-        if (med.archived) {
-            archived.push({ med, schedule, next: null });
-            return;
-        }
-
-        if (scheduleType === 'as_needed') {
-            asNeeded.push({ med, schedule, next: null });
-            return;
-        }
-
-        if (missedMedIds.has(med)) return;
-
-        const resolved = _resolveNextDose(med, schedule, nextDoses, now);
-        scheduledEntries.push({
-            med,
-            schedule,
-            next: resolved ? resolved.at : null,
-            key: resolved ? resolved.key : null,
-            timeLabel: resolved ? resolved.timeLabel : null
-        });
-    });
-
-    // Bucket scheduled entries by their next dose slot. Entries with no
-    // computable next dose fall into a generic "Scheduled" bucket at
-    // the end of the scheduled section.
-    const slotBuckets = new Map(); // key -> { at, timeLabel, entries }
-    const scheduledNoNext = [];
-
-    scheduledEntries.forEach((entry) => {
-        if (!entry.next) {
-            scheduledNoNext.push(entry);
-            return;
-        }
-        if (!slotBuckets.has(entry.key)) {
-            slotBuckets.set(entry.key, { at: entry.next, timeLabel: entry.timeLabel, entries: [] });
-        }
-        slotBuckets.get(entry.key).entries.push(entry);
-    });
-
-    const sortByTaken = (a, b) => window.MedicationUtils.getLastTakenTimeMs(b.med) - window.MedicationUtils.getLastTakenTimeMs(a.med);
-    const rowsOf = (entries, opts) => entries.map(({ med, schedule }) => _buildMedsRow(med, schedule, opts));
-
-    Array.from(missedBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
-        // Pending doses of any day (bd med-ry7b.4).
-        list.appendChild(_buildMedsBucket(pendingSlotLabel(bucket.at, now), {
-            pending: true,
-            action: {
-                label: 'Log late',
-                ghost: true,
-                onClick: () => _openBucketTake(bucket.entries.map((e) => e.med), bucket.at.toISOString(), bucket.intakeIds),
-            },
-            rows: rowsOf(bucket.entries, { missed: true }),
-        }));
-    });
-
-    Array.from(slotBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
-        const meds = bucket.entries.map((e) => e.med);
-        list.appendChild(_buildMedsBucket(_formatHourHeader(bucket.timeLabel, bucket.at, now), {
-            tone: 'dot',
-            action: { label: `Take ${meds.length}`, onClick: () => _openBucketTake(meds, bucket.at.toISOString()) },
-            rows: rowsOf(bucket.entries),
-        }));
-    });
-
-    if (scheduledNoNext.length > 0) {
-        scheduledNoNext.sort(sortByTaken);
-        list.appendChild(_buildMedsBucket('Scheduled', { rows: rowsOf(scheduledNoNext) }));
+    add('Needs a refill', 'refill', g.refill, (m, s) => ({
+        meta: whenStock(m, s),
+        chip: _stockChip(m),
+        trail: [_medsButton('wg-meds-stock__update', 'Update', () => openStockSheet(m))],
+    }));
+    add('Scheduled', 'scheduled', g.scheduled, (m, s) => ({ meta: whenStock(m, s) }));
+    add('When needed', 'as-needed', g.asNeeded, (m) => ({
+        meta: [m.last_taken_at && `Last ${_myMedsAgo(m.last_taken_at, now)}`, _medsTracked(m) && _myMedsLeft(m)].filter(Boolean).join(' · '),
+        trail: [_buildMedsLogButton(m)],
+    }));
+    // Not in use (Iris, MY1 review): no ⋯ More — the row tap opens the editor
+    // (Archived switch, Delete) — and no course tag: the meta says "Ended …".
+    // One button per row (Iris): an idle as-needed med logs (no Timeline slot;
+    // Track stock lives in the editor); an ended course offers Stop tracking.
+    add('Not in use', 'not-in-use', g.notInUse, (m, s) => ({
+        meta: _myMedsIdleMeta(m, now),
+        dates: false,
+        more: false,
+        trail: (s && s.type) === 'as_needed' ? [_buildMedsLogButton(m)]
+            : _medsTracked(m) ? [_medsButton('wg-btn--ghost wg-meds-row__stop', 'Stop tracking', () => stopTrackingMed(m.id))]
+                : [],
+    }));
+    // Archived rows show no dose times (they read as live reminders): just
+    // "Last <date>" when known, beside the Archived chip.
+    if (g.archived.length) {
+        list.appendChild(_buildArchivedFold(g.archived.map((m) => _buildMedsRow(m, parse(m), {
+            meta: m.last_taken_at
+                ? `Last ${new Date(m.last_taken_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : '',
+        }))));
     }
 
-    if (asNeeded.length > 0) {
-        asNeeded.sort(sortByTaken);
-        list.appendChild(_buildMedsBucket('As needed', { rows: rowsOf(asNeeded) }));
-    }
-
-    if (archived.length > 0) {
-        archived.sort(sortByTaken);
-        list.appendChild(_buildMedsBucket('Archived', { rows: rowsOf(archived) }));
-    }
+    const addBtn = _medsEl('button', 'wg-btn wg-btn--block wg-meds-add');
+    addBtn.type = 'button';
+    addBtn.append(_medsIcon('plus', 'wg-ico--sm'), 'Add medication');
+    addBtn.addEventListener('click', () => showAddModal());
+    list.appendChild(addBtn);
     syncMedsAddButton();
+}
+
+// Archived (kit MY1 · end): one folded row, "N meds", collapsed on every
+// render; a tap unfolds the archived rows underneath.
+function _buildArchivedFold(rows) {
+    const section = _buildMedsBucket('', { group: 'archived', rows: [] });
+    const fold = _medsEl('div', 'wg-row wg-meds-fold');
+    fold.setAttribute('role', 'button');
+    fold.tabIndex = 0;
+    const lead = _medsEl('span', 'wg-row__lead');
+    lead.appendChild(_medsIcon('archive'));
+    const body = _medsEl('span', 'wg-row__body');
+    body.append(_medsEl('span', 'wg-row__title', 'Archived'),
+        _medsEl('span', 'wg-row__meta', rows.length === 1 ? '1 med' : `${rows.length} meds`));
+    let chev = _medsEl('i');
+    fold.append(lead, body, chev);
+    section.querySelector('.wg-list').appendChild(fold);
+    const list = _medsEl('div', 'wg-list wg-meds-archived');
+    rows.forEach((row) => list.appendChild(row));
+    section.appendChild(list);
+    const set = (open) => {
+        fold.setAttribute('aria-expanded', String(open));
+        list.hidden = !open;
+        const next = _medsIcon(open ? 'chev-d' : 'chev-r', 'wg-row__chev');
+        chev.replaceWith(next);
+        chev = next;
+    };
+    set(false);
+    const toggle = () => set(list.hidden);
+    fold.addEventListener('click', toggle);
+    fold.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        toggle();
+    });
+    return section;
 }
 
 // M4: while the visible Meds pane shows an empty state with its own Add, the
@@ -1508,6 +1420,7 @@ async function _writeStock(med, mode, value) {
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
         medications = patch(medications, () => before);
         renderInventory();
+        renderMeds();
         return null;
     }
     if (typeof res.inventory_count === 'number' && res.inventory_count !== expected) {
@@ -1517,6 +1430,7 @@ async function _writeStock(med, mode, value) {
         try { await handle.commit(null); } catch (_) { /* best-effort */ }
     }
     renderInventory();
+    renderMeds();
     return medications.find((m) => m && m.id === med.id) || null;
 }
 
@@ -1718,8 +1632,9 @@ function renderInventory() {
     list.replaceChildren();
     list.classList.add('wg-meds-stock');
 
+    // Archived meds show no stock anywhere in Meds (med-5uwb.1 acceptance d).
     const tracked = (Array.isArray(medications) ? medications : [])
-        .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined)
+        .filter((m) => m && !m.archived && m.inventory_count !== null && m.inventory_count !== undefined)
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     if (tracked.length === 0) {
@@ -1769,15 +1684,6 @@ function renderMedsEmptyState() {
 
 // Logic
 async function loadMeds() {
-    // Refresh the plan-aware forecast before any render below reads it. In
-    // cloud mode this is a local shim read (IndexedDB, no network), so it does
-    // not delay the first paint; in the legacy bot server the route is absent
-    // and renderMeds falls back to the device-local computation. Do NOT drop
-    // this call: the Schedule hour buckets read this state (bd med-gut.1), and
-    // without it they silently regress to device-local time math that
-    // disagrees with Home's next-intake card.
-    await loadUpcomingDoses();
-
     if (initialAuthLoad) {
         initialAuthLoad = false;
         // `medications` already set by applyBootstrapPayload, hydrateMedicationsFromDexie,
@@ -2063,16 +1969,61 @@ async function _archiveMedById(id) {
     return _archiveMedApi(med);
 }
 
+// The FULL update body for POST /api/medications/:id, built from the med row
+// (bd med-h1wk). The domain update replaces the record: an omitted
+// start_date/end_date clears it, an omitted tz_shift_policy resets to
+// "flexible", an omitted inventory_count stops stock tracking
+// (web/domain/medications.js update). So a write that changes one field
+// sends every field saveMedication sends, with `overrides` on top. A tracked
+// count is ignored by the domain (stock moves only through the ledger).
+function _medUpdatePayload(med, overrides = {}) {
+    return {
+        name: med.name,
+        dosage: med.dosage || '',
+        schedule: med.schedule,
+        archived: !!med.archived,
+        supplement: !!med.supplement,
+        start_date: med.start_date || null,
+        end_date: med.end_date || null,
+        inventory_count: _medsTracked(med) ? med.inventory_count : null,
+        pack_size: med.pack_size || null,
+        tz_shift_policy: med.tz_shift_policy || 'flexible',
+        ...overrides,
+    };
+}
+
+// My meds "Stop tracking" (kit MY1 · end): one tap, no confirm, no undo.
+// Tracking off through the full update; the stock ledger stays, so the
+// editor's Track stock restarts it with an audit. Optimistic (rule 9).
+async function stopTrackingMed(id) {
+    const med = (Array.isArray(medications) ? medications : []).find((m) => m && m.id === id);
+    if (!med) return false;
+    const off = { inventory_count: null, pack_size: null };
+    const patch = (list, next) => (Array.isArray(list) ? list.map((m) => (m && m.id === id ? next(m) : m)) : list);
+    const untracked = (m) => ({ ...m, ...off, stock: undefined, _optimistic: true });
+    const handle = await window.DataStore.applyOptimistic('medications', (prev) => patch(prev, untracked), ['medications']);
+    medications = patch(medications, untracked);
+    renderMeds();
+    let res = null;
+    try {
+        res = await apiCall(`/api/medications/${id}`, 'POST', _medUpdatePayload(med, off));
+    } catch (_) { res = null; }
+    if (!res) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        medications = patch(medications, () => med);
+        renderMeds();
+        return false;
+    }
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['medications']);
+    loadMeds();
+    return true;
+}
+
 // The archive POST. Resolves true on success.
 async function _archiveMedApi(med) {
     const id = med.id;
-    const payload = {
-        name: med.name,
-        dosage: med.dosage,
-        schedule: med.schedule,
-        supplement: !!med.supplement,
-        archived: true
-    };
+    const payload = _medUpdatePayload(med, { archived: true });
 
     // Optimistic: flip archived=true on the cached row so the Schedule
     // tab moves the med into the archived bucket before POST resolves.

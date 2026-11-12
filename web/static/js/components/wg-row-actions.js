@@ -12,6 +12,8 @@
 //       label?,       // names the row for the More button ("More actions for …")
 //       trail?,       // element the More button goes into (default: row)
 //       tapEdits?,    // a tap on the row (outside its controls) → onEdit
+//       more?,        // false: no More button/menu; with tapEdits the row is a focusable
+//                     // role=button named by label, Enter edits
 //   }) → row
 //
 // The row itself becomes the swipe host (.wg-swipe.wg-swipe--host): its
@@ -105,6 +107,21 @@
         });
         row.appendChild(acts);
 
+        // more: false — no overflow menu (the row tap is the only edit path, e.g.
+        // a My meds "Not in use" row); the row itself takes focus and Enter edits.
+        if (o.more === false) {
+            if (o.tapEdits && o.onEdit) {
+                row.tabIndex = 0;
+                row.setAttribute('role', 'button');
+                if (o.label) row.setAttribute('aria-label', o.label);
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && e.target === row) { e.preventDefault(); o.onEdit(e); }
+                });
+            }
+            bindSwipe(row, o, swipeActs);
+            return row;
+        }
+
         // Overflow menu.
         const more = document.createElement('button');
         more.type = 'button';
@@ -173,7 +190,11 @@
         row.addEventListener('focusout', (e) => {
             if (!menu.hidden && e.relatedTarget && !row.contains(e.relatedTarget)) close(row);
         });
+        bindSwipe(row, o, swipeActs);
+        return row;
+    }
 
+    function bindSwipe(row, o, swipeActs) {
         // Touch swipe. A swipe (or a tap that just closes an open row)
         // swallows the click that follows, so it never also edits/opens.
         let start = null;
@@ -210,7 +231,6 @@
                 o.onEdit(e);
             });
         }
-        return row;
     }
 
     window.WGRowActions = { attach, swipeIntent };

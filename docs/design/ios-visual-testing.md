@@ -218,7 +218,7 @@ vault, so order does not matter and one failure does not poison the rest.
 | 5 | `food-add-sheet` | 4 + click `#add-food-inline-btn` | sheet at rest: header, width, corners |
 | 6 | `food-add-sheet-keyboard` | 5 + *native*: tap `#food-add-search`, type the fixture product's first letters, wait for keyboard | the `med-pe9g` bug: zoom, header, list under the keyboard |
 | 7 | `food-add-sheet-keyboard-empty` | 6 + *native*: clear the field | the third `med-pe9g` screenshot (sheet vanished) |
-| 8 | `meds-schedule` | `switchTab('meds')`, sub-tab `schedule` | schedule rows, time chips |
+| 8 | `meds-schedule` | `switchTab('meds')`, sub-tab `schedule` | My meds rows (kit MY1); `meds-my-meds*` near the end seed every group |
 | 9 | `workouts-plans` | `switchTab('workouts')`, sub-tab `groups` | plan cards, rotation rows ("scaling on workout pages") |
 | 10 | `workouts-stats` | sub-tab `stats` | `wg-workout-chart` canvas width in a narrow view |
 | 11 | `workout-session-log` | open the fixture's session from History + *native*: tap a set's Reps cell | the set prompt's numeric input + the real numeric keyboard |
@@ -227,9 +227,7 @@ vault, so order does not matter and one failure does not poison the rest.
 | 14 | `settings-home` | `switchTab('settings')` | grouped rows, pagebar back |
 | 15 | `settings-backup` | 14 + `openSettingsPage('backup')` | file inputs, long copy, local-only rows |
 
-Phase 2 adds (bd med-y5xx.8): `weight`, `meds-schedule-take` (Schedule with
-the take-dose sheet open; was `meds-history-take` until bd med-wi09.3 retired
-History for `meds-timeline`), `meds-timeline-pending` (edits yesterday's
+Phase 2 adds (bd med-y5xx.8): `weight`, `meds-timeline-pending` (edits yesterday's
 taken dose to Not taken through the MT3 sheet, so that day lists it with its
 own Take / Skip) and `meds-timeline-bulk-undo` (the MT4 bulk pair needs 2+
 listed pending doses on a day; the golden fixture has one dose a day, so the

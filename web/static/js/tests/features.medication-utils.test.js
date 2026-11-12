@@ -233,6 +233,59 @@ describe('features/medication-utils.js — MedicationUtils (Plan 2026-05-13, Tas
         });
     });
 
+    // My meds groups (kit MY1, bd med-5uwb.1): one group per med, precedence
+    // archived → Not in use → Needs a refill → When needed → Scheduled.
+    describe('groupMyMeds', () => {
+        const NOW = new Date(2026, 10, 12, 12, 0, 0);
+        const DAY = 24 * 60 * 60 * 1000;
+        const ago = (n) => new Date(NOW.getTime() - n * DAY).toISOString();
+        const DAILY = JSON.stringify({ type: 'daily', times: ['08:00'] });
+        const PRN = JSON.stringify({ type: 'as_needed' });
+        const state = { 1: 'danger', 2: 'warn', 3: 'danger', 4: 'warn', 5: 'danger' };
+        const stockState = (m) => state[m.id] || 'ok';
+        const groupOf = (window, med) => {
+            const g = window.MedicationUtils.groupMyMeds([med], { now: NOW, stockState });
+            return Object.keys(g).find((k) => g[k].length);
+        };
+
+        it.each([
+            ['archived (even Out)', { id: 1, archived: true, schedule: DAILY, inventory_count: 0 }, 'archived'],
+            ['ended yesterday, no dose', { schedule: DAILY, end_date: '2026-11-11T00:00:00.000Z' }, 'notInUse'],
+            ['ends today', { schedule: DAILY, end_date: '2026-11-12T00:00:00.000Z' }, 'scheduled'],
+            ['as-needed taken 10 days ago', { schedule: PRN, last_taken_at: ago(10) }, 'asNeeded'],
+            ['as-needed taken 31 days ago', { schedule: PRN, last_taken_at: ago(31) }, 'notInUse'],
+            ['as-needed never taken, no start or creation date', { schedule: PRN }, 'notInUse'],
+            // Never taken: the 30-day clock starts at start_date ?? created_at (Iris).
+            ['as-needed never taken, created 3 days ago', { schedule: PRN, created_at: ago(3) }, 'asNeeded'],
+            ['as-needed never taken, created 40 days ago', { schedule: PRN, created_at: ago(40) }, 'notInUse'],
+            ['as-needed never taken, started 5 days ago (created long before)', { schedule: PRN, start_date: ago(5), created_at: ago(90) }, 'asNeeded'],
+            // ...but only for as-needed: a never-taken ended course is Not in use at once.
+            ['ended course never taken, started 24 days ago', { schedule: DAILY, start_date: ago(24), created_at: ago(24), end_date: '2026-11-02T00:00:00.000Z' }, 'notInUse'],
+            ['daily never taken', { schedule: DAILY }, 'scheduled'],
+            ['Out as-needed taken yesterday', { id: 1, schedule: PRN, inventory_count: -3, last_taken_at: ago(1) }, 'refill'],
+            ['Out ended course', { id: 1, schedule: DAILY, inventory_count: 0, end_date: '2026-10-01T00:00:00.000Z' }, 'notInUse'],
+            ['ended course taken 5 days ago', { schedule: DAILY, end_date: '2026-11-01T00:00:00.000Z', last_taken_at: ago(5) }, 'scheduled'],
+            ['untracked never asks for a refill', { id: 1, schedule: DAILY, inventory_count: null }, 'scheduled'],
+        ])('%s', (_label, med, expected) => {
+            expect(groupOf(env.window, { id: 99, name: 'X', archived: false, ...med })).toBe(expected);
+        });
+
+        it('every med lands in exactly one group; refill is Out before Low, then by name; the rest by name', () => {
+            const meds = [
+                { id: 2, name: 'Bisoprolol', schedule: DAILY, inventory_count: 3 },
+                { id: 4, name: 'Aspirin', schedule: DAILY, inventory_count: 2 },
+                { id: 3, name: 'Zopiclone', schedule: DAILY, inventory_count: 0 },
+                { id: 1, name: 'Cetirizine', schedule: DAILY, inventory_count: 0 },
+                { id: 10, name: 'Losartan', schedule: DAILY },
+                { id: 11, name: 'Amlodipine', schedule: DAILY },
+            ];
+            const g = env.window.MedicationUtils.groupMyMeds(meds, { now: NOW, stockState });
+            expect(g.refill.map((m) => m.id)).toEqual([1, 3, 4, 2]);
+            expect(g.scheduled.map((m) => m.id)).toEqual([11, 10]);
+            expect(Object.values(g).flat()).toHaveLength(meds.length);
+        });
+    });
+
     it('confirms app.js no longer hosts the original function declarations', async () => {
         // Plan acceptance: the four helpers must live in features/medication-utils.js
         // only. This test reads app.js source from disk so a regression that

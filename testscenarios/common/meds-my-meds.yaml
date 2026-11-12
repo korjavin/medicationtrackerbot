@@ -1,0 +1,23 @@
+id: meds-my-meds
+title: My meds shows each med once, in one group; Stop tracking keeps the stock history
+platforms: [web, android, ios]
+preconditions:
+  - A daily med low on stock, an as-needed med that is out, a daily and a weekly med with plenty or untracked stock
+  - An as-needed med taken 3 days ago, a course that ended 10 days ago with stock tracked, two archived meds
+steps:
+  - Open Meds → My meds
+  - Scroll to the end, tap Archived, then tap Stop tracking on the ended course
+  - Archive a med with course dates and stock tracking from its row's ⋯ menu, then open it in the editor
+invariants:
+  - Each medication appears exactly once, under Needs a refill (Out first, then Low), Scheduled, When needed, Not in use or the folded Archived row, in that order, then Add medication
+  - A weekly med reads "Sundays 08:20" for one day, "Mon, Wed, Fri 08:20" for several
+  - Not in use = no active schedule (as-needed, or the end date has passed) and no dose in 30 days (a never-taken as-needed med counts from its start or creation date, so a new one starts under When needed; a never-taken ended course is Not in use at once); it never shows an Out/Low chip
+  - every live as-needed med can be logged from My meds (its row's Log, or "Log a dose" in the overflow)
+  - Archived meds show no stock count, chip or Update anywhere in Meds; the Archived row opens folded on every visit
+  - Stop tracking takes one tap, no confirm; the row stays under Not in use without a count; nothing is deleted, and turning Track stock back on in the editor keeps the old refills in the stock history
+  - Archiving from the list row keeps the course dates, the time zone policy and stock tracking (bd med-h1wk)
+covered_by:
+  web: web/static/js/tests/meds.schedule.test.js
+  android: web/static/js/tests/meds.schedule.test.js  # the list is web-rendered in every shell; ledger and full-payload checks in web/static/js/tests/cloud.shim-contract.meds.test.js
+  ios: web/static/js/tests/meds.schedule.test.js  # the list is web-rendered in every shell; ledger and full-payload checks in web/static/js/tests/cloud.shim-contract.meds.test.js
+source: [bd med-5uwb.1, bd med-h1wk]

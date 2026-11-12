@@ -71,7 +71,7 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
         env = null;
     });
 
-    it('renders planned doses with hourly buckets and a stale chip when Dexie pre-populated the api_cache and we are offline', async () => {
+    it('renders the My meds list from the api_cache Dexie pre-populated while we are offline', async () => {
         const { window, document } = env;
         const now = new Date();
         const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
@@ -117,9 +117,8 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
         await window.loadMeds();
 
         const list = document.getElementById('med-list');
-        const headers = list.querySelectorAll('.wg-meds-bucket__label');
-        expect(headers.length).toBeGreaterThanOrEqual(2);
-        expect(headers[0].textContent.trim()).toMatch(/^\d{2}:\d{2} · in /);
+        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label')).map((h) => h.textContent);
+        expect(headers).toEqual(['Scheduled']);
 
         const rows = list.querySelectorAll('.wg-meds-row');
         expect(rows.length).toBe(3);
