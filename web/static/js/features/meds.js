@@ -6,16 +6,17 @@
 // helpers (isLowOnStock, formatDate, apiCall, withSubmit, safeAlert,
 // safeConfirm, editingMedId, medications, initialAuthLoad, etc.).
 
-// Sub-tab state: Timeline · Schedule · Stock (bd med-wi09.3; Stock keeps its
-// `inventory` id). Scoped to sessionStorage so every fresh launch lands on the
+// Sub-tab state: Timeline · My meds (bd med-5uwb.2; My meds keeps the
+// `schedule` id). Scoped to sessionStorage so every fresh launch lands on the
 // Timeline default; an in-session tab click survives reloads within the same
-// tab. The retired History and Upcoming panes map to the timeline that
-// replaced them, so a stored or passed legacy value never lands on nothing.
-// Legacy mt-meds-subtab localStorage values are cleared on boot.
+// tab. Retired panes map to what replaced them — History and Upcoming to the
+// timeline, Stock (`inventory`) to My meds — so a stored or passed legacy
+// value never lands on nothing. Legacy mt-meds-subtab localStorage values are
+// cleared on boot.
 const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
-const MEDS_SUBTAB_OPTIONS = ['timeline', 'schedule', 'inventory'];
+const MEDS_SUBTAB_OPTIONS = ['timeline', 'schedule'];
 const MEDS_SUBTAB_DEFAULT = 'timeline';
-const MEDS_SUBTAB_LEGACY = { history: 'timeline', upcoming: 'timeline' };
+const MEDS_SUBTAB_LEGACY = { history: 'timeline', upcoming: 'timeline', inventory: 'schedule' };
 
 function _normalizeMedsSubTab(tab) {
     const mapped = MEDS_SUBTAB_LEGACY[tab] || tab;
@@ -1298,12 +1299,11 @@ function logMedicationPast(id, name) {
 }
 
 
-// Stock sub-tab (kit v2 ST4, bd med-wi09.13; tab id stays `inventory`). One
-// `.wg-row` per medication that tracks stock, problems first under "Needs
-// attention", each with one Update action that opens the Update stock sheet
-// (ST1–ST3). The count is the domain's derived stock (inventory_count on the
-// wire: the last count + refills since − doses taken since); `med.stock`
-// carries that ledger for the sheet's history.
+// Stock helpers and the Update stock sheet (ST1–ST3, bd med-wi09.13), opened
+// from My meds' Needs a refill rows and the editor (the Stock sub-tab merged
+// into My meds, bd med-5uwb.2). The count is the domain's derived stock
+// (inventory_count on the wire: the last count + refills since − doses taken
+// since); `med.stock` carries that ledger for the sheet's history.
 
 const MEDS_REFILL_PRESETS = [30, 60, 90];
 
@@ -1354,39 +1354,6 @@ function _stockChip(med) {
     return chip;
 }
 
-function _buildStockRow(med) {
-    const row = _medsEl('div', 'wg-row wg-meds-stock__row');
-    row.dataset.medId = String(med.id);
-    row.dataset.stock = formatStock(med.inventory_count, med).state;
-    // Tap opens the med editor (where tracking can be switched off); the Update button keeps its own sheet.
-    row.setAttribute('role', 'button');
-    row.tabIndex = 0;
-    row.addEventListener('click', (e) => {
-        if (e.target.closest('button')) return;
-        showEditModal(med.id);
-    });
-    row.addEventListener('keydown', (e) => {
-        if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
-        e.preventDefault();
-        showEditModal(med.id);
-    });
-    const lead = _medsEl('span', 'wg-row__lead');
-    lead.appendChild(_medsIcon('pill'));
-    const body = _medsEl('span', 'wg-row__body');
-    body.appendChild(_medsEl('span', 'wg-row__title wg-meds-stock__name', med.dosage ? `${med.name} · ${med.dosage}` : med.name));
-    const meta = _medsEl('span', 'wg-row__meta wg-meds-stock__meta', _stockMeta(med));
-    const chip = _stockChip(med);
-    if (chip) meta.appendChild(chip);
-    body.appendChild(meta);
-    const trail = _medsEl('span', 'wg-row__trail');
-    const update = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-stock__update', 'Update');
-    update.type = 'button';
-    update.addEventListener('click', () => openStockSheet(med));
-    trail.appendChild(update);
-    row.append(lead, body, trail);
-    return row;
-}
-
 // The medication after a stock write: the new count, and the ledger the
 // sheet's history reads.
 function _stockAfter(med, mode, value, count) {
@@ -1419,7 +1386,6 @@ async function _writeStock(med, mode, value) {
     if (!res) {
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
         medications = patch(medications, () => before);
-        renderInventory();
         renderMeds();
         return null;
     }
@@ -1429,7 +1395,6 @@ async function _writeStock(med, mode, value) {
     } else if (handle) {
         try { await handle.commit(null); } catch (_) { /* best-effort */ }
     }
-    renderInventory();
     renderMeds();
     return medications.find((m) => m && m.id === med.id) || null;
 }
@@ -1624,55 +1589,6 @@ function openStockSheet(med, opts = {}) {
     window.ModalManager.open(modal.id);
     paint();
     return close;
-}
-
-function renderInventory() {
-    const list = document.getElementById('med-inventory-list');
-    if (!list) return;
-    list.replaceChildren();
-    list.classList.add('wg-meds-stock');
-
-    // Archived meds show no stock anywhere in Meds (med-5uwb.1 acceptance d).
-    const tracked = (Array.isArray(medications) ? medications : [])
-        .filter((m) => m && !m.archived && m.inventory_count !== null && m.inventory_count !== undefined)
-        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-    if (tracked.length === 0) {
-        list.appendChild(createEmptyState({
-            icon: 'box',
-            title: 'No inventory tracked',
-            body: 'Turn on inventory tracking when you edit a medication to get a warning before you run out.',
-        }));
-        syncMedsAddButton();
-        return;
-    }
-
-    // Problems first: out (danger) before low (warn), then the rest by name.
-    const attention = stockAttentionMeds(tracked);
-    const fine = tracked.filter((m) => !attention.includes(m));
-    if (attention.length) list.appendChild(_buildMedsBucket('Needs attention', { rows: attention.map(_buildStockRow) }));
-    if (fine.length) list.appendChild(_buildMedsBucket('Fine', { rows: fine.map(_buildStockRow) }));
-    syncMedsAddButton();
-}
-
-async function loadInventory() {
-    // Render eagerly from whatever's in memory or the DataStore cache so the
-    // Inventory pane is never blank while loadMeds() is awaiting its network
-    // refresh. loadSWR does not resolve until fetchFresh completes, and its
-    // onCached handler only repaints the Schedule tab — without this
-    // pre-render the Inventory list would stay empty on a slow/offline first
-    // open even when cached medications are already available.
-    if (!Array.isArray(medications) || medications.length === 0) {
-        const cached = window.DataStore ? await window.DataStore.getCached('medications') : null;
-        if (Array.isArray(cached)) {
-            medications = cached;
-        }
-    }
-    renderInventory();
-    // Fall through to a full refresh so the pane picks up mutations from
-    // polling / another device (DataStore cache may be stale).
-    await loadMeds();
-    renderInventory();
 }
 
 function renderMedsEmptyState() {

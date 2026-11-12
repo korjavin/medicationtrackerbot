@@ -6436,12 +6436,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     overflow: visible;
 }
 
-.wg-meds-stock {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
 /* Update stock sheet (kit ST1-ST3) and the EU register sheet (kit ER7-ER9): on the same --z-confirm layer as its
    .mt-confirm-backdrop, or the backdrop swallows every tap as a dismiss (and
    above the medication editor it opens from). Kit display rules beat the UA

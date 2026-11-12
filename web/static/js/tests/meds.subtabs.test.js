@@ -1,12 +1,12 @@
-// Meds sub-tab strip: Timeline · Schedule · Stock (bd med-wi09.3).
+// Meds sub-tab strip: Timeline · My meds (bd med-wi09.3, med-5uwb.2).
 //
 // Kit `.wg-seg` strip with `.wg-seg__opt[aria-pressed]` selection; the active
 // sub-tab persists via the `mt-meds-subtab` sessionStorage key (every fresh
-// session lands on the Timeline default), and the retired History / Upcoming
-// values — stored by older builds, or passed by a stale caller — map to the
-// timeline that replaced them.
+// session lands on the Timeline default), and retired values — stored by
+// older builds, or passed by a stale caller — map to what replaced them:
+// History / Upcoming to the timeline, Stock (`inventory`) to My meds.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('Meds sub-tab strip', () => {
@@ -19,7 +19,6 @@ describe('Meds sub-tab strip', () => {
         // only care about the DOM class toggles + persistence, not data fetch.
         env.window.loadMeds = () => {};
         env.window.loadTimeline = () => {};
-        env.window.loadInventory = () => {};
     });
 
     afterEach(() => {
@@ -31,24 +30,27 @@ describe('Meds sub-tab strip', () => {
 
     const pressed = (document, tab) => document.querySelector(`.med-tab[data-tab="${tab}"]`).getAttribute('aria-pressed');
 
-    it('renders Timeline · Schedule · Stock as a kit .wg-seg strip', () => {
+    it('renders Timeline · My meds as a kit .wg-seg strip', () => {
         const { document } = env;
         const strip = document.querySelector('#med-subtabs');
         expect(strip.classList.contains('wg-seg')).toBe(true);
         const buttons = Array.from(strip.querySelectorAll('.med-tab'));
-        expect(buttons.map((b) => b.dataset.tab)).toEqual(['timeline', 'schedule', 'inventory']);
-        expect(buttons.map((b) => b.textContent.trim())).toEqual(['Timeline', 'Schedule', 'Stock']);
+        expect(buttons.map((b) => b.dataset.tab)).toEqual(['timeline', 'schedule']);
+        expect(buttons.map((b) => b.textContent.trim())).toEqual(['Timeline', 'My meds']);
         buttons.forEach((btn) => expect(btn.classList.contains('wg-seg__opt')).toBe(true));
     });
 
-    it('the History and Upcoming panes and their controls are gone', () => {
+    it('the History, Upcoming and Stock panes and their controls are gone', () => {
         const { document, window } = env;
         for (const id of ['med-history-tab', 'med-upcoming-tab', 'history-list', 'med-upcoming-list',
-            'next-intake-trigger', 'history-filter-med', 'history-filter-days']) {
+            'next-intake-trigger', 'history-filter-med', 'history-filter-days',
+            'med-inventory-tab', 'med-inventory-list']) {
             expect(document.getElementById(id), id).toBeNull();
         }
+        expect(document.querySelector('.med-tab[data-tab="inventory"]')).toBeNull();
         for (const fn of ['loadHistory', 'renderHistory', 'loadUpcoming', 'renderUpcomingDoses',
-            'renderNextIntakeTrigger', 'populateMedFilter', 'deleteFutureIntakes']) {
+            'renderNextIntakeTrigger', 'populateMedFilter', 'deleteFutureIntakes',
+            'renderInventory', 'loadInventory', '_buildStockRow', 'stockAttentionMeds']) {
             expect(typeof window[fn], fn).toBe('undefined');
         }
     });
@@ -57,7 +59,6 @@ describe('Meds sub-tab strip', () => {
         const { document, window } = env;
         expect(pressed(document, 'timeline')).toBe('true');
         expect(pressed(document, 'schedule')).toBe('false');
-        expect(pressed(document, 'inventory')).toBe('false');
         expect(document.getElementById('med-timeline-tab').classList.contains('active')).toBe(true);
         window.sessionStorage.removeItem('mt-meds-subtab');
         expect(window.getActiveMedsSubTab()).toBe('timeline');
@@ -75,12 +76,29 @@ describe('Meds sub-tab strip', () => {
         });
     });
 
-    it('switchMedTab activates the inventory tab content', () => {
+    it('switchMedTab("inventory") opens My meds and scrolls to the refill group', async () => {
         const { document, window } = env;
+        const scroll = vi.fn();
+        window.loadMeds = async () => {
+            const group = document.createElement('section');
+            group.dataset.group = 'refill';
+            group.scrollIntoView = scroll;
+            document.getElementById('med-list').appendChild(group);
+        };
         window.switchMedTab('inventory');
-        expect(document.getElementById('med-inventory-tab').classList.contains('active')).toBe(true);
-        expect(document.getElementById('med-schedule-tab').classList.contains('active')).toBe(false);
-        expect(pressed(document, 'inventory')).toBe('true');
+        expect(document.getElementById('med-schedule-tab').classList.contains('active')).toBe(true);
+        expect(pressed(document, 'schedule')).toBe('true');
+        expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('schedule');
+        await new Promise((r) => setTimeout(r, 0));
+        expect(scroll).toHaveBeenCalledWith({ block: 'start' });
+    });
+
+    it('switchMedTab("inventory") with nothing to refill lands on the list top without throwing', async () => {
+        const { document, window } = env;
+        window.loadMeds = async () => {};
+        expect(() => window.switchMedTab('inventory')).not.toThrow();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(document.getElementById('med-schedule-tab').classList.contains('active')).toBe(true);
     });
 
     it('switchMedTab("timeline") loads the timeline anchored on Today', () => {
@@ -112,8 +130,15 @@ describe('Meds sub-tab strip', () => {
         window.setActiveMedsSubTab('history');
         expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('timeline');
         window.setActiveMedsSubTab('inventory');
+        expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('schedule');
         window.setActiveMedsSubTab('not-a-tab');
-        expect(window.getActiveMedsSubTab()).toBe('inventory');
+        expect(window.getActiveMedsSubTab()).toBe('schedule');
+    });
+
+    it('a stored "inventory" from an older build opens My meds', () => {
+        const { window } = env;
+        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
+        expect(window.getActiveMedsSubTab()).toBe('schedule');
     });
 
     it('a stale localStorage value never overrides the session default, and is never written', () => {

@@ -16,8 +16,10 @@ invariants:
   - Archived meds show no stock count, chip or Update anywhere in Meds; the Archived row opens folded on every visit
   - Stop tracking takes one tap, no confirm; the row stays under Not in use without a count; nothing is deleted, and turning Track stock back on in the editor keeps the old refills in the stock history
   - Archiving from the list row keeps the course dates, the time zone policy and stock tracking (bd med-h1wk)
+  - Meds has two sub-tabs, Timeline and My meds; the old Stock link (or a Stock tab remembered by an older version) opens My meds, scrolled to Needs a refill when anything needs one
+  - On My meds the app bar reads "N meds · R need(s) a refill" — archived meds count in neither number
 covered_by:
-  web: web/static/js/tests/meds.schedule.test.js
+  web: web/static/js/tests/meds.schedule.test.js  # sub-tabs and the Stock alias: meds.subtabs.test.js; the app-bar count: meds.inventory.test.js
   android: web/static/js/tests/meds.schedule.test.js  # the list is web-rendered in every shell; ledger and full-payload checks in web/static/js/tests/cloud.shim-contract.meds.test.js
   ios: web/static/js/tests/meds.schedule.test.js  # the list is web-rendered in every shell; ledger and full-payload checks in web/static/js/tests/cloud.shim-contract.meds.test.js
-source: [bd med-5uwb.1, bd med-h1wk]
+source: [bd med-5uwb.1, bd med-5uwb.2, bd med-h1wk]
