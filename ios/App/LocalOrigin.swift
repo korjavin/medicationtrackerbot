@@ -38,7 +38,7 @@ enum LocalOrigin {
                              // takes account.leave {then: "local", forget: true} (see leave(_:)).
                              "account.leave.forget"]
     /// Every other op the shell answers, in both modes.
-    static let sharedOps = ["ping", "shell.ops", "diag.append", "health.authorize", "health.query",
+    static let sharedOps = ["ping", "shell.ops", "diag.append", "diag.read", "health.authorize", "health.query",
                             "health.writeAccess", "health.write", "health.delete", // Health write-back (bd med-8f4s.3)
                             "notifications.permission", "notifications.requestPermission",
                             "notifications.schedule", "notifications.test",

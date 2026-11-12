@@ -1259,6 +1259,15 @@ and the cap.
 gets a header (app version + build, iOS version, device model, mode with the
 redacted account host) followed by the log; paste it into the bead.
 
+**`diag.read`** (both modes, no args, bd med-vjxz.3, Android twin med-vjxz.2):
+replies the same text minus the mode/account line, the stored log verbatim
+(redaction stays in `Diag.append`), for Send feedback's *Attach the app log*
+(`web/cloud/js/feedback-ui.js`). `Tests/main.swift` checks the `shell.ops`
+listing only (it does not reach `Shell`); no automated check calls the op on
+iOS. Evidence, not a gate: the iOS local visual scene
+`settings-local-feedback-sheet` (`visual_scenes` dispatch, report
+`<scene>.json`) shows the *Attach the app log* checkbox when `shell.ops` lists it.
+
 ### Reminders as local notifications (bd med-w6gx.5)
 
 WKWebView has no Web Push. Whenever the web app computes the reminder horizon

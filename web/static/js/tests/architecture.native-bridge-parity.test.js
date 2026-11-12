@@ -19,9 +19,6 @@ const PLATFORM_ONLY = {
     chrome: 'Android system bars',
     'clipboard.read': 'Android: WebView has no clipboard-read permission UI; iOS and the web read navigator.clipboard from the tap',
     'media.pickPhoto': 'iOS: WKWebView cannot skip the Photo Library / Take Photo / Choose File sheet for <input accept=image/*>; Android opens the system photo picker from onShowFileChooser (med-nt9p.67)',
-    // Temporary (bd med-vjxz.2): Android lands first; the iOS twin med-vjxz.3 MUST delete this line
-    // (the stale-entry check below fails once both shells list it).
-    'diag.read': 'iOS twin med-vjxz.3 pending',
 };
 
 // { op: group } from `<name> = [ ... ]` (Swift) or `<name> = setOf( ... )` (Kotlin).
