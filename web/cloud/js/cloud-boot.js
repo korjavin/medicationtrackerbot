@@ -665,45 +665,26 @@ window.MedTrackerCloudReady = (async function boot() {
         // med-prk.2: one-time backfill linking pre-migration plan exercises to
         // their exercise_library row, so a later library rename shows through in
         // plans (history logs snapshot the name at log time and stay unchanged;
-        // the JS mirror of migration 076). It writes at now(), so like
-        // unifyLegacy it runs only once a pull in this page load reached the
-        // tail, retried after each drain (bd med-cabs): rewriting a stale
-        // offline mirror's row at now() could outrank another device's edit.
+        // the JS mirror of migration 076). Like unifyLegacy it runs only once a
+        // pull in this page load reached the tail, retried after each drain (bd
+        // med-cabs), so it never derives from an offline stale mirror.
         // Idempotent by construction — a rerun finds zero ref-less exercises
-        // and no-ops. Calls the domain op the exercise-update route calls
-        // (workout.updateExercise on the UI-origin router's live instances),
-        // NOT the route itself (bd med-cabs): the UI-origin route schedules a
-        // reminder recompute with askPermission, which would open the
-        // notification sheet at launch with no user write — the med-ckm5.4
-        // rule (reminders.js askPermissionIfNeeded). The recompute it drops
-        // changes nothing (only exercise_library_id moves) and boot runs its
-        // own recomputeAndPush. The domain op dedups by name into the library
-        // and sets exercise_library_id exactly like createExercise; per-record
-        // writes (not a full-vault snapshot) keep this additive backfill from
-        // dropping tombstones or racing bootstrap. Best-effort; never blocks boot.
+        // and no-ops. Calls the domain op directly on the UI-origin router's
+        // live instances, NOT a route (bd med-cabs): a UI-origin route
+        // schedules a reminder recompute with askPermission, which would open
+        // the notification sheet at launch with no user write — the med-ckm5.4
+        // rule (reminders.js askPermissionIfNeeded). workout.linkExerciseLibrary
+        // is a link-only CAS (docs/cloud-mode.md guard 3, repointSlot
+        // precedent, bd med-czhv), never a six-field rewrite, so a user's edit
+        // anywhere always wins. Best-effort; never blocks boot.
         let linked = false;
         const linkExerciseLibrary = () => {
             if (linked) return;
             Promise.resolve().then(async () => {
                 if (linked || !pulledThisSession()) return;
                 linked = true;
-                const { readAllLiveRecords } = await import('/js/sync.js');
-                const refless = (await readAllLiveRecords(ctx)).filter((r) => (
-                    r.recordType === 'workoutexercise'
-                    && (r.exercise_name || '').trim()
-                    && r.exercise_library_id == null
-                ));
-                for (const ex of refless) {
-                    await shimCall.domains.workout.updateExercise(ex.id, {
-                        exercise_name: ex.exercise_name,
-                        target_sets: ex.target_sets,
-                        target_reps_min: ex.target_reps_min,
-                        target_reps_max: ex.target_reps_max,
-                        target_weight_kg: ex.target_weight_kg,
-                        order_index: ex.order_index,
-                    });
-                }
-                if (refless.length) console.info(`[cloud-boot] linked ${refless.length} plan exercise(s) to the library`);
+                const n = await shimCall.domains.workout.linkExerciseLibrary();
+                if (n) console.info(`[cloud-boot] linked ${n} plan exercise(s) to the library`);
             }).catch((e) => {
                 linked = false; // a failed run retries on the next drain
                 console.error('[cloud-boot] exercise-library backfill failed', e);

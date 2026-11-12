@@ -372,11 +372,12 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     }
   });
 
-  // bd med-cabs: the med-prk.2 exercise-library backfill writes through the
-  // domain op, never the UI-origin route — that route's recompute asks for
-  // notification permission, and boot must never ask (med-ckm5.4). It writes
-  // at now(), so only after a pull in this page load reached the tail, once.
-  it('backfills ref-less plan exercises through domains.workout.updateExercise, never the route', async () => {
+  // bd med-cabs: the med-prk.2 exercise-library backfill runs the domain op,
+  // never the UI-origin route — that route's recompute asks for notification
+  // permission, and boot must never ask (med-ckm5.4). Only after a pull in
+  // this page load reached the tail, once. bd med-czhv: the op is the
+  // link-only CAS workout.linkExerciseLibrary, never updateExercise's rewrite.
+  it('backfills ref-less plan exercises through domains.workout.linkExerciseLibrary, never the route', async () => {
     let pulled = false;
     let drainOpts;
     const calls = [];
@@ -384,12 +385,8 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     shimCall.unifyLegacy = async () => {};
     shimCall.floorTimeZone = async () => false;
     const updateExercise = vi.fn(async () => {});
-    shimCall.domains = { workout: { updateExercise } };
-    const refless = {
-      recordType: 'workoutexercise', id: 7, exercise_name: 'Squat', exercise_library_id: null,
-      target_sets: 3, target_reps_min: 5, target_reps_max: 8, target_weight_kg: 60, order_index: 2, variant_id: 1,
-    };
-    const linked = { ...refless, id: 8, exercise_name: 'Bench', exercise_library_id: 4 };
+    const linkExerciseLibrary = vi.fn(async () => 1);
+    shimCall.domains = { workout: { updateExercise, linkExerciseLibrary } };
     await runBoot({
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
@@ -400,7 +397,6 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
           hasCaughtUp: async () => false,
           startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
           getSyncStatus: async () => ({ authExpired: false }),
-          readAllLiveRecords: async () => [refless, linked],
         },
         'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
@@ -408,14 +404,13 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
       console: { error() {}, warn() {}, info() {} },
     });
     await new Promise((r) => setTimeout(r, 0));
-    expect(updateExercise).not.toHaveBeenCalled(); // offline boot: no write over a stale mirror
+    expect(linkExerciseLibrary).not.toHaveBeenCalled(); // offline boot: no derivation from a stale mirror
     pulled = true;
     await drainOpts.onSettled();
     await drainOpts.onSettled();
     await new Promise((r) => setTimeout(r, 0));
-    expect(updateExercise).toHaveBeenCalledExactlyOnceWith(7, {
-      exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, target_reps_max: 8, target_weight_kg: 60, order_index: 2,
-    });
+    expect(linkExerciseLibrary).toHaveBeenCalledExactlyOnceWith();
+    expect(updateExercise).not.toHaveBeenCalled();
     expect(calls).not.toContain('PUT /api/workout/exercises/update');
   });
 
