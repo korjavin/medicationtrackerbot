@@ -28,7 +28,7 @@ on:
         type: boolean
         default: false
       api_level:
-        description: "Emulator API level (34 = minSdk)"
+        description: "Emulator API level (31 = minSdk; its stock WebView 91 is too old for the web bundle)"
         type: string
         default: '34'
 

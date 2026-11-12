@@ -68,6 +68,7 @@ class NotificationsTest {
         val notifications = Notifications(activity, diagnostics::add) { "qa.test" }
         notifications.handle("notifications.requestPermission", null) { value, _ -> replies += value }
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, shadowOf(activity).nextStartedActivity.action)
+        assertEquals("still off after the round trip reads denied, as on 14+", "denied", Notifications.permission(activity))
         notifications.onPause()
         shadowOf(nm).setNotificationsEnabled(true)
         notifications.onResume()

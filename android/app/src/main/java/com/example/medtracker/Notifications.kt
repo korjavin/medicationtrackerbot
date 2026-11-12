@@ -93,6 +93,8 @@ class Notifications(private val activity: Activity, private val diag: (String) -
             stage = 1
             val prefs = store(activity)
             val pkg = activity.packageName
+            // Below 33 the settings round trip is the ask: back with them still off reads 'denied', as on 14+.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && !forced) prefs.edit().putBoolean(ASKED, true).apply()
             when {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !forced && !granted && (!prefs.getBoolean(ASKED, false) ||
                     activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) -> {

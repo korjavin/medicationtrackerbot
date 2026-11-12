@@ -9,10 +9,18 @@ every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 Android 14+ behaves exactly as before. What is limited on Android 12 and 13:
 
 - **Health Connect** is part of the framework only from Android 14. On 12/13
-  the app does not integrate the separate Health Connect app: `getSdkStatus`
-  is not `SDK_AVAILABLE`, so `health.authorize` answers `false`, `health.query`
-  returns no samples and the import/write-back stay off — no permission flow.
-- **Passkeys in the WebView**: PASSKEYS_RESULT_PLACEHOLDER
+  the app does not integrate the separate Health Connect app (even when it is
+  installed): `HealthConnect.available()` is false below API 34, so
+  `health.authorize` answers `false`, `health.query` returns no samples and the
+  import/write-back stay off — no permission flow.
+- **Passkeys in the WebView**: unverified. The API 31 emulator image ships
+  WebView 91, which reports `WEB_AUTHENTICATION` unsupported (`shell webview
+  webauthn=unsupported`, authn-probe), so account mode cannot create or unlock a
+  passkey there; whether a Play-updated WebView on a real Android 12/13 phone
+  supports it is open until a device run.
+- **Emulator QA on API 31** is limited by that stock WebView 91: the web bundle
+  needs a current WebView (e.g. `crypto.randomUUID`, Chrome 92+), so app-level
+  scenarios fail there; a phone gets WebView updates from Play.
 - **Notifications** have no runtime permission below 13: Enable skips the
   prompt and opens the app's notification settings only when they are off.
 - **Gallery picks** below 13 use the document chooser (filtered to the
