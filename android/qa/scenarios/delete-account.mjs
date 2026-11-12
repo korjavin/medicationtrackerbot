@@ -115,6 +115,29 @@ export default async function deleteAccount(ctx) {
   await ctx.stableShot('account-again');
 
   // 3. Delete my account → local mode with F1 (A).
+  // bd med-6qno: a cancelled passkey deletes nothing. The soft authenticator's one-shot cancel lever
+  // (qa-softauthn.js, bd med-sz4k.6.3.4) makes the first reauth ceremony throw NotAllowedError.
+  const receipts = () => readFileSync(process.env.QA_RECEIPTS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+  await ctx.step('Delete with a cancelled passkey → nothing deleted, account still opens', async () => {
+    if (!process.env.QA_RECEIPTS) throw new Error('QA_RECEIPTS unset');
+    await openAccountPage(page);
+    await page.locator('#delete-account-open').scrollIntoViewIfNeeded();
+    await page.click('#delete-account-open');
+    await page.locator('.mt-confirm-modal__input').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.fill('.mt-confirm-modal__input', PHRASE);
+    await page.evaluate(() => localStorage.setItem('qa-softauthn:cancel', '1'));
+    const before = receipts().length;
+    await page.click('.mt-confirm-modal__confirm');
+    await page.waitForFunction(() => document.body.innerText.includes('Passkey verification was cancelled.'), null, { timeout: 60_000 });
+    await ctx.shot('delete-cancelled');
+    const seen = receipts().slice(before).filter((q) => q.host === r.accountHost);
+    r.cancelReceipts = seen.map((q) => `${q.method} ${q.path}`);
+    if (!seen.some((q) => q.method === 'POST' && q.path === '/api/account/reauth')) throw new Error(`no POST /api/account/reauth: ${r.cancelReceipts}`);
+    if (seen.some((q) => q.method === 'DELETE' && q.path === '/api/account')) throw new Error('a cancelled passkey sent DELETE /api/account');
+    // The account still opens: reload, unlock, vault back.
+    await page.reload();
+    await unlock(ctx, page, r);
+  });
   await ctx.step('Settings → Account → Delete → typed confirm', async () => {
     await openAccountPage(page);
     await page.locator('#delete-account-open').scrollIntoViewIfNeeded();
