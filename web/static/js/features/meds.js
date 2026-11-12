@@ -1446,6 +1446,18 @@ function _buildStockRow(med) {
     const row = _medsEl('div', 'wg-row wg-meds-stock__row');
     row.dataset.medId = String(med.id);
     row.dataset.stock = formatStock(med.inventory_count, med).state;
+    // Tap opens the med editor (where tracking can be switched off); the Update button keeps its own sheet.
+    row.setAttribute('role', 'button');
+    row.tabIndex = 0;
+    row.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        showEditModal(med.id);
+    });
+    row.addEventListener('keydown', (e) => {
+        if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        showEditModal(med.id);
+    });
     const lead = _medsEl('span', 'wg-row__lead');
     lead.appendChild(_medsIcon('pill'));
     const body = _medsEl('span', 'wg-row__body');
