@@ -13,9 +13,9 @@ invariants:
   - The photo goes with that one answer only; later answers do not repeat it
   - Hanging up while the photo still waits drops it; nothing is sent after the call
   - A photo too large to shrink is refused with the limit shown, and the agent is not told about it
-  - 'On the anonymous trial call the photo reaches the agent the same way: it describes a detail you never said'
+  - On the anonymous trial call (iPhone and Android) the camera and gallery buttons are shown, and the photo reaches the agent the same way: it describes a detail you never said
 covered_by:
   web: manual  # partial: web/static/js/tests/features.elevenlabs-call.test.js (fake relay; picker and routing); missing: a live ElevenLabs agent describing the photo, which needs a real call
   android: manual  # real camera image into account/trial vendor audio, spoken visual detail, cancellation and oversize refusal need a device call
   ios: manual  # real camera image into account/trial vendor audio, spoken visual detail, cancellation and oversize refusal need a device call
-source: [med-ku8r, med-adje]
+source: [med-ku8r, med-adje, med-1em7]
