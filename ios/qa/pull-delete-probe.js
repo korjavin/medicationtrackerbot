@@ -20,6 +20,7 @@
   };
   const visible = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const run = async (name, fn) => {
+    if (state.phase === name + '-running') return; // a re-tap must not start a second run
     try { state.phase = name + '-running'; publish(); await fn(); state.phase = name + '-done'; }
     catch (e) { state.phase = name + '-error'; state.error = String(e?.message || e); }
     publish();

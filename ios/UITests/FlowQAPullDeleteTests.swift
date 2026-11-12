@@ -221,8 +221,9 @@ final class FlowQAPullDeleteTests: XCTestCase {
                 return state
             }
             // A tap that never reached the page (or a page replaced under it)
-            // leaves the probe idle: tap again, every 10 s.
-            if phase != name + "-running", Date() > retap {
+            // leaves the probe idle: tap again, every 10 s, only on a good read
+            // (the probe also ignores a tap while its run is in flight).
+            if state != nil, phase != name + "-running", Date() > retap {
                 dismissW1(app); if button.exists { button.tap() }; retap = Date().addingTimeInterval(10)
             }
             Thread.sleep(forTimeInterval: 0.5)
