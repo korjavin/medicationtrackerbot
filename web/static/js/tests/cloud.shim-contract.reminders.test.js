@@ -70,6 +70,21 @@ describe('cloud shim contract — reminders', () => {
         }
     });
 
+    // bd med-cabs: the boot exercise-library backfill calls the seam's
+    // domains.workout.updateExercise instead of the UI-origin route, so it links
+    // the row without scheduling a recompute (no permission ask at launch).
+    it('the seam exposes workout.updateExercise, which links the library and schedules no recompute', async () => {
+        const scheduleReminderRecompute = vi.fn();
+        const records = createInMemoryRecordsPort({
+            workoutexercise: [{ recordId: 'wx-7', id: 7, deleted: false, variant_id: 1, exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, order_index: 0 }],
+        });
+        const router = createApiRouter(null, { records, origin: ORIGIN_UI, timeZone: 'UTC', effects: { scheduleReminderRecompute } });
+        await router.domains.workout.updateExercise(7, { exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, target_reps_max: null, target_weight_kg: null, order_index: 0 });
+        const [ex] = await records.list('workoutexercise');
+        expect(ex.exercise_library_id).not.toBeNull();
+        expect(scheduleReminderRecompute).not.toHaveBeenCalled();
+    });
+
     // med-5vy0 — the delivery pref's floored defaults (docs/cloud-mode.md
     // guard 3): {floor} stores a fixed default body only when nothing is
     // stored. Domain-level convergence lives in reminders.domain.test.js.
