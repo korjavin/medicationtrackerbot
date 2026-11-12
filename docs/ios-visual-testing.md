@@ -31,7 +31,7 @@ The unsigned baseline on 2026-10-30 returned `available: true` and HealthKit err
 
 ## Duration
 
-iOS Simulator job about 35-50 min (devices boot one after the other; job timeout 60). Web tiers about 5 min. Watch: `gh run watch <run>`.
+iOS Simulator jobs about 35-50 min each, all in parallel (job timeout 60): each device runs the catalog in two halves (`shard`/`shards` in the `visual` matrix, bd med-05az) because the whole list no longer fits the cap. An explicit `visual_scenes` dispatch runs whole on the first half's job. Web tiers about 5 min. Watch: `gh run watch <run>`.
 
 ## Download
 
