@@ -487,7 +487,8 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
         }
     }
 
-    private static func topViewController() -> UIViewController? {
+    /// The controller a sheet presents from (the export picker, PhotoPicker).
+    static func topViewController() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
         var top = scene?.keyWindow?.rootViewController
         while let next = top?.presentedViewController { top = next }

@@ -1716,6 +1716,25 @@ was removed by the shell bead; what the build sets up stays (all in
   calls the shared bridge op `app.openSettings` (`{}` → `true`, opens
   `UIApplication.openSettingsURLString`, both modes; Android twin med-r1j2.19);
   `notifications.openSettings` is unchanged.
+- **Gallery → PHPicker** (bd med-w6gx.33, `App/PhotoPicker.swift`). WKWebView
+  answers `<input type=file accept=image/*>` without `capture` with its own
+  Photo Library / Take Photo / Choose File sheet and offers no hook to skip
+  it, so `pickPhoto({capture: false})` (Food → Add → Gallery, barcode from a
+  photo, the voice call's Gallery) goes to the shared bridge op
+  `media.pickPhoto` (both modes) when `shell.ops` lists it
+  (`web/static/js/native/media-capture.js`; an older shell keeps the input).
+  `{}` → `{name, type, lastModified (ms), data (base64)}`; cancel or a
+  swipe-down → `null`; a second call while a picker is up → `"busy"`; the
+  lock closing the picker → `null`. `PHPickerViewController` (images, one,
+  `.compatible` representation) runs out of process: no photo-library
+  permission, no Info.plist key. `.compatible` has the system hand a HEIC
+  photo over as JPEG with its metadata, as Safari's input does (the page's
+  EXIF reader and the vision providers take JPEG, not HEIC); the shell reads
+  `loadFileRepresentation` of `public.jpeg` (else `public.image`) and never
+  re-encodes or downscales, so EXIF stays and the page's eaten_at comes from
+  DateTimeOriginal. QA picks `ios/qa/food-exif.jpg` (added to the Simulator
+  by ios.yml) and asserts its DateTimeOriginal. Base64 over the reply costs ~1.4× the file (a
+  few MB). Photo (camera, `capture` on) stays the input.
 
 Production must serve the AASA: set `IOS_TEAM_ID` / `IOS_BUNDLE_ID` in the
 cloud env (docs/environment.md) and check that

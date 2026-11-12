@@ -633,6 +633,12 @@ jobs:
           ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt | tee "$RUNNER_TEMP/qa-boot.log"
           exit "${PIPESTATUS[0]}"
 
+      # FlowQAFoodGalleryTests (bd med-w6gx.33) picks this JPEG (EXIF
+      # DateTimeOriginal 2025-03-15 12:34:56; photo.js drops years past next year) in the PHPicker.
+      - name: Add the Gallery test photo
+        if: matrix.part == 'rest'
+        run: xcrun simctl addmedia "$(cut -d= -f2 "$RUNNER_TEMP/devices" | head -n 1)" ios/qa/food-exif.jpg
+
       # The account-gone flows' fake server (bd med-w6gx.23.5): tlsfront on
       # :443 for *.qa.test, the base the build above was given. This job's
       # build is never archived; the archive (build job) sets its own base.

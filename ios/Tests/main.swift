@@ -364,6 +364,8 @@ precondition(accountOps.contains("push.token") && !localOps.contains("push.token
 precondition(accountOps.contains("local.erase") && localOps.contains("local.erase"), "invite.js probes it in local mode") // bd med-r1j2.7
 // bd med-r1j2.18: app.openSettings in both modes; the forget marker on an account page only.
 precondition(accountOps.contains("app.openSettings") && localOps.contains("app.openSettings"))
+// bd med-w6gx.33: Food exists in both modes, so Gallery's PHPicker does too.
+precondition(accountOps.contains("media.pickPhoto") && localOps.contains("media.pickPhoto"))
 precondition(accountOps.contains("account.leave.forget") && !localOps.contains("account.leave.forget"))
 print("LocalOrigin.ops: ok")
 

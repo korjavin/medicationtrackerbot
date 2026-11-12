@@ -159,7 +159,7 @@ register themselves at script-load time and replace the stub.
 
 | Global | Capability | Implementation |
 |---|---|---|
-| `window.MediaCapture` | Camera + photo picker | `getUserMedia` + `<input type=file>` |
+| `window.MediaCapture` | Camera + photo picker | `getUserMedia` + `<input type=file>`; ios: `pickPhoto({capture: false})` uses the shell's `media.pickPhoto` (PHPicker) when `shell.ops` lists it, else the input; every other method is the web impl (`native/media-capture.js`, bd med-w6gx.33) |
 | `window.Barcode` | Barcode scanning | `BarcodeDetector` (Chrome) / ZXing fallback |
 | `window.LocalNotifications` | Device-scheduled notifications (`isSupported`; ios: `permission`, `requestPermission`, `schedule` replace-all, `test`) | web: unsupported; ios: the app shell (`native/local-notifications.js`; reminders hand-off, [docs/ios.md](ios.md#reminders-as-local-notifications-bd-med-w6gx5)) |
 | `window.Health` | Apple Health read (`isSupported`; ios adds `requestAuthorization`, `query` — see `native/health.js`) | web: unsupported; ios: the app shell (`native/health.js`) |
