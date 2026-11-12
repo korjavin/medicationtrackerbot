@@ -1,0 +1,16 @@
+id: notifications-no-ask-at-launch
+title: Opening the app never asks for notification permission by itself
+platforms: [web, android, ios]
+preconditions:
+  - Account mode with a vault whose plan exercises were created before the exercise library (no exercise_library_id)
+  - Notifications not yet allowed on this device
+steps:
+  - Open and unlock the app
+invariants:
+  - No notification permission sheet appears at launch
+  - The in-context ask appears only after the user's own write (med-ckm5.4)
+covered_by:
+  web: web/cloud/js/tests/cloud-boot.test.js#backfills ref-less plan exercises through domains.workout.updateExercise, never the route
+  android: manual
+  ios: ios/UITests/FlowQAOfflineAccountTests.swift#testOfflineColdOpen  # med-wqj8 F6 rows 12/14/19 were this bug: the boot exercise-library backfill's ask sheet covered Today
+source: [med-cabs, med-wqj8]

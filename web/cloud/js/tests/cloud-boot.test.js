@@ -372,6 +372,45 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     }
   });
 
+  // bd med-cabs: the med-prk.2 exercise-library backfill writes through the
+  // domain op, never the UI-origin route — that route's recompute asks for
+  // notification permission, and boot must never ask (med-ckm5.4).
+  it('backfills ref-less plan exercises through domains.workout.updateExercise, never the route', async () => {
+    const calls = [];
+    const shimCall = async (endpoint, method) => { calls.push(`${method} ${String(endpoint).split('?')[0]}`); return null; };
+    shimCall.unifyLegacy = async () => {};
+    shimCall.floorTimeZone = async () => false;
+    const updateExercise = vi.fn(async () => {});
+    shimCall.domains = { workout: { updateExercise } };
+    const refless = {
+      recordType: 'workoutexercise', id: 7, exercise_name: 'Squat', exercise_library_id: null,
+      target_sets: 3, target_reps_min: 5, target_reps_max: 8, target_weight_kg: 60, order_index: 2, variant_id: 1,
+    };
+    const linked = { ...refless, id: 8, exercise_name: 'Bench', exercise_library_id: 4 };
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          pulledThisSession: () => false,
+          hasCaughtUp: async () => false,
+          startReconnectAutoDrain: () => () => {},
+          getSyncStatus: async () => ({ authExpired: false }),
+          readAllLiveRecords: async () => [refless, linked],
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+      console: { error() {}, warn() {}, info() {} },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(updateExercise).toHaveBeenCalledExactlyOnceWith(7, {
+      exercise_name: 'Squat', target_sets: 3, target_reps_min: 5, target_reps_max: 8, target_weight_kg: 60, order_index: 2,
+    });
+    expect(calls).not.toContain('PUT /api/workout/exercises/update');
+  });
+
   // bd med-wi09.19: the account-zone floor runs from the boot, never from a
   // request; tried after the boot pull and each drain until a pull in this
   // page load has let it run, then never again.

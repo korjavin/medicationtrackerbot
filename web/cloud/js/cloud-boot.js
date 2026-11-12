@@ -878,9 +878,16 @@ window.MedTrackerCloudReady = (async function boot() {
         // plans (history logs snapshot the name at log time and stay unchanged;
         // the JS mirror of migration 076). Idempotent by
         // construction — a rerun finds zero ref-less exercises and no-ops, so no
-        // separate "has run" flag is needed. Reuses the normal exercise-update
-        // path (shimCall), which dedups by name into the library and sets
-        // exercise_library_id exactly like createExercise; per-record writes
+        // separate "has run" flag is needed. Calls the domain op the exercise-
+        // update route calls (workout.updateExercise on the UI-origin router's
+        // live instances), NOT the route itself (bd med-cabs): the UI-origin
+        // route schedules a reminder recompute with askPermission, which would
+        // open the notification sheet at launch with no user write — the
+        // med-ckm5.4 rule (reminders.js askPermissionIfNeeded). The recompute
+        // it drops changes nothing (only exercise_library_id moves) and boot
+        // runs its own recomputeAndPush below. The domain op dedups by name
+        // into the library and sets exercise_library_id exactly like
+        // createExercise; per-record writes
         // (not a full-vault snapshot) keep this additive backfill from dropping
         // tombstones or racing bootstrap. Best-effort; never blocks boot.
         try {
@@ -891,7 +898,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 && r.exercise_library_id == null
             ));
             for (const ex of refless) {
-                await shimCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+                await shimCall.domains.workout.updateExercise(ex.id, {
                     exercise_name: ex.exercise_name,
                     target_sets: ex.target_sets,
                     target_reps_min: ex.target_reps_min,

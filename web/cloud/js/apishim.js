@@ -1873,7 +1873,7 @@ export function createApiRouter(ctx, {
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
-      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, vitals, now, aiClient,
+      bp, weight, notes, settings, food, foodAI, workout, workoutSheetAI, foodDb, intake, tzplan, vitals, now, aiClient,
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
