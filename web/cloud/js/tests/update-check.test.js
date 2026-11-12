@@ -722,7 +722,7 @@ describe('showUpdateBanner', () => {
             win.navigator = { onLine };
             win.addEventListener = (...a) => target.addEventListener(...a);
             const fire = (type) => {
-                win.navigator.onLine = type === 'online';
+                if (type === 'online' || type === 'offline') win.navigator.onLine = type === 'online';
                 target.dispatchEvent(new Event(type));
             };
             const banners = () => doc.querySelectorAll('#cloud-update-banner');
@@ -751,6 +751,25 @@ describe('showUpdateBanner', () => {
             fire('online');
             expect(banners()).toHaveLength(1);
             expect(doc.body.textContent.match(/A new version is available/g)).toHaveLength(1);
+        });
+
+        // A suspended WebView / bfcached tab may never get `online`; the poll has
+        // latched, so the resume itself must bring the banner back.
+        it('resume while online without an online event re-shows once (visible, pageshow)', () => {
+            const { doc, win, fire, banners } = network(true);
+            const registration = { waiting: null, update: vi.fn().mockResolvedValue() };
+            showUpdateBanner({ doc, win, registration });
+            fire('offline');
+            expect(banners()).toHaveLength(0);
+
+            doc.dispatchEvent(new doc.defaultView.Event('visibilitychange'));
+            expect(banners()).toHaveLength(0); // still offline
+            win.navigator.onLine = true;
+            doc.dispatchEvent(new doc.defaultView.Event('visibilitychange'));
+            fire('pageshow');
+            fire('online');
+            expect(banners()).toHaveLength(1);
+            expect(registration.update).toHaveBeenCalledOnce();
         });
 
         it('a downloaded worker shows the banner offline and keeps it', () => {

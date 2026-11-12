@@ -435,11 +435,13 @@ const DISMISSED_ATTR = 'data-cloud-update-dismissed';
 // med-s8q0.1: the banner shows only when its tap can work — a new worker is
 // already downloaded (activation is local) or the device is online. Offline
 // with nothing downloaded: no banner, and one already up is removed; it comes
-// back on the online event (kicking the install again), not at the next poll.
+// back on the online event (kicking the install again), not at the next poll —
+// the poll latches once it has prompted. A suspended WebView/bfcached tab may
+// miss `online`, so a resume (visible / pageshow) while online re-shows too.
 // Per window, the latest call's doc/registration/show; listeners armed once.
 const offlineGates = new WeakMap();
 
-function offlineGate(win) {
+function offlineGate(win, doc) {
     let gate = offlineGates.get(win);
     if (gate) return gate;
     gate = { pending: false };
@@ -452,12 +454,15 @@ function offlineGate(win) {
         banner.remove();
         gate.pending = true;
     });
-    win.addEventListener?.('online', () => {
-        if (!gate.pending) return;
+    const reshow = () => {
+        if (!gate.pending || win.navigator?.onLine === false) return;
         gate.pending = false;
         gate.registration?.update?.().catch(() => {});
         gate.show();
-    });
+    };
+    win.addEventListener?.('online', reshow);
+    win.addEventListener?.('pageshow', reshow);
+    doc.addEventListener('visibilitychange', () => { if (doc.visibilityState === 'visible') reshow(); });
     return gate;
 }
 
@@ -467,7 +472,7 @@ function offlineGate(win) {
 export function showUpdateBanner({ doc, win, registration } = {}) {
     doc ??= document;
     win ??= window;
-    const gate = offlineGate(win);
+    const gate = offlineGate(win, doc);
     const show = () => {
         if (doc.documentElement.hasAttribute(DISMISSED_ATTR)) return;
         if (doc.getElementById('cloud-update-banner')) return;
