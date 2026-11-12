@@ -8,8 +8,7 @@
 // bd med-wi09.3.) These functions remain global (script-tag
 // loading) and still rely on app.js + sibling globals: apiCall, safeAlert,
 // safeConfirm, withSubmit, formatDate, editingMedId, medications, loadMeds,
-// loadTimeline, renderInventory, loadInventory,
-// switchTab, window.DataStore, window.PushModalState, window.ModalManager,
+// loadTimeline, switchTab, window.DataStore, window.PushModalState, window.ModalManager,
 // window.MedTrackerDB, and meds.js's timeline flip (_applyOptimisticTimeline /
 // _tlPatchRows / _tlDoseName; its pending-set flip is what Today's Next up reads
 // too). The optimistic helpers (_commitOptimistic / _rollbackOptimistic,
@@ -23,21 +22,10 @@
 
 // Refresh the meds view siblings after a mutation (confirm/skip/edit/log-past).
 // loadMeds refreshes the schedule data and the `medications` array; loadTimeline
-// re-reads the timeline. Inventory is re-rendered (after loadMeds resolves)
-// only when it's the active sub-tab, so stock counts stay correct without
-// burning the per-med last-refilled fetch when off-screen.
+// re-reads the timeline. loadMeds repaints My meds, stock counts included.
 function refreshMedsAfterMutation() {
-    const medsPromise = typeof loadMeds === 'function' ? loadMeds() : null;
+    if (typeof loadMeds === 'function') loadMeds();
     if (typeof loadTimeline === 'function') loadTimeline();
-    if (medsPromise && typeof medsPromise.then === 'function') {
-        medsPromise.then(() => {
-            const activeMedTab = document.querySelector('.med-tab.active');
-            if (activeMedTab && activeMedTab.dataset.tab === 'inventory' &&
-                typeof renderInventory === 'function') {
-                renderInventory();
-            }
-        });
-    }
 }
 
 
@@ -593,14 +581,6 @@ function formatStock(count, med) {
     return { label: `${count} left`, state: 'ok' };
 }
 
-// Tracked meds that are out or low, out first: the Stock tab's "Needs attention"
-// rows and its app-bar "N need a refill" count.
-function stockAttentionMeds(meds) {
-    const rank = (m) => (formatStock(m.inventory_count, m).state === 'danger' ? 0 : 1);
-    return (Array.isArray(meds) ? meds : [])
-        .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined && formatStock(m.inventory_count, m).state !== 'ok')
-        .sort((a, b) => rank(a) - rank(b));
-}
 
 // Calculate how many doses per day based on schedule
 function calculateDailyUsage(med) {
@@ -1063,11 +1043,6 @@ async function confirmLogPast() {
                 await window.DataStore.invalidateByTag('gamification');
             }
             await loadMeds();
-            const activeMedTab = document.querySelector('.med-tab.active');
-            if (activeMedTab && activeMedTab.dataset.tab === 'inventory' &&
-                typeof renderInventory === 'function') {
-                renderInventory();
-            }
             const timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
             const newId = res && typeof res.id !== 'undefined' ? res.id : null;
             // Only run the visibility check when the timeline read actually

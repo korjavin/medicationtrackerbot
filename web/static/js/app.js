@@ -530,8 +530,11 @@ bindNotificationControls();
 
 function switchMedTab(tab) {
     // Retired History / Upcoming values (stored, linked or scripted) land on
-    // the timeline that replaced them (bd med-wi09.3).
+    // the timeline that replaced them (bd med-wi09.3); the retired Stock tab
+    // (`inventory`) on My meds, scrolled to Needs a refill (bd med-5uwb.2).
     if (tab === 'history' || tab === 'upcoming') tab = 'timeline';
+    const toRefill = tab === 'inventory';
+    if (toRefill) tab = 'schedule';
     const activated = activateTabGroup(tab, {
         buttonSelector: '.med-tab',
         contentSelector: '.med-tab-content',
@@ -542,11 +545,15 @@ function switchMedTab(tab) {
     if (typeof setActiveMedsSubTab === 'function') setActiveMedsSubTab(tab);
     if (typeof syncMedsAddButton === 'function') syncMedsAddButton();
 
-    if (tab === 'schedule') { loadMeds(); }
-    else if (tab === 'timeline') { loadTimeline({ anchor: true }); }
-    else if (tab === 'inventory') {
-        if (typeof loadInventory === 'function') loadInventory();
+    if (tab === 'schedule') {
+        const loaded = loadMeds();
+        // No refill group (nothing needs one): the list top is the landing.
+        if (toRefill) Promise.resolve(loaded).then(() => {
+            const group = document.querySelector('#med-list [data-group="refill"]');
+            if (group) group.scrollIntoView({ block: 'start' });
+        }, () => {});
     }
+    else if (tab === 'timeline') { loadTimeline({ anchor: true }); }
 }
 
 bindTabGroup({
@@ -674,9 +681,6 @@ function reloadCurrentTab(meta = {}) {
         const activeMedTab = document.querySelector('.med-tab.active');
         const medTab = activeMedTab ? activeMedTab.dataset.tab : 'schedule';
         if (medTab === 'timeline') { loadTimeline(); }
-        else if (medTab === 'inventory') {
-            if (typeof loadInventory === 'function') loadInventory();
-        }
         else { loadMeds(); }
     } else if (tab === 'bp') { loadBPReadings(); }
     else if (tab === 'weight') { loadWeightLogs(); }

@@ -272,7 +272,6 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         window.loadMeds = vi.fn();
         window.loadTimeline = vi.fn(async () => ({ fresh: [] }));
         window.safeAlert = vi.fn();
-        window.renderInventory = vi.fn();
 
         let postCalledSignal;
         const postCalled = new Promise((r) => { postCalledSignal = r; });

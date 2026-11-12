@@ -139,20 +139,23 @@ window.AppNav = (function () {
         return rows.filter((r) => r && (r.state === 'due' || r.state === 'snoozed')).length;
     }
 
-    // "5 active · 2 pending" / "5 active · all taken" (kit TL1 / TL3), from
-    // the last pending count; empty with no active medication (MT5 · empty
-    // owns the screen). meds.js repaints it after each render (the med list
-    // may land after the count).
+    // Timeline: "5 active · 2 pending" / "5 active · all taken" (kit TL1 /
+    // TL3), from the last pending count. My meds (kit MY1, bd med-5uwb.2):
+    // "9 meds · 2 need a refill", the refill count being the list's own Needs
+    // a refill group (groupMyMeds, so archived meds never count). Empty with
+    // no active medication (the empty state owns the screen). meds.js
+    // repaints it after each render (the med list may land after the count).
     function syncMedsSub() {
         const meds = Array.isArray(window.medications) ? window.medications : [];
         const active = meds.filter((m) => m && !m.archived).length;
         const pending = _state.pending;
         let text = active ? `${active} active` : '';
         if (active && pending !== null) text += pending ? ` · ${pending} pending` : ' · all taken';
-        // Stock tab: "2 need a refill" (the Needs attention rows) replaces it.
-        if (typeof getActiveMedsSubTab === 'function' && getActiveMedsSubTab() === 'inventory' && typeof stockAttentionMeds === 'function') {
-            const n = stockAttentionMeds(meds).length;
-            if (n) text = `${n} need${n === 1 ? 's' : ''} a refill`;
+        if (active && typeof getActiveMedsSubTab === 'function' && getActiveMedsSubTab() === 'schedule'
+            && window.MedicationUtils && typeof formatStock === 'function') {
+            const r = window.MedicationUtils.groupMyMeds(meds, { stockState: (m) => formatStock(m.inventory_count, m).state }).refill.length;
+            text = `${active} med${active === 1 ? '' : 's'}`;
+            if (r) text += ` · ${r} need${r === 1 ? 's' : ''} a refill`;
         }
         document.querySelectorAll('[data-meds-sub]').forEach((sub) => {
             sub.textContent = text;

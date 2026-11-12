@@ -14,7 +14,6 @@ describe('Meds — app-bar Add CTA (med-xso6.18)', () => {
         // Stub async sub-tab loaders — these cases exercise placement/visibility only.
         env.window.loadMeds = () => {};
         env.window.loadTimeline = () => {};
-        env.window.loadInventory = () => {};
     });
 
     afterEach(() => {
@@ -47,7 +46,7 @@ describe('Meds — app-bar Add CTA (med-xso6.18)', () => {
     it('stays visible across sub-tabs whose panes carry no empty-state Add', () => {
         const { document, window } = env;
         const addBtn = document.getElementById('add-btn');
-        ['timeline', 'inventory', 'schedule'].forEach((tab) => {
+        ['timeline', 'schedule'].forEach((tab) => {
             window.switchMedTab(tab);
             expect(addBtn.hidden).toBe(false);
         });

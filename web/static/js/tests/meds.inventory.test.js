@@ -1,12 +1,9 @@
-// Meds Stock sub-tab (kit v2 ST4) and the Update stock sheet (ST1–ST3),
-// bd med-wi09.13.
-//
-// Exercises renderInventory(): one `.wg-row.wg-meds-stock__row` per
-// medication that tracks inventory, problems first under "Needs attention",
-// "N left · lasts N days" meta, Out (· N over) / Low chips and one Update
-// action that opens the sheet. The sheet: an Added | Counted switch, "+1 pack
-// (N)" only with a pack size, presets + stepper as one value, the primary
-// previewing the result, a read-only history, and writes through
+// The Update stock sheet (ST1–ST3, bd med-wi09.13) and the My meds app-bar
+// sub (kit MY1, bd med-5uwb.2). The Stock sub-tab is gone (merged into My
+// meds); the sheet opens from the Needs a refill rows (meds.schedule.test.js)
+// and the editor. The sheet: an Added | Counted switch, "+1 pack (N)" only
+// with a pack size, presets + stepper as one value, the primary previewing
+// the result, a read-only history, and writes through
 // DataStore.applyOptimistic on /restock (Added) and /stock-audit (Counted).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,12 +26,13 @@ async function flushMicrotasks() {
     for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
-const rowOf = (document, id) => document.querySelector(`.wg-meds-stock__row[data-med-id="${id}"]`);
+const openSheet = (window, id) => window.openStockSheet(window.medications.find((m) => m.id === id));
+const metaOf = (document, id) => document.querySelector(`#med-list .wg-meds-row[data-med-id="${id}"] .wg-meds-row__meta`).textContent;
 const sheet = (document) => document.getElementById('stock-sheet');
 const primary = (document) => sheet(document).querySelector('.wg-meds-stocksheet__save');
 const picks = (document) => Array.from(sheet(document).querySelectorAll('.wg-pick'));
 
-describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () => {
+describe('Update stock sheet (ST1–ST3)', () => {
     let env;
 
     beforeEach(() => {
@@ -43,65 +41,17 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
 
     afterEach(() => {
         try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        try { env.window.sessionStorage.clear(); } catch (_) { /* ignore */ }
         env.cleanup();
         env = null;
     });
 
-    it('the sub-tab reads "Stock" but keeps the inventory tab id', () => {
-        const { document } = env;
-        const tab = document.querySelector('#med-subtabs .med-tab[data-tab="inventory"]');
-        expect(tab.textContent.trim()).toBe('Stock');
-        expect(document.getElementById('med-inventory-tab')).not.toBeNull();
-    });
-
-    it('renders the empty state when no medication tracks inventory', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', dosage: '100mg', schedule: DAILY, archived: false, inventory_count: null }
-        ]);
-        window.renderInventory();
-        const list = document.getElementById('med-inventory-list');
-        expect(list.querySelector('.wg-empty').textContent).toMatch(/no inventory tracked/i);
-        expect(list.querySelector('.wg-meds-stock__row')).toBeNull();
-    });
-
-    it('problems first under "Needs attention" (out, then low), the rest under "Fine", one Update each', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', dosage: '100mg', schedule: DAILY, archived: false, inventory_count: 60 },
-            { id: 2, name: 'Bisoprolol', dosage: '5mg', schedule: DAILY, archived: false, inventory_count: 3 },
-            { id: 3, name: 'Ibuprofen', dosage: '400mg', schedule: JSON.stringify({ type: 'as_needed' }), archived: false, inventory_count: -17 },
-            { id: 4, name: 'Metformin', dosage: '500mg', schedule: DAILY, archived: false, inventory_count: null }
-        ]);
-        window.renderInventory();
-
-        const sections = Array.from(document.querySelectorAll('#med-inventory-list .wg-section'));
-        expect(sections.map((s) => s.querySelector('.wg-eyebrow').textContent)).toEqual(['Needs attention', 'Fine']);
-        expect(Array.from(sections[0].querySelectorAll('.wg-meds-stock__row')).map((r) => r.dataset.medId)).toEqual(['3', '2']);
-        expect(Array.from(sections[1].querySelectorAll('.wg-meds-stock__row')).map((r) => r.dataset.medId)).toEqual(['1']);
-
-        const chip = (id) => rowOf(document, id).querySelector('.wg-meds-stock__chip');
-        expect(chip('3').textContent).toBe('Out · 17 over');
-        expect(chip('3').classList.contains('wg-chip--danger')).toBe(true);
-        expect(chip('2').textContent).toBe('Low');
-        expect(chip('2').classList.contains('wg-chip--warn')).toBe(true);
-        expect(chip('1')).toBeNull();
-
-        expect(rowOf(document, '1').querySelector('.wg-meds-stock__name').textContent).toBe('Allopurinol · 100mg');
-        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('60 left · lasts 60 days');
-        expect(rowOf(document, '3').querySelector('.wg-meds-stock__meta').textContent).toBe('As neededOut · 17 over');
-        document.querySelectorAll('.wg-meds-stock__row').forEach((r) => {
-            expect(r.querySelector('.wg-meds-stock__update').textContent).toBe('Update');
-        });
-    });
-
-    it('Update opens the sheet on Added: presets without a pack size, +30 preselected, "Add 30 → 47"; the stepper is the same value', async () => {
+    it('opens on Added: presets without a pack size, +30 preselected, "Add 30 → 47"; the stepper is the same value', async () => {
         const { window, document } = env;
         await seedMedications(window, [
             { id: 1, name: 'Metformin', dosage: '1000mg', schedule: TWICE, archived: false, inventory_count: 17 }
         ]);
-        window.renderInventory();
-        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        openSheet(window, 1);
 
         const s = sheet(document);
         expect(s.querySelector('.wg-sheethead__title').textContent).toBe('Update stock');
@@ -129,94 +79,12 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
         expect(sheet(document)).toBeNull();
     });
 
-    it('tapping a row (click or Enter) opens that med\'s editor; archived meds are not listed; Update still opens the sheet only', async () => {
-        const { window, document } = env;
-        await seedMedications(window, [
-            { id: 1, name: 'Metformin', dosage: '1000mg', schedule: TWICE, archived: false, inventory_count: 17 },
-            { id: 2, name: 'Old pill', dosage: '5mg', schedule: DAILY, archived: true, inventory_count: 9 }
-        ]);
-        window.renderInventory();
-        const editorCount = () => document.getElementById('med-inventory-count').value;
-
-        const row = rowOf(document, '1');
-        expect(row.getAttribute('role')).toBe('button');
-        expect(row.tabIndex).toBe(0);
-
-        row.querySelector('.wg-meds-stock__name').click();
-        expect(document.getElementById('med-track-inventory').checked).toBe(true);
-        expect(editorCount()).toBe('17');
-        expect(sheet(document)).toBeNull();
-
-        // med-5uwb.1 (d): an archived med shows no count or Update anywhere in Meds.
-        expect(rowOf(document, '2')).toBeNull();
-        row.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        expect(editorCount()).toBe('17');
-
-        row.querySelector('.wg-meds-stock__update').click();
-        expect(sheet(document)).not.toBeNull();
-        expect(editorCount()).toBe('17');
-    });
-
-    it('the app-bar sub on the Stock tab reads "N need a refill"; none needed keeps the default', async () => {
-        const { window, document } = env;
-        const sub = document.querySelector('#meds-view [data-meds-sub]');
-        const AS_NEEDED = JSON.stringify({ type: 'as_needed' });
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 },
-            { id: 2, name: 'Bisoprolol', schedule: DAILY, archived: false, inventory_count: 3 },
-            { id: 3, name: 'Ibuprofen', schedule: AS_NEEDED, archived: false, inventory_count: -17 }
-        ]);
-        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
-        window.renderInventory();
-        expect(sub.textContent).toBe('2 need a refill');
-
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 },
-            { id: 3, name: 'Ibuprofen', schedule: AS_NEEDED, archived: false, inventory_count: -17 }
-        ]);
-        window.renderInventory();
-        expect(sub.textContent).toBe('1 needs a refill');
-
-        await seedMedications(window, [
-            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 }
-        ]);
-        window.renderInventory();
-        expect(sub.textContent).toBe('1 active');
-    });
-
-    it('leaving the Stock tab restores the default sub; a stock write on it re-syncs the count', async () => {
-        const { window, document } = env;
-        const sub = document.querySelector('#meds-view [data-meds-sub]');
-        await seedMedications(window, [
-            { id: 1, name: 'Bisoprolol', schedule: DAILY, archived: false, inventory_count: 3 },
-            { id: 2, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 60 }
-        ]);
-        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
-        window.renderInventory();
-        expect(sub.textContent).toBe('1 needs a refill');
-
-        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
-        vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue(handle);
-        window.apiCall = vi.fn(async (endpoint, method) => (method === 'POST' ? { status: 'restocked', inventory_count: 33 } : []));
-        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
-        primary(document).click();
-        await flushMicrotasks();
-        expect(sub.textContent).toBe('2 active');
-
-        window.sessionStorage.setItem('mt-meds-subtab', 'inventory');
-        window.renderInventory();
-        window.switchMedTab('timeline');
-        expect(sub.textContent).toMatch(/active/);
-        expect(sub.textContent).not.toMatch(/refill/);
-    });
-
     it('a pack size adds "+1 pack (N)" first (ST1)', async () => {
         const { window, document } = env;
         await seedMedications(window, [
             { id: 1, name: 'Metformin', schedule: TWICE, archived: false, inventory_count: 17, pack_size: 28 }
         ]);
-        window.renderInventory();
-        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        openSheet(window, 1);
         expect(picks(document).map((p) => p.textContent)).toEqual(['+1 pack (28)', '+30', '+60', '+90']);
         picks(document)[0].click();
         expect(primary(document).textContent).toBe('Add 28 → 45');
@@ -234,8 +102,7 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
             if (method === 'POST') { posts.push({ endpoint, body }); return { status: 'counted', inventory_count: body.count }; }
             return [];
         });
-        window.renderInventory();
-        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        openSheet(window, 1);
         sheet(document).querySelector('[data-mode="counted"]').click();
 
         expect(sheet(document).querySelector('.wg-meds-stock__qty').value).toBe('47');
@@ -250,7 +117,7 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
         expect(posts).toEqual([{ endpoint: '/api/medications/1/stock-audit', body: { count: 45 } }]);
         expect(handle.commit).toHaveBeenCalled();
         expect(sheet(document)).toBeNull();
-        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('45 left · lasts 22 days');
+        expect(metaOf(document, 1)).toContain('45 left · lasts 22 days');
     });
 
     it('Added writes optimistically through /restock, commits and repaints; a failure rolls back and keeps the sheet', async () => {
@@ -266,15 +133,14 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
             return fail ? null : { status: 'restocked', quantity_added: body.quantity, inventory_count: 17 + body.quantity };
         });
         window.safeToast = vi.fn();
-        window.renderInventory();
-        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        openSheet(window, 1);
 
         primary(document).click();
         await flushMicrotasks();
         expect(handle.rollback).toHaveBeenCalled();
         expect(window.safeToast).toHaveBeenCalled();
         expect(sheet(document)).not.toBeNull();
-        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('17 left · lasts 17 days');
+        expect(metaOf(document, 1)).toContain('17 left · lasts 17 days');
 
         fail = false;
         primary(document).click();
@@ -286,7 +152,7 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
         expect(window.apiCall).toHaveBeenLastCalledWith('/api/medications/1/restock', 'POST', { quantity: 30 });
         expect(handle.commit).toHaveBeenCalled();
         expect(sheet(document)).toBeNull();
-        expect(rowOf(document, '1').querySelector('.wg-meds-stock__meta').textContent).toBe('47 left · lasts 47 days');
+        expect(metaOf(document, 1)).toContain('47 left · lasts 47 days');
     });
 
     it('the history under the form is the read-only ledger, newest first (ST3)', async () => {
@@ -295,13 +161,56 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
             id: 1, name: 'Metformin', schedule: TWICE, archived: false, inventory_count: 47,
             stock: { counted: 39, counted_at: '2026-10-12T10:00:00Z', seed: false, refills: [{ n: 30, at: '2026-10-20T10:00:00Z' }], taken: 22 },
         }]);
-        window.renderInventory();
-        rowOf(document, '1').querySelector('.wg-meds-stock__update').click();
+        openSheet(window, 1);
         const titles = Array.from(sheet(document).querySelectorAll('.wg-meds-stock__history .wg-row__title')).map((t) => t.textContent);
         expect(titles).toHaveLength(3);
         expect(titles[0]).toMatch(/^−22 taken since /);
         expect(titles[1]).toMatch(/^\+30 · /);
         expect(titles[2]).toMatch(/^Counted 39 · /);
         expect(sheet(document).querySelector('.wg-meds-stock__history .wg-hint').textContent).toBe("Something wrong? Add a new count. History isn't edited.");
+    });
+});
+
+// My meds app-bar sub (bd med-5uwb.2): "N meds · R need(s) a refill", R being
+// the list's own Needs a refill group (groupMyMeds — archived meds never
+// count); the Timeline keeps "N active · …".
+describe('My meds app-bar sub (MY1)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
+    afterEach(() => {
+        try { env.window.sessionStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    const med = (id, count, extra = {}) => ({ id, name: `Med ${id}`, schedule: DAILY, archived: false, inventory_count: count, ...extra });
+
+    it('reads "9 meds · 2 need a refill", "1 needs", "9 meds" with none; archived never count; Timeline unchanged', async () => {
+        const { window, document } = env;
+        const sub = document.querySelector('#meds-view [data-meds-sub]');
+        window.sessionStorage.setItem('mt-meds-subtab', 'schedule');
+        const fine = [3, 4, 5, 6, 7, 8, 9].map((id) => med(id, 60));
+        const archivedOut = med(10, 0, { archived: true });
+
+        await seedMedications(window, [med(1, 0), med(2, 3), ...fine, archivedOut]);
+        expect(sub.textContent).toBe('9 meds · 2 need a refill');
+
+        await seedMedications(window, [med(1, 0), med(2, 60), ...fine, archivedOut]);
+        expect(sub.textContent).toBe('9 meds · 1 needs a refill');
+
+        await seedMedications(window, [med(1, 60), med(2, 60), ...fine, archivedOut]);
+        expect(sub.textContent).toBe('9 meds');
+
+        await seedMedications(window, [med(1, 60)]);
+        expect(sub.textContent).toBe('1 med');
+
+        window.sessionStorage.setItem('mt-meds-subtab', 'timeline');
+        await seedMedications(window, [med(1, 0), med(2, 3)]);
+        expect(sub.textContent).toMatch(/^2 active/);
+        expect(sub.textContent).not.toMatch(/refill/);
     });
 });

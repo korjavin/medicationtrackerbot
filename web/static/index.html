@@ -63,11 +63,13 @@
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
             <!-- Meds sub-tabs: kit .wg-seg (med-xso6.10); `.med-tabs`/`.med-tab`
-                 are the TabController hooks, aria-pressed is the selection. -->
+                 are the TabController hooks, aria-pressed is the selection.
+                 Timeline · My meds (kit MY1, bd med-5uwb.2): My meds keeps the
+                 `schedule` id; the retired Stock tab's `inventory` id is an
+                 alias that opens My meds at Needs a refill (switchMedTab). -->
             <div class="wg-seg wg-subnav med-tabs" id="med-subtabs" role="group" aria-label="Meds view">
                 <button type="button" class="wg-seg__opt med-tab active" data-tab="timeline" aria-pressed="true">Timeline</button>
-                <button type="button" class="wg-seg__opt med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
-                <button type="button" class="wg-seg__opt med-tab" data-tab="inventory" aria-pressed="false">Stock</button>
+                <button type="button" class="wg-seg__opt med-tab" data-tab="schedule" aria-pressed="false">My meds</button>
             </div>
 
             <!-- Timeline sub-tab (kit v2 MT1, bd med-wi09.3): Tomorrow, Today
@@ -88,12 +90,6 @@
                      directly under the sub-tab strip. -->
                 <div id="med-list">
                     <!-- Meds injected here -->
-                </div>
-            </div>
-
-            <div id="med-inventory-tab" class="med-tab-content">
-                <div id="med-inventory-list">
-                    <!-- Inventory cards injected here in Phase 5, Task 6 -->
                 </div>
             </div>
         </div>
