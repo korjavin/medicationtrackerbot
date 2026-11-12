@@ -636,7 +636,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   `<kind>-hk-<uuid>` row the page wrote (for sleep it is only a trigger: a stage
   sample's uuid is derived from the session id). Scan modes (no anchor, expired
   token, `hc1s:` continuation) answer `deleted: []`; `hr`/`spo2`/`steps` replies
-  have no `deleted` key. Not filtered by origin: our own writes were never
+  have no `deleted` key, nor do the replies that never reach the anchor path
+  (Health Connect unavailable, read denied, a sleep `{from, to}` window read). Not filtered by origin: our own writes were never
   imported, so the page finds no row for them. Two limits the page inherits:
   an **edit** in Health Connect is an `UpsertionChange` with the *same* id, so
   the page sees a known row and skips it — edits never propagate, only
