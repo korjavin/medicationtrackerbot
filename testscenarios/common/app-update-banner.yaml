@@ -10,8 +10,9 @@ invariants:
   - '"A new version is available." shows at most once, however often the app re-checks'
   - When the running build matches the server, no banner shows
   - Reload opens the new build (the version in Settings changes)
+  - One tap on Reload shows "Updating…" at once and the app restarts on the new build with no second tap; if it cannot update it says so and Reload is live again
 covered_by:
   web: tests/visual/playwright/flows.mjs#app-update-banner
   android: android/qa/scenarios/update-banner.mjs#updateBanner  # account A/B cold open, dedupe and Reload; update-resume.mjs checks real Home/return; physical-device Home/resume remains to be checked under med-jyxy; local bundled mode N/A; Play-installed update is manual release residue
   ios: ios/UITests/FlowQAUpdateBannerTests.swift#testAccountUpdateBanner  # account-mode A/B cold open, trusted Home/return visibility with no duplicate, synthetic rechecks and Reload; local mode is bundled and not applicable; TestFlight-installed update remains ios/ios-testflight-update
-source: [med-kk1q.6]
+source: [med-kk1q.6, med-s8q0]

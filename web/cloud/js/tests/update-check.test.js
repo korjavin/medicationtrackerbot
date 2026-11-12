@@ -415,19 +415,163 @@ describe('renderUpdateBanner', () => {
         renderUpdateBanner(doc, () => {});
         expect(doc.getElementById('cloud-update-banner').getAttribute('style')).toBeNull();
     });
+
+    // med-s8q0: the tap shows at once that it took; more taps do nothing.
+    it('one tap shows "Updating…" busy and disabled, "Later" disabled; a second tap calls nothing', () => {
+        const { doc } = setup();
+        const onReload = vi.fn(() => new Promise(() => {}));
+        renderUpdateBanner(doc, onReload);
+        const reload = doc.getElementById('cloud-update-reload');
+        const dismiss = doc.getElementById('cloud-update-dismiss');
+
+        reload.click();
+        expect(reload.disabled).toBe(true);
+        expect(reload.classList.contains('wg-btn--busy')).toBe(true);
+        expect(reload.textContent).toBe('Updating…');
+        expect(dismiss.disabled).toBe(true);
+        expect(doc.getElementById('cloud-update-banner').textContent).toContain('Updating… the app will restart.');
+        expect(reload.getAttribute('style')).toBeNull();
+
+        reload.dispatchEvent(new doc.defaultView.MouseEvent('click'));
+        reload.onclick();
+        expect(onReload).toHaveBeenCalledOnce();
+    });
+
+    it('a failed update says so and gives Reload back; the next tap runs it again', async () => {
+        const { doc } = setup();
+        const onReload = vi.fn().mockRejectedValue(new Error('update reload failed offline'));
+        renderUpdateBanner(doc, onReload);
+        const reload = doc.getElementById('cloud-update-reload');
+        const dismiss = doc.getElementById('cloud-update-dismiss');
+
+        reload.click();
+        await flush();
+        expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");
+        expect(reload.disabled).toBe(false);
+        expect(dismiss.disabled).toBe(false);
+        expect(reload.classList.contains('wg-btn--busy')).toBe(false);
+        expect(reload.textContent).toBe('Reload');
+
+        reload.click();
+        expect(onReload).toHaveBeenCalledTimes(2);
+        expect(reload.textContent).toBe('Updating…');
+    });
 });
 
+// A controlled page: navigator.serviceWorker with a controller and a real
+// controllerchange event, and win.setTimeout on vitest's fake clock.
+function controlled(win) {
+    const sw = new EventTarget();
+    sw.controller = { scriptURL: '/sw.js' };
+    win.navigator = { serviceWorker: sw };
+    win.setTimeout = (fn, ms) => setTimeout(fn, ms);
+    return sw;
+}
+
 describe('showUpdateBanner', () => {
-    it('a waiting SW gets SKIP_WAITING on Reload, no synchronous reload', () => {
+    describe('on the fake clock', () => {
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
+
+        // med-s8q0: a reload before activation finishes lands on the OLD worker
+        // (stale '/'), so a controlled page never reloads from here: the reload
+        // is cloud-boot's controllerchange. 10 s without one → "Couldn't update".
+        it('controlled page: SKIP_WAITING once, no reload at 2 s nor 10 s, then "Couldn\'t update"', async () => {
+            const { doc, win } = setup();
+            controlled(win);
+            const registration = { waiting: { postMessage: vi.fn() } };
+            showUpdateBanner({ doc, win, registration });
+
+            const reload = doc.getElementById('cloud-update-reload');
+            reload.click();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(registration.waiting.postMessage).toHaveBeenCalledOnce();
+            expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(win.location.reload).not.toHaveBeenCalled();
+            expect(reload.textContent).toBe('Updating…');
+            await vi.advanceTimersByTimeAsync(8000);
+            expect(win.location.reload).not.toHaveBeenCalled();
+            expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");
+            expect(reload.disabled).toBe(false);
+        });
+
+        it('controlled page: controllerchange inside the deadline keeps "Updating…" and never reloads from here', async () => {
+            const { doc, win } = setup();
+            const sw = controlled(win);
+            const registration = { waiting: { postMessage: vi.fn() } };
+            showUpdateBanner({ doc, win, registration });
+
+            const reload = doc.getElementById('cloud-update-reload');
+            reload.click();
+            await vi.advanceTimersByTimeAsync(3000);
+            sw.dispatchEvent(new Event('controllerchange'));
+            await vi.advanceTimersByTimeAsync(10000);
+            expect(win.location.reload).not.toHaveBeenCalled();
+            expect(reload.textContent).toBe('Updating…');
+            expect(reload.disabled).toBe(true);
+        });
+
+        it('uncontrolled page (first load / hard reload): the 2 s fallback reload still fires', async () => {
+            const { doc, win } = setup();
+            win.setTimeout = (fn, ms) => setTimeout(fn, ms);
+            const registration = { waiting: { postMessage: vi.fn() } };
+            showUpdateBanner({ doc, win, registration });
+
+            doc.getElementById('cloud-update-reload').click();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+            expect(win.location.reload).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(win.location.reload).toHaveBeenCalledOnce();
+        });
+
+        it('installing → installed on a controlled page runs the dance under the deadline', async () => {
+            const { doc, win } = setup();
+            controlled(win);
+            const installing = makeWorker();
+            const registration = { waiting: null, installing, update: vi.fn().mockResolvedValue() };
+            showUpdateBanner({ doc, win, registration });
+
+            doc.getElementById('cloud-update-reload').click();
+            await vi.advanceTimersByTimeAsync(5000); // a slow install: no deadline yet
+            installing.state = 'installed';
+            registration.waiting = installing;
+            installing.fire('statechange');
+            expect(installing.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+            await vi.advanceTimersByTimeAsync(9999);
+            expect(doc.getElementById('cloud-update-reload').textContent).toBe('Updating…');
+            await vi.advanceTimersByTimeAsync(1);
+            expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");
+            expect(win.location.reload).not.toHaveBeenCalled();
+        });
+    });
+
+    it('offline: update() fails with nothing waiting or installing → no reload, "Couldn\'t update"', async () => {
         const { doc, win } = setup();
-        const registration = { waiting: { postMessage: vi.fn() } };
+        const registration = { waiting: null, installing: null, update: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) };
         showUpdateBanner({ doc, win, registration });
 
         doc.getElementById('cloud-update-reload').click();
-        expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
-        // The real reload comes from controllerchange; only the 2s fallback is
-        // scheduled here, never called synchronously.
+        await flush();
         expect(win.location.reload).not.toHaveBeenCalled();
+        expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");
+    });
+
+    it('a failed install (installing → redundant) → no reload under the old worker, "Couldn\'t update"', async () => {
+        const { doc, win } = setup();
+        const installing = makeWorker();
+        const registration = { waiting: null, installing, update: vi.fn().mockResolvedValue() };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        await flush();
+        installing.state = 'redundant';
+        installing.fire('statechange');
+        await flush();
+        expect(win.location.reload).not.toHaveBeenCalled();
+        expect(installing.postMessage).not.toHaveBeenCalled();
+        expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");
     });
 
     it('an open Undo window is flushed and its delete awaited before SKIP_WAITING (med-xso6.5)', async () => {
@@ -584,6 +728,17 @@ describe('shell diagnostic lines', () => {
             await flush();
         }
         expect(lines()).toEqual(['update check same', 'update check failed 503', 'update check failed TypeError', 'update check new']);
+        expect(JSON.stringify(ios.postMessage.mock.calls)).not.toMatch(/acct|example|Failed to fetch/);
+    });
+
+    it('logs the Reload tap and its failure reason as words, never the error text (med-s8q0)', async () => {
+        shell('/');
+        const { doc, win } = setup();
+        const registration = { waiting: null, installing: null, update: vi.fn().mockRejectedValue(new TypeError('Failed to fetch https://acct.example.com/sw.js')) };
+        showUpdateBanner({ doc, win, registration });
+        doc.getElementById('cloud-update-reload').click();
+        await flush();
+        expect(lines()).toEqual(['update reload', 'update reload failed offline']);
         expect(JSON.stringify(ios.postMessage.mock.calls)).not.toMatch(/acct|example|Failed to fetch/);
     });
 

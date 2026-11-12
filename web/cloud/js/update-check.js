@@ -65,28 +65,66 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
     reload.className = 'wg-btn wg-btn--sm';
     reload.id = 'cloud-update-reload';
     reload.textContent = 'Reload';
-    reload.onclick = onReload;
+    // med-s8q0: the tap shows at once that it took, and further taps do
+    // nothing (disabled = pointer-events: none). A failure says so and gives
+    // Reload back; success leaves the page to be replaced.
+    const busy = (on) => {
+        reload.disabled = on;
+        dismiss.disabled = on;
+        reload.classList.toggle('wg-btn--busy', on);
+        reload.textContent = on ? 'Updating…' : 'Reload';
+    };
+    reload.onclick = async () => {
+        if (reload.disabled) return;
+        busy(true);
+        text.textContent = 'Updating… the app will restart.';
+        try {
+            await onReload();
+        } catch {
+            busy(false);
+            text.textContent = "Couldn't update. Try again.";
+        }
+    };
 
     banner.append(text, dismiss, reload);
     (doc.getElementById('app-banners') || doc.body).appendChild(banner);
     return banner;
 }
 
-// Activate the waiting SW and reload. Mirrors app-shell.js's showUpdateToast:
-// a waiting SW gets SKIP_WAITING and the real reload comes from
-// controllerchange (cloud-boot.js), with a 2s fallback in case it doesn't
-// fire.
+// Activate the waiting SW and reload (med-s8q0). Resolves once the reload is
+// in the browser's hands; rejects, after an `update reload failed <reason>`
+// diag line, when it cannot update, so the banner can say so.
 //
-// The subtlety is the build-ID poll path: it kicks registration.update() and
-// shows the banner immediately, but the new worker only reaches `waiting` once
-// its install (warmShell precache) finishes — seconds later. If the user clicks
-// Reload during that install window, `waiting` is still null; a plain reload
-// then hits the still-controlling OLD SW, which serves '/' stale-first (the
-// two-reload path this bead removes). So on a click with no waiting worker we
-// re-run update() and wait for the installing worker to finish before running
-// the dance. Only when update() finds NO new worker (the SW is already current,
-// only the page JS is stale) is a plain reload correct.
-async function activateAndReload(registration, win) {
+// A waiting SW gets SKIP_WAITING. On a CONTROLLED page the reload belongs to
+// cloud-boot.js's guarded controllerchange (flush, then exactly one reload);
+// nothing here reloads, because a reload before activation finishes lands on
+// the OLD worker, which serves '/' stale-while-revalidate: build A again, the
+// banner again, a second tap. Activation can take seconds on a phone (the old
+// worker drains its fetches, the new one deletes old caches), so we wait up to
+// UPDATE_RELOAD_DEADLINE_MS for controllerchange, then reject (timeout). An
+// UNCONTROLLED page (first load, hard reload) has no stale worker to be served
+// by and gets no reload from cloud-boot (hadController false), so it keeps a
+// 2 s fallback reload.
+//
+// The build-ID poll shows the banner while registration.update() may still be
+// INSTALLING the new worker, so a tap can find `waiting` null: re-run update()
+// and wait for the installing worker, then dance. update() finding no new
+// worker (SW current, only the page JS stale) is the one plain reload; update()
+// failing with nothing new (offline) or the install going redundant rejects
+// instead of reloading under the old worker.
+const UPDATE_RELOAD_DEADLINE_MS = 10000;
+
+const updateFailure = (reason) => Object.assign(new Error(`update reload failed ${reason}`), { reason });
+
+function activateAndReload(registration, win) {
+    diagLine('update reload');
+    return reloadViaWorker(registration, win).catch((e) => {
+        diagLine(`update reload failed ${e?.reason ?? 'error'}`);
+        throw e;
+    });
+}
+
+async function reloadViaWorker(registration, win) {
     // An open Undo window owes a delete; send it before the page goes away.
     const owed = win.flushPendingDelete?.();
     if (owed) {
@@ -94,33 +132,39 @@ async function activateAndReload(registration, win) {
     }
     if (!registration) {
         win.location.reload();
-        return;
+        return undefined;
     }
     const dance = (worker) => {
         worker.postMessage({ type: 'SKIP_WAITING' });
-        win.setTimeout(() => win.location.reload(), 2000);
+        const sw = win.navigator?.serviceWorker;
+        if (!sw?.controller) {
+            win.setTimeout(() => win.location.reload(), 2000);
+            return undefined;
+        }
+        return new Promise((resolve, reject) => {
+            sw.addEventListener?.('controllerchange', () => resolve(), { once: true });
+            win.setTimeout(() => reject(updateFailure('timeout')), UPDATE_RELOAD_DEADLINE_MS);
+        });
     };
-    if (registration.waiting) {
-        dance(registration.waiting);
-        return;
-    }
+    if (registration.waiting) return dance(registration.waiting);
+    let updateFailed = false;
     try {
         await registration.update?.();
     } catch {
-        // Offline / deploy mid-flight — fall through and re-check below.
+        updateFailed = true; // offline / deploy mid-flight: re-check below
     }
-    if (registration.waiting) {
-        dance(registration.waiting);
-        return;
-    }
+    if (registration.waiting) return dance(registration.waiting);
     const installing = registration.installing;
     if (!installing?.addEventListener) {
+        if (updateFailed) throw updateFailure('offline');
         win.location.reload();
-        return;
+        return undefined;
     }
-    installing.addEventListener('statechange', () => {
-        if (installing.state === 'installed') dance(registration.waiting ?? installing);
-        else if (installing.state === 'redundant') win.location.reload();
+    return new Promise((resolve, reject) => {
+        installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed') resolve(dance(registration.waiting ?? installing));
+            else if (installing.state === 'redundant') reject(updateFailure('install'));
+        });
     });
 }
 
@@ -396,8 +440,7 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
     // banner. On Reload, activateAndReload posts SKIP_WAITING → controllerchange
     // reloads once — and if the click lands before the new SW has finished
     // installing, activateAndReload waits for it rather than plain-reloading the
-    // old still-controlling SW into the stale '/' (stale-while-revalidate),
-    // which took two clicks.
+    // old still-controlling SW into the stale '/' (stale-while-revalidate).
     showBanner ??= () => {
         const swc = win.navigator?.serviceWorker;
         if (!swc?.getRegistration) { showUpdateBanner({ doc, win }); return; }

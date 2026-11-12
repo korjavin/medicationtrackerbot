@@ -6,7 +6,8 @@
 //                         once the host is back
 //   app-update-banner     bundle A installed → host swapped to bundle B → the
 //                         banner shows once (open tab, and newer worker
-//                         waiting at load) → Reload lands on B
+//                         waiting at load) → one Reload click shows
+//                         "Updating…" and lands on B
 //   boot-degraded-reload  one module answers 503 once → the degraded banner
 //                         (replacing an update banner) → Reload recovers with
 //                         the host down, from the service worker's cache
@@ -317,14 +318,29 @@ if (setupOk) await flow('app-update-banner', async () => {
   check(b.update === 1 && b.copies === 1, `state C: expected one banner, got ${JSON.stringify(b)}`);
   check(!pageErrors.some((e) => /update banner failed/.test(e)), 'state C: "[cloud-boot] update banner failed" logged');
 
-  // Reload lands on B in one load: the build id and the Settings version label.
+  // Reload lands on B in one load, from ONE click (med-s8q0): the button turns
+  // busy "Updating…" and disabled in the click's own task, before the page
+  // goes. A bubble listener runs right after the button's handler and keeps
+  // what it saw in sessionStorage, which outlives the reload.
+  await page.evaluate(() => document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('#cloud-update-reload');
+    if (!btn) return;
+    sessionStorage.setItem('wg-flow-update-tap', JSON.stringify({
+      disabled: btn.disabled,
+      busy: btn.classList.contains('wg-btn--busy'),
+      label: btn.textContent.trim(),
+      later: document.getElementById('cloud-update-dismiss')?.disabled === true,
+    }));
+  }));
   const loads = countLoads(page);
   await page.locator('#cloud-update-reload').click();
   await page.waitForFunction((stamp) => document.querySelector('meta[name="medtracker-build-id"]')?.content === stamp, BUILD_B, { timeout: 30000 });
   await booted(page);
   await swSettled(page);
-  await page.waitForTimeout(2500); // past activateAndReload's 2 s fallback reload
+  await page.waitForTimeout(2500); // room for any stray second load to show up
   loads.stop();
+  const tap = JSON.parse(await page.evaluate(() => sessionStorage.getItem('wg-flow-update-tap')) || 'null');
+  check(tap?.disabled && tap.busy && tap.label === 'Updating…' && tap.later, `one Reload click did not show busy "Updating…" with both buttons disabled: ${JSON.stringify(tap)}`);
   check(loads.n === 1, `Reload took ${loads.n} document loads, expected 1: ${loads.urls.join(' ')}`);
   await page.evaluate(() => window.switchTab('settings'));
   const label = (await page.locator('.wg-settings-version__value').first().textContent()).trim();
