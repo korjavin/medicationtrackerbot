@@ -472,6 +472,18 @@ describe('Apple Health import', () => {
             await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
             expect(health.requestAuthorization).toHaveBeenCalledTimes(1);
         });
+
+        // bd med-w6gx.18.3: deletions made while off are never seen, so the
+        // seen sleep days go too (no sleep tombstone until a read re-sees them).
+        it('switching off forgets the sleep days this device has seen', async () => {
+            storage.setItem('wg.health.enabled', 'true');
+            storage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout', 'steps', 'hr', 'spo2']));
+            storage.setItem('wg.health.sleepSeen', '["2026-10-02"]');
+            await startHealthImport({}, { health: fakeHealth({}), storage, doc: document, run: vi.fn(async () => null) });
+            expect(toggle().checked).toBe(true);
+            await flip(false);
+            expect(storage.getItem('wg.health.sleepSeen')).toBeNull();
+        });
     });
 
     // bd med-w6gx.7: sleep nights and workouts.
@@ -1350,6 +1362,178 @@ describe('Apple Health import', () => {
             health.query = async () => { throw new Error('Health Connect unavailable'); };
             await expect(runHealthImport({}, { health, storage, records, flush })).rejects.toThrow('Health Connect unavailable');
         });
+
+        // bd med-w6gx.18.3: an anchored reply's `deleted` (HK deletedObjects,
+        // HC DeletionChange) tombstones what this vault holds of those samples.
+        describe('deleted in Health', () => {
+            const NOW = W0 + 24 * H;
+            const SEEN = 'wg.health.sleepSeen';
+            const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
+            // A shell that reports deletions on its anchored replies only (a
+            // windowed read carries none, like the shells).
+            const shell = (data, deleted = {}) => {
+                const h = healthOf(data);
+                const q = h.query;
+                h.query = async (args) => {
+                    const res = await q(args);
+                    return 'anchor' in args ? { ...res, deleted: deleted[args.type] || [] } : res;
+                };
+                return h;
+            };
+            const lines = [];
+            const go = (health, recs = records) => runHealthImport({}, {
+                health, storage, records: recs, flush, now: () => NOW, diag: (l) => lines.push(l),
+            });
+            const line = (kind) => lines.filter((l) => l.startsWith(`[health] ${kind} `)).pop();
+            beforeEach(() => { lines.length = 0; });
+
+            it('a BP, weight or workout deleted in Health is tombstoned at now(), an alias too; an app entry never', async () => {
+                const data = {
+                    bp: [bpSample(U1, T0, 120, 80), bpSample(U3, T0 + 1000, 118, 76)],
+                    weight: [kgSample(U2, T0, 70)],
+                    workout: [run(1, W0, W0 + H, 37)],
+                };
+                expect(await go(shell(data))).toEqual({ added: 4 });
+                // U3 also restored under a fresh id by an older client.
+                await records.put('bp', { ...records.rows.get(`bp-hk-${U3}`), recordId: 'bp-alias', clientTs: 5 });
+                await records.put('bp', { recordId: 'bp-manual', clientTs: 6, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 130, diastolic: 85 });
+                flush.mockClear();
+                lines.length = 0;
+                const before = Date.now();
+                const deleted = { bp: [U1.toUpperCase(), U3, uid(99), 'not-a-uuid'], weight: [U2], workout: [uid(1)] };
+                expect(await go(shell(data, deleted))).toEqual({ added: 0 });
+                for (const id of [`bp-hk-${U1}`, `bp-hk-${U3}`, 'bp-alias', `weight-hk-${U2}`, `miband-hk-${uid(1)}`]) {
+                    expect(records.rows.get(id).deleted).toBe(true);
+                    expect(records.rows.get(id).clientTs).toBeGreaterThanOrEqual(before);
+                }
+                expect(records.rows.get('bp-manual').deleted).toBe(false);
+                expect(line('bp')).toBe('[health] bp returned=0 samples=0 written=0 deleted=4 removed=3 skip{invalid:0,exists:0,gone:2} anchor=kept');
+                expect(line('weight')).toBe('[health] weight returned=0 samples=0 written=0 deleted=1 removed=1 skip{invalid:0,exists:0,gone:0} anchor=kept');
+                expect(line('workout')).toMatch(/ deleted=1 removed=1 skip\{invalid:0,exists:0,overlap:0,gone:0\}/);
+                // A removal-only run is pushed, and never counted as imported.
+                expect(flush).toHaveBeenCalledTimes(1);
+                expect(JSON.parse(storage.getItem('wg.health.last'))).toMatchObject({ added: 0, total: 4 });
+                // The same deletions again: nothing live is left, all gone.
+                flush.mockClear();
+                expect(await go(shell(data, deleted))).toEqual({ added: 0 });
+                expect(line('bp')).toMatch(/ deleted=4 removed=0 skip\{invalid:0,exists:0,gone:4\}/);
+                expect(flush).not.toHaveBeenCalled();
+                // A rescan does not bring them back.
+                storage.setItem('wg.health.anchors', '{}');
+                expect(await go(shell(data))).toEqual({ added: 0 });
+            });
+
+            it('an edited BP goes with its Health deletion; an edited weight (a new row) stays', async () => {
+                const data = { bp: [bpSample(U1, T0, 120, 80)], weight: [kgSample(U2, T0, 70)] };
+                await go(shell(data));
+                const now = () => NOW;
+                await createBPDomain({ records, now, timeZone: 'UTC' }).update(`bp-hk-${U1}`, { systolic: 125 });
+                const edited = await createWeightDomain({ records, now, timeZone: 'UTC' })
+                    .create({ measured_at: T0, weight: 71 }, { replacesId: `weight-hk-${U2}` });
+                await records.del('weight', `weight-hk-${U2}`); // the edit sheet's second step
+                await go(shell(data, { bp: [U1], weight: [U2] }));
+                expect(records.rows.get(`bp-hk-${U1}`).deleted).toBe(true);
+                expect(records.rows.get(edited.id)).toMatchObject({ deleted: false, weight: 71 });
+                expect(line('weight')).toMatch(/ deleted=1 removed=0 skip\{invalid:0,exists:0,gone:1\}/);
+            });
+
+            it('a reply without deleted (an older shell) changes nothing and reads no extra window', async () => {
+                const data = { bp: [bpSample(U1, T0, 120, 80)], sleep: night };
+                await go(healthOf(data));
+                const rows = JSON.stringify([...records.rows]);
+                const health = healthOf(data);
+                await go(health);
+                expect(JSON.stringify([...records.rows])).toBe(rows);
+                expect(health.calls.filter((c) => Number.isFinite(c.from))).toEqual([]);
+                expect(lines.some((l) => / deleted=/.test(l))).toBe(false);
+                // An empty list is no trigger either.
+                const empty = shell(data, { sleep: [] });
+                await go(empty);
+                expect(empty.calls.filter((c) => Number.isFinite(c.from))).toEqual([]);
+            });
+
+            // Sleep: a deletion is a trigger for a window re-read. `early` is a
+            // nap on the day before, so the read reaches back past the night.
+            const early = slp(60, N0 - 30 * H, N0 - 29 * H, 1);
+            const deletedNight = { sleep: night.map((s) => s.uuid) };
+            const seed = async () => {
+                expect(await go(shell({ sleep: [early, ...night] }))).toEqual({ added: 2 });
+                expect(JSON.parse(storage.getItem(SEEN))).toEqual(['2026-10-01', '2026-10-02']);
+            };
+
+            it('a whole night deleted in Health is tombstoned on the device that imported it', async () => {
+                await seed();
+                flush.mockClear();
+                const before = Date.now();
+                const health = shell({ sleep: [early] }, deletedNight);
+                expect(await go(health)).toEqual({ added: 0 });
+                expect(health.calls).toContainEqual({ type: 'sleep', from: NOW - 30 * 24 * H - 48 * H, to: NOW });
+                expect(records.rows.get(DAY_ID).deleted).toBe(true);
+                expect(records.rows.get(DAY_ID).clientTs).toBeGreaterThanOrEqual(before);
+                expect(records.rows.get('sleep-hk-2026-10-01').deleted).toBe(false);
+                expect(line('sleep')).toMatch(/ deleted=6 removed=1 skip\{inBed:0,unsettled:0,clipped:0,exists:1,ledger:0,shorter:0\}/);
+                expect(flush).toHaveBeenCalledTimes(1);
+                // Stays deleted on a rescan (tombstone permanence).
+                storage.setItem('wg.health.anchors', '{}');
+                expect(await go(shell({ sleep: [early, ...night] }))).toEqual({ added: 0 });
+                expect(records.rows.get(DAY_ID).deleted).toBe(true);
+            });
+
+            it('a device that never held the night (day not seen here) deletes nothing', async () => {
+                await seed();
+                storage.setItem(SEEN, '["2026-10-01"]');
+                await go(shell({ sleep: [early] }, deletedNight));
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+            });
+
+            it('an empty read (access denied) deletes nothing', async () => {
+                await seed();
+                const health = shell({ sleep: [] }, deletedNight);
+                await go(health);
+                expect(health.calls.some((c) => c.from === NOW - 30 * 24 * H - 48 * H)).toBe(true);
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+            });
+
+            it('a read that does not reach back before the night deletes nothing', async () => {
+                await seed();
+                const later = slp(70, N0 + 24 * H, N0 + 25 * H, 1);
+                await go(shell({ sleep: [later] }, deletedNight));
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+            });
+
+            it('a Mi Band night of that day keeps the Health day visible', async () => {
+                await seed();
+                await records.put('sleep', {
+                    recordId: 'sleep-band', clientTs: 3, deleted: false, start_time: iso(N0), end_time: iso(N0 + 3 * H),
+                    timezone_offset: -120, total_minutes: 180,
+                });
+                await go(shell({ sleep: [early] }, deletedNight));
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+                expect(line('sleep')).toMatch(/ removed=0 skip\{.*ledger:1,shorter:0\}/);
+            });
+
+            it('a night shortened in Health keeps its imported length', async () => {
+                await seed();
+                await go(shell({ sleep: [early, ...night.slice(0, 2)] }, { sleep: night.slice(2).map((s) => s.uuid) }));
+                expect(records.rows.get(DAY_ID)).toMatchObject({ deleted: false, total_minutes: 470 });
+                expect(line('sleep')).toMatch(/ removed=0 skip\{.*ledger:0,shorter:1\}/);
+            });
+
+            it('a night edited by hand here is never removed', async () => {
+                await seed();
+                await records.put('sleep', { ...records.rows.get(DAY_ID), clientTs: 9, user_modified: true });
+                await go(shell({ sleep: [early] }, deletedNight));
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+            });
+
+            it('the seen days are trimmed to the reconcile window and cleared with the anchors', async () => {
+                storage.setItem(SEEN, '["2026-08-01","2026-09-02"]');
+                await go(shell({ sleep: [early, ...night] }));
+                expect(JSON.parse(storage.getItem(SEEN))).toEqual(['2026-09-02', '2026-10-01', '2026-10-02']);
+                resetHealthAnchors(storage);
+                expect(storage.getItem(SEEN)).toBeNull();
+            });
+        });
     });
 
     // bd med-0xad.1: steps, heart rate and SpO2 into the existing vitals rows.
@@ -1615,18 +1799,29 @@ describe('Health write-back', () => {
         ]);
     });
 
-    it('a bp row that came from Health never gets an hr call; its tombstone still sends the remove', async () => {
+    // bd med-w6gx.18.3 C: an imported -hk- slot was never written to Health,
+    // so its tombstone owes Health nothing (a Health-side delete of many
+    // readings must not turn into twice as many no-op removes). An alias (an
+    // older client's restore under a fresh id) keeps its no-op remove.
+    it('a bp row that came from Health never gets an hr call; its tombstone sends nothing, an alias tombstone its remove', async () => {
         startHealthWriteBack({ health, storage, records });
         const id = `bp-hk-${U1}`;
-        await records.put('bp', { recordId: id, clientTs: 0, deleted: false, measured_at: '2026-10-01T07:30:00.000Z', systolic: 120, diastolic: 80, pulse: 66, source: 'apple_health', source_id: U1 });
+        const body = { measured_at: '2026-10-01T07:30:00.000Z', systolic: 120, diastolic: 80, pulse: 66, source: 'apple_health', source_id: U1 };
+        await records.put('bp', { recordId: id, clientTs: 0, deleted: false, ...body });
         await api(`/api/bp/${id}`, 'PUT', { pulse: 70 });
         await new Promise((r) => setTimeout(r, 10));
         expect(calls()).toEqual([]);
         await api(`/api/bp/${id}`, 'DELETE');
+        await new Promise((r) => setTimeout(r, 10));
+        expect(calls()).toEqual([]);
+        expect(ledgerSize()).toBe(0);
+
+        await records.put('bp', { recordId: 'bp-alias', clientTs: 1, deleted: false, ...body });
+        await records.del('bp', 'bp-alias');
         await idle();
         expect(calls()).toEqual([
-            { op: 'remove', type: 'bp', id },
-            { op: 'remove', type: 'hr', id: `${id}/pulse` },
+            { op: 'remove', type: 'bp', id: 'bp-alias' },
+            { op: 'remove', type: 'hr', id: 'bp-alias/pulse' },
         ]);
     });
 

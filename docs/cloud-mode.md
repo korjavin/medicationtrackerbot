@@ -358,6 +358,10 @@ Any new importer or derived writer answers each of these:
 - **The `putIfAbsent` floor beats content-derived stamps.** Write once at
   `clientTs: 0` (rule 12) so edits and deletes always outrank it; a stamp
   derived from the content is no floor and reopens the LWW race.
+- **Source-side deletions need proof of disappearance from THIS device's
+  store (a seen set), never absence.** A second device's store that never held
+  the row would delete it for everyone (bd med-w6gx.18.3, `wg.health.sleepSeen`).
+  Such a tombstone is a user-grade delete at `now()`, never the floor.
 
 ### Health write-back — the local-write seam and the ledger (bd med-8f4s.1)
 

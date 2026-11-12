@@ -657,6 +657,17 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   kcal) and `distance` (m) aggregate the
   session's own app over its window, each only when its permission is granted.
   Note: `energy` is *total* calories, iOS reads *active* energy.
+- **Deleted in Health Connect** (bd med-w6gx.18.3; the shell side is
+  med-w6gx.18.2): a changes-mode reply carries `deleted: [id…]` (the
+  `DeletionChange` record ids). The page tombstones the matching BP, weight
+  and workout rows and treats a sleep deletion as a trigger for a 30-day
+  window re-read gated on this device's seen sleep days — the same rules and
+  residuals as iOS ([ios.md](ios.md), "Deleted in Health"). An app entry is
+  never touched; a shell without the key changes nothing. Android-specific:
+  an **expired token** (unused 30 days) re-scans instead of reading changes,
+  so deletions made in that gap are never seen; and Health Connect reports an
+  **edit** as an upsert under the same id, which the import skips as known —
+  edits made in Health Connect never propagate.
 - **Foreground only:** reads run only when the page asks (unlock, return to
   the app); no background reads, no background permission.
 - **Diagnostics (bd med-nt9p.59):** every `health.query` adds one line to the

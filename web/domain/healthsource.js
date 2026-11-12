@@ -45,6 +45,12 @@ function recordOffsetMs(tz) {
   return Math.abs(v) > 840 ? v * 1000 : -v * 60_000;
 }
 
+// The sleep day a stored row files on (visibleSleep's grouping), or null.
+export function sleepDayOfRow(r) {
+  const end = Date.parse(r.end_time);
+  return Number.isFinite(end) ? sleepDayOf(end, recordOffsetMs(r.timezone_offset)) : null;
+}
+
 // asleepMinutes: minutes actually asleep, so two sources compare like with
 // like. A Health day's total_minutes is asleep-only already (healthimport.js
 // excludes In Bed and awake), so it is taken as is. A Mi Band total is the
