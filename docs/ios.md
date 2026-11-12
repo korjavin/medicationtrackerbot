@@ -1726,11 +1726,14 @@ was removed by the shell bead; what the build sets up stays (all in
   `{}` → `{name, type, lastModified (ms), data (base64)}`; cancel or a
   swipe-down → `null`; a second call while a picker is up → `"busy"`; the
   lock closing the picker → `null`. `PHPickerViewController` (images, one,
-  `.current` representation) runs out of process: no photo-library
-  permission, no Info.plist key. The bytes are the item's JPEG file
-  (`loadFileRepresentation` of `public.jpeg` when the item offers it, else
-  `public.image`), never re-encoded, so EXIF stays and the page's eaten_at
-  comes from DateTimeOriginal. Base64 over the reply costs ~1.4× the file (a
+  `.compatible` representation) runs out of process: no photo-library
+  permission, no Info.plist key. `.compatible` has the system hand a HEIC
+  photo over as JPEG with its metadata, as Safari's input does (the page's
+  EXIF reader and the vision providers take JPEG, not HEIC); the shell reads
+  `loadFileRepresentation` of `public.jpeg` (else `public.image`) and never
+  re-encodes or downscales, so EXIF stays and the page's eaten_at comes from
+  DateTimeOriginal. QA picks `ios/qa/food-exif.jpg` (added to the Simulator
+  by ios.yml) and asserts its DateTimeOriginal. Base64 over the reply costs ~1.4× the file (a
   few MB). Photo (camera, `capture` on) stays the input.
 
 Production must serve the AASA: set `IOS_TEAM_ID` / `IOS_BUNDLE_ID` in the

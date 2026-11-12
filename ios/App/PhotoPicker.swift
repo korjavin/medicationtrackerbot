@@ -9,10 +9,11 @@ import UniformTypeIdentifiers
 ///
 /// {} → { name, type (MIME), lastModified (ms), data (base64) }; cancelled →
 /// NSNull; a second call while a picker is up → "busy". PHPicker runs out of
-/// process: no photo-library permission, no Info.plist key. The bytes are the
-/// library's own file (JPEG when the item offers one, as Safari's input hands
-/// over; else the original image type), never re-encoded, so EXIF and the
-/// page's eaten_at from DateTimeOriginal survive.
+/// process: no photo-library permission, no Info.plist key. `.compatible`
+/// makes the system hand a HEIC photo over as JPEG with its metadata, as
+/// Safari's input does (the page's EXIF reader and the vision providers take
+/// JPEG, not HEIC); a JPEG comes as is. The shell never re-encodes or
+/// downscales, so the page's eaten_at from DateTimeOriginal survives.
 /// ponytail: base64 through the reply handler (~1.4× the file, a few MB);
 /// a wgapp:// fetch would hit the account page's connect-src allowlist.
 @MainActor
@@ -30,7 +31,7 @@ final class PhotoPicker: NSObject, PHPickerViewControllerDelegate, UIAdaptivePre
         var config = PHPickerConfiguration()
         config.filter = .images
         config.selectionLimit = 1
-        config.preferredAssetRepresentationMode = .current
+        config.preferredAssetRepresentationMode = .compatible
         let session = PhotoPicker(reply: reply)
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = session
