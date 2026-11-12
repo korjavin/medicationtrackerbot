@@ -40,7 +40,7 @@ async function unlock(ctx, page, r) {
   const end = Date.now() + 60_000;
   for (;;) {
     // Navigation between / and /unlock destroys the context mid-evaluate: retry until one answers.
-    const state = await page.evaluate(() => (window.MedTrackerCloudReady ? 'boot' : document.getElementById('unlock-button') ? 'button' : null)).catch(() => null);
+    const state = await page.evaluate(() => (window.MedTrackerCloud?.ctx ? 'boot' : document.getElementById('unlock-button') ? 'button' : null)).catch(() => null);
     if (state === 'boot') { r.unlock ??= 'warm'; break; }
     if (state === 'button') {
       r.unlock = 'passkey';
@@ -134,14 +134,16 @@ export default async function deleteAccount(ctx) {
     r.cancelReceipts = seen.map((q) => `${q.method} ${q.path}`);
     if (!seen.some((q) => q.method === 'POST' && q.path === '/api/account/reauth')) throw new Error(`no POST /api/account/reauth: ${r.cancelReceipts}`);
     if (seen.some((q) => q.method === 'DELETE' && q.path === '/api/account')) throw new Error('a cancelled passkey sent DELETE /api/account');
-    // The account is still there and usable: still on its host, vault unlocked, Delete re-armed
-    // (the delete step below then runs on this same session).
-    if (new URL(page.url()).host !== r.accountHost) throw new Error(`left the account: ${page.url()}`);
-    if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud?.ctx)))) throw new Error('cancelled passkey locked the vault');
     if (await page.locator('#delete-account-open').isDisabled()) throw new Error('Delete stayed disabled after the cancel');
+    // The account still opens: the cancel wiped the local mirror (clearLocalVault runs before the
+    // reauth), so a reload lands on /unlock; the passkey unlocks and the vault is back.
+    await page.reload();
+    await unlock(ctx, page, r);
+    if (new URL(page.url()).host !== r.accountHost) throw new Error(`left the account: ${page.url()}`);
   });
   await ctx.step('Settings → Account → Delete → typed confirm', async () => {
-    // Still on Account & privacy after the cancel step.
+    // A reopened account restores its last section: only navigate if Delete is not already in view.
+    if (!(await page.locator('#delete-account-open').isVisible())) await openAccountPage(page);
     await page.locator('#delete-account-open').scrollIntoViewIfNeeded();
     await ctx.stableShot('delete-section');
     await page.click('#delete-account-open');
