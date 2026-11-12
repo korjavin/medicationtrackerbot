@@ -212,8 +212,8 @@ function _myMedsIdleMeta(med, now) {
 // A My meds row (kit .wg-row): title "Name · dose", meta = opts.meta (default:
 // when the med is taken), opts.chip, then the tags — course dates, Rx, EU,
 // Supplement, Archived, sync. opts.trail: the row's own buttons. Tap edits;
-// swipe / the ⋯ More button carry Edit / Delete (+ "Log a dose" on scheduled
-// rows; as-needed rows keep a per-row Log).
+// swipe / the ⋯ More button carry Edit / Delete (+ "Log a dose" on live rows
+// without their own Log button). opts.more false drops the More button.
 function _buildMedsRow(med, parsedSchedule, opts = {}) {
     const row = _medsEl('div', 'wg-row wg-meds-row med-item');
     row.dataset.medId = String(med.id);
@@ -258,8 +258,8 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     row.appendChild(body);
 
     const trail = _medsEl('span', 'wg-row__trail wg-meds-row__actions');
-    const asNeeded = (parsedSchedule && parsedSchedule.type) === 'as_needed';
     (opts.trail || []).forEach((btn) => trail.appendChild(btn));
+    const ownLog = !!trail.querySelector('.wg-meds-row__log-btn');
     row.appendChild(trail);
 
     return window.WGRowActions.attach(row, {
@@ -269,7 +269,9 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
         more: opts.more,
         onEdit: () => showEditModal(med.id),
         onDelete: () => deleteMed(med.id),
-        extra: asNeeded || med.archived
+        // Every live med can be logged: from its own Log button, else the
+        // overflow (an as-needed med in Needs a refill included).
+        extra: ownLog || med.archived
             ? []
             : [{ label: 'Log a dose', icon: 'plus', onClick: () => logMedicationPast(med.id, med.name) }],
     });
@@ -320,11 +322,15 @@ function renderMeds() {
     }));
     // Not in use (Iris, MY1 review): no ⋯ More — the row tap opens the editor
     // (Archived switch, Delete) — and no course tag: the meta says "Ended …".
-    add('Not in use', 'not-in-use', g.notInUse, (m) => ({
+    // An idle as-needed med (never taken, too) keeps its Log: no Timeline slot.
+    add('Not in use', 'not-in-use', g.notInUse, (m, s) => ({
         meta: _myMedsIdleMeta(m, now),
         dates: false,
         more: false,
-        trail: _medsTracked(m) ? [_medsButton('wg-btn--ghost wg-meds-row__stop', 'Stop tracking', () => stopTrackingMed(m.id))] : [],
+        trail: [
+            (s && s.type) === 'as_needed' && _buildMedsLogButton(m),
+            _medsTracked(m) && _medsButton('wg-btn--ghost wg-meds-row__stop', 'Stop tracking', () => stopTrackingMed(m.id)),
+        ].filter(Boolean),
     }));
     // Archived rows show no dose times (they read as live reminders): just
     // "Last <date>" when known, beside the Archived chip.
@@ -1626,8 +1632,9 @@ function renderInventory() {
     list.replaceChildren();
     list.classList.add('wg-meds-stock');
 
+    // Archived meds show no stock anywhere in Meds (med-5uwb.1 acceptance d).
     const tracked = (Array.isArray(medications) ? medications : [])
-        .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined)
+        .filter((m) => m && !m.archived && m.inventory_count !== null && m.inventory_count !== undefined)
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     if (tracked.length === 0) {

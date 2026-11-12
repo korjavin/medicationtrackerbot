@@ -129,7 +129,7 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
         expect(sheet(document)).toBeNull();
     });
 
-    it('tapping a row (click or Enter) opens that med\'s editor, archived included; Update still opens the sheet only', async () => {
+    it('tapping a row (click or Enter) opens that med\'s editor; archived meds are not listed; Update still opens the sheet only', async () => {
         const { window, document } = env;
         await seedMedications(window, [
             { id: 1, name: 'Metformin', dosage: '1000mg', schedule: TWICE, archived: false, inventory_count: 17 },
@@ -147,12 +147,14 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
         expect(editorCount()).toBe('17');
         expect(sheet(document)).toBeNull();
 
-        rowOf(document, '2').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        expect(editorCount()).toBe('9');
+        // med-5uwb.1 (d): an archived med shows no count or Update anywhere in Meds.
+        expect(rowOf(document, '2')).toBeNull();
+        row.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(editorCount()).toBe('17');
 
         row.querySelector('.wg-meds-stock__update').click();
         expect(sheet(document)).not.toBeNull();
-        expect(editorCount()).toBe('9');
+        expect(editorCount()).toBe('17');
     });
 
     it('the app-bar sub on the Stock tab reads "N need a refill"; none needed keeps the default', async () => {

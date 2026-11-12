@@ -155,6 +155,23 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
         expect(rowOf(document, 1).querySelector('.wg-swipe__more')).not.toBeNull();
     });
 
+    it('every live as-needed med can be logged: Not in use row Log, refill row overflow', async () => {
+        const { window, document } = env;
+        await seedMedications(window, everyGroup());
+        const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
+        // Prednisolone: as-needed, idle 45 days → Not in use, Log before Stop tracking.
+        const idle = rowOf(document, 7);
+        expect([...idle.querySelectorAll('.wg-meds-row__actions .wg-btn')].map((b) => b.textContent)).toEqual(['Log', 'Stop tracking']);
+        idle.querySelector('.wg-meds-row__log-btn').click();
+        expect(logSpy).toHaveBeenCalledWith(7, 'Prednisolone');
+        // Ibuprofen: as-needed and Out → Needs a refill; logging lives in the overflow.
+        logSpy.mockClear();
+        clickRowAction(rowOf(document, 2), 'Log a dose');
+        expect(logSpy).toHaveBeenCalledWith(2, 'Ibuprofen');
+        // Ended scheduled course: no Log button.
+        expect(rowOf(document, 6).querySelector('.wg-meds-row__log-btn')).toBeNull();
+    });
+
     it('Needs a refill: Update opens the stock sheet for that med', async () => {
         const { window, document } = env;
         await seedMedications(window, everyGroup());
