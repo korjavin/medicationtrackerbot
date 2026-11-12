@@ -1264,7 +1264,7 @@ replies the same text minus the mode/account line, the stored log verbatim
 (redaction stays in `Diag.append`), for Send feedback's *Attach the app log*
 (`web/cloud/js/feedback-ui.js`). Check: the iOS local visual scene
 `settings-local-feedback-sheet` shows the checkbox (`[data-feedback-log]`) once
-`shell.ops` lists the op; `Tests/main.swift` does not reach `Shell`.
+`shell.ops` lists the op; `Tests/main.swift` checks the listing only (it does not reach `Shell`).
 
 ### Reminders as local notifications (bd med-w6gx.5)
 
