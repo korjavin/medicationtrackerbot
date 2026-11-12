@@ -112,7 +112,11 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
             }
             return;
         }
-        if (!hadController || reloading) return;
+        // The update banner's Reload marks the document before SKIP_WAITING
+        // (update-check.js, med-s8q0): that change is ours to reload even on a
+        // page claimed after boot, and even after the banner's deadline.
+        const requested = window.document?.documentElement?.hasAttribute?.('data-cloud-update-requested');
+        if ((!hadController && !requested) || reloading) return;
         reloading = true;
         for (const [worker, activation] of providerActivations) {
             activation.operation.supersede();

@@ -465,6 +465,7 @@ function controlled(win) {
     sw.controller = { scriptURL: '/sw.js' };
     win.navigator = { serviceWorker: sw };
     win.setTimeout = (fn, ms) => setTimeout(fn, ms);
+    win.clearTimeout = (t) => clearTimeout(t);
     return sw;
 }
 
@@ -512,20 +513,41 @@ describe('showUpdateBanner', () => {
             expect(reload.disabled).toBe(true);
         });
 
-        it('controller changed but nobody reloaded (claimed after boot) → one reload at the deadline, under the new worker', async () => {
+        it('controlled page: marks the document for cloud-boot\'s reload before SKIP_WAITING', async () => {
             const { doc, win } = setup();
-            const sw = controlled(win);
-            const registration = { waiting: { postMessage: vi.fn() } };
+            controlled(win);
+            win.document = doc;
+            const marked = [];
+            const registration = { waiting: { postMessage: vi.fn(() => marked.push(doc.documentElement.hasAttribute('data-cloud-update-requested'))) } };
             showUpdateBanner({ doc, win, registration });
 
             doc.getElementById('cloud-update-reload').click();
-            await vi.advanceTimersByTimeAsync(3000);
-            sw.controller = registration.waiting;
-            sw.dispatchEvent(new Event('controllerchange'));
-            await vi.advanceTimersByTimeAsync(6999);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(marked).toEqual([true]);
+        });
+
+        it('a stalled update() fails at the deadline; a late install then sends nothing and reloads nothing', async () => {
+            const { doc, win } = setup();
+            controlled(win);
+            let finishUpdate;
+            const installing = makeWorker();
+            const registration = { waiting: null, installing: null, update: vi.fn(() => new Promise((r) => { finishUpdate = r; })) };
+            showUpdateBanner({ doc, win, registration });
+
+            doc.getElementById('cloud-update-reload').click();
+            await vi.advanceTimersByTimeAsync(10000);
+            expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");
+            expect(doc.getElementById('cloud-update-reload').disabled).toBe(false);
+
+            registration.installing = installing;
+            finishUpdate();
+            await vi.advanceTimersByTimeAsync(0);
+            installing.state = 'installed';
+            registration.waiting = installing;
+            installing.fire('statechange');
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(installing.postMessage).not.toHaveBeenCalled();
             expect(win.location.reload).not.toHaveBeenCalled();
-            await vi.advanceTimersByTimeAsync(1);
-            expect(win.location.reload).toHaveBeenCalledOnce();
         });
 
         it('uncontrolled page (first load / hard reload): the 2 s fallback reload still fires', async () => {
@@ -542,7 +564,7 @@ describe('showUpdateBanner', () => {
             expect(win.location.reload).toHaveBeenCalledOnce();
         });
 
-        it('installing → installed on a controlled page runs the dance under the deadline', async () => {
+        it('installing → installed on a controlled page runs the dance; one deadline from the tap bounds it all', async () => {
             const { doc, win } = setup();
             controlled(win);
             const installing = makeWorker();
@@ -550,12 +572,12 @@ describe('showUpdateBanner', () => {
             showUpdateBanner({ doc, win, registration });
 
             doc.getElementById('cloud-update-reload').click();
-            await vi.advanceTimersByTimeAsync(5000); // a slow install: no deadline yet
+            await vi.advanceTimersByTimeAsync(5000); // a slow install
             installing.state = 'installed';
             registration.waiting = installing;
             installing.fire('statechange');
             expect(installing.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
-            await vi.advanceTimersByTimeAsync(9999);
+            await vi.advanceTimersByTimeAsync(4999);
             expect(doc.getElementById('cloud-update-reload').textContent).toBe('Updating…');
             await vi.advanceTimersByTimeAsync(1);
             expect(doc.getElementById('cloud-update-banner').textContent).toContain("Couldn't update. Try again.");

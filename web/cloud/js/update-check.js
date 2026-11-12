@@ -96,16 +96,14 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
 // diag line, when it cannot update, so the banner can say so.
 //
 // A waiting SW gets SKIP_WAITING. On a CONTROLLED page the reload belongs to
-// cloud-boot.js's guarded controllerchange (flush, then exactly one reload);
-// nothing here reloads, because a reload before activation finishes lands on
-// the OLD worker, which serves '/' stale-while-revalidate: build A again, the
-// banner again, a second tap. Activation can take seconds on a phone (the old
-// worker drains its fetches, the new one deletes old caches), so we wait up to
-// UPDATE_RELOAD_DEADLINE_MS for controllerchange, then reject (timeout), or
-// reload if the controller did change and the page is somehow still here. An
+// cloud-boot.js's guarded controllerchange (flush, then exactly one reload),
+// whenever activation finishes; nothing here reloads, because a reload before
+// activation finishes lands on the OLD worker, which serves '/'
+// stale-while-revalidate: build A again, the banner again, a second tap. The
+// UPDATE_REQUESTED_ATTR mark tells cloud-boot this change is ours, so it also
+// reloads a page that was uncontrolled at boot and claimed since. An
 // UNCONTROLLED page (first load, hard reload) has no stale worker to be served
-// by and gets no reload from cloud-boot (hadController false), so it keeps a
-// 2 s fallback reload.
+// by and gets no reload from cloud-boot, so it keeps a 2 s fallback reload.
 //
 // The build-ID poll shows the banner while registration.update() may still be
 // INSTALLING the new worker, so a tap can find `waiting` null: re-run update()
@@ -113,7 +111,16 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
 // worker (SW current, only the page JS stale) is the one plain reload; update()
 // failing with nothing new (offline) or the install going redundant rejects
 // instead of reloading under the old worker.
+//
+// One deadline, UPDATE_RELOAD_DEADLINE_MS from the tap (after the flush),
+// bounds the update(), the install and the activation: past it the tap rejects
+// (timeout) and anything still pending is dropped, so a "Couldn't update" is
+// never followed by a reload this tap started. A SKIP_WAITING already sent
+// still activates; cloud-boot then reloads once, as for any update.
 const UPDATE_RELOAD_DEADLINE_MS = 10000;
+// Read by cloud-boot.js's controllerchange handler; same per-document DOM
+// latch shape as DISMISSED_ATTR below, no window.* global (rule 4).
+const UPDATE_REQUESTED_ATTR = 'data-cloud-update-requested';
 
 const updateFailure = (reason) => Object.assign(new Error(`update reload failed ${reason}`), { reason });
 
@@ -135,24 +142,35 @@ async function reloadViaWorker(registration, win) {
         win.location.reload();
         return undefined;
     }
+    let live = true;
+    let timer;
+    const deadline = new Promise((_, reject) => {
+        timer = win.setTimeout(() => {
+            live = false;
+            reject(updateFailure('timeout'));
+        }, UPDATE_RELOAD_DEADLINE_MS);
+    });
+    try {
+        return await Promise.race([activate(registration, win, () => live), deadline]);
+    } finally {
+        live = false;
+        win.clearTimeout?.(timer);
+    }
+}
+
+async function activate(registration, win, live) {
     const dance = (worker) => {
-        worker.postMessage({ type: 'SKIP_WAITING' });
+        if (!live()) return undefined;
         const sw = win.navigator?.serviceWorker;
         if (!sw?.controller) {
+            worker.postMessage({ type: 'SKIP_WAITING' });
             win.setTimeout(() => win.location.reload(), 2000);
             return undefined;
         }
-        const before = sw.controller;
-        return new Promise((resolve, reject) => {
-            sw.addEventListener?.('controllerchange', () => resolve(), { once: true });
-            win.setTimeout(() => {
-                // Still here with a NEW controller: nobody reloaded (this page
-                // was claimed after boot, so cloud-boot's hadController is
-                // false). The new worker serves '/' now, so a reload is current.
-                if (sw.controller !== before) win.location.reload();
-                else reject(updateFailure('timeout'));
-            }, UPDATE_RELOAD_DEADLINE_MS);
-        });
+        win.document?.documentElement?.setAttribute(UPDATE_REQUESTED_ATTR, '1');
+        const changed = new Promise((resolve) => sw.addEventListener?.('controllerchange', () => resolve(), { once: true }));
+        worker.postMessage({ type: 'SKIP_WAITING' });
+        return changed;
     };
     if (registration.waiting) return dance(registration.waiting);
     let updateFailed = false;
@@ -161,6 +179,7 @@ async function reloadViaWorker(registration, win) {
     } catch {
         updateFailed = true; // offline / deploy mid-flight: re-check below
     }
+    if (!live()) return undefined;
     if (registration.waiting) return dance(registration.waiting);
     const installing = registration.installing;
     if (!installing?.addEventListener) {

@@ -1323,6 +1323,15 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     firstHandler();
     expect(first.location.href).toBe('/unlock'); // no reload on first install
 
+    // med-s8q0: the update banner's Reload marked this page (claimed after
+    // boot) before SKIP_WAITING: that change is the banner's, reload once.
+    let reloadsAfterMark = 0;
+    first.location.reload = () => { reloadsAfterMark++; };
+    first.window.document = { documentElement: { hasAttribute: (name) => name === 'data-cloud-update-requested' } };
+    firstHandler();
+    firstHandler();
+    expect(reloadsAfterMark).toBe(1);
+
     // Update: a controller already ran this page. controllerchange (post
     // SKIP_WAITING) reloads exactly once, even if it fires twice.
     let updateHandler;
