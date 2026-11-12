@@ -118,10 +118,10 @@ final class FlowQAStashTests: XCTestCase {
 
     // MARK: helpers
 
-    /// The Meds tab, retapped until its Schedule segment (Meds-only; Today can
+    /// The Meds tab, retapped until its My meds segment (labelled Schedule before med-5uwb.2) (Meds-only; Today can
     /// list a med name too) shows (bd med-w6gx.29).
     private func openMeds(_ app: XCUIApplication) {
-        let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == 'Schedule'")).firstMatch
+        let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Schedule', 'My meds'}")).firstMatch
         XCTAssertTrue(QA.tapUntil(webButton(app, prefix: "Meds"), shows: schedule), "the Meds tab never opened") // "Meds 1" with a dose due
     }
 
