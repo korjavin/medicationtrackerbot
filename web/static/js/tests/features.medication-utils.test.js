@@ -259,6 +259,8 @@ describe('features/medication-utils.js — MedicationUtils (Plan 2026-05-13, Tas
             ['as-needed never taken, created 3 days ago', { schedule: PRN, created_at: ago(3) }, 'asNeeded'],
             ['as-needed never taken, created 40 days ago', { schedule: PRN, created_at: ago(40) }, 'notInUse'],
             ['as-needed never taken, started 5 days ago (created long before)', { schedule: PRN, start_date: ago(5), created_at: ago(90) }, 'asNeeded'],
+            // ...but only for as-needed: a never-taken ended course is Not in use at once.
+            ['ended course never taken, started 24 days ago', { schedule: DAILY, start_date: ago(24), created_at: ago(24), end_date: '2026-11-02T00:00:00.000Z' }, 'notInUse'],
             ['daily never taken', { schedule: DAILY }, 'scheduled'],
             ['Out as-needed taken yesterday', { id: 1, schedule: PRN, inventory_count: -3, last_taken_at: ago(1) }, 'refill'],
             ['Out ended course', { id: 1, schedule: DAILY, inventory_count: 0, end_date: '2026-10-01T00:00:00.000Z' }, 'notInUse'],

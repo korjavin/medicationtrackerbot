@@ -1138,9 +1138,7 @@
             { name: 'Ibuprofen', dosage: '400 mg', schedule: prn, inventory_count: 0, takenDaysAgo: 1 },
             { name: 'Vitamin D3', dosage: '20000 IU', schedule: JSON.stringify({ type: 'weekly', days: [0], times: ['08:20'] }) },
             { name: 'Paracetamol', dosage: '500 mg', schedule: prn, inventory_count: 12, takenDaysAgo: 3 },
-            // Started 45 days ago, so Not in use whether the never-taken clock
-            // starts at start_date or at "never".
-            { name: 'Amoxicillin', dosage: '500 mg', schedule: daily(['08:00']), inventory_count: 9, start_date: day(45), end_date: day(10) },
+            { name: 'Amoxicillin', dosage: '500 mg', schedule: daily(['08:00']), inventory_count: 9, start_date: day(24), end_date: day(10) },
             { name: 'Prednisolone', dosage: '5 mg', schedule: prn, inventory_count: 20, takenDaysAgo: 45 },
             { name: 'Omeprazole', dosage: '20 mg', schedule: daily(['07:00']), archive: true },
             { name: 'Atorvastatin', dosage: '20 mg', schedule: daily(['21:00']), archive: true },
