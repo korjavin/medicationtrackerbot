@@ -1259,6 +1259,13 @@ and the cap.
 gets a header (app version + build, iOS version, device model, mode with the
 redacted account host) followed by the log; paste it into the bead.
 
+**`diag.read`** (both modes, no args, bd med-vjxz.3, Android twin med-vjxz.2):
+replies the same text minus the mode/account line, the stored log verbatim
+(redaction stays in `Diag.append`), for Send feedback's *Attach the app log*
+(`web/cloud/js/feedback-ui.js`). Check: the iOS local visual scene
+`settings-local-feedback-sheet` shows the checkbox (`[data-feedback-log]`) once
+`shell.ops` lists the op; `Tests/main.swift` does not reach `Shell`.
+
 ### Reminders as local notifications (bd med-w6gx.5)
 
 WKWebView has no Web Push. Whenever the web app computes the reminder horizon

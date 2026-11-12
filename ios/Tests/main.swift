@@ -484,6 +484,8 @@ var diagLog = ""
 for i in 1...(Diag.cap + 50) { diagLog = Diag.append(diagLog, "line \(i)\nnext", base: base, time: "T") }
 let diagLines = diagLog.split(separator: "\n")
 precondition(diagLines.count == Diag.cap && diagLines.first == "T line 51 next" && diagLines.last == "T line \(Diag.cap + 50) next")
+// diag.read (bd med-vjxz.3): the feedback attachment, advertised in both modes.
+precondition(LocalOrigin.ops(local: true).contains("diag.read") && LocalOrigin.ops(local: false).contains("diag.read"))
 precondition(Diag.append("", String(repeating: "x", count: 5000), base: base, time: "T").count == Diag.maxLine)
 print("Diag: ok")
 

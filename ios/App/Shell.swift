@@ -662,6 +662,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             // The passkey ceremony log (bd med-w6gx.24, web/cloud/js/passkey-diag.js); the page does not wait.
             diag("page " + ((body["args"] as? [String: Any])?["entry"] as? String ?? ""))
             replyHandler(nil, nil)
+        case "diag.read":
+            // "Attach the app log" (bd med-vjxz.3, web/cloud/js/feedback-ui.js): Copy diagnostics
+            // minus the mode/account line (Webb 23515); the stored log verbatim, redacted at append.
+            replyHandler(diagnosticsText(account: false), nil)
         case "setEgressHosts" where local:
             let (reply, error) = LocalOrigin.setEgressHosts(body["args"] as? [String: Any] ?? [:])
             replyHandler(reply, error)
@@ -963,6 +967,13 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     /// The error screen or the quick action: the
     /// device header plus the log, as plain text on the pasteboard.
     func copyDiagnostics() {
+        UIPasteboard.general.string = diagnosticsText(account: true)
+        diagCopied = true
+    }
+
+    /// The redacted device header plus the stored log; `account` adds the mode/account line,
+    /// which `diag.read` (the feedback attachment) leaves out.
+    private func diagnosticsText(account: Bool) -> String {
         var machine = utsname()
         uname(&machine)
         let model = withUnsafeBytes(of: &machine.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
@@ -971,10 +982,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             "Med Tracker diagnostics \(ISO8601DateFormatter().string(from: Date()))",
             "app \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?"))",
             "iOS \(UIDevice.current.systemVersion) \(model)",
-            "mode " + (local ? "local" : "account " + (host ?? "?")),
-        ].joined(separator: "\n")
-        UIPasteboard.general.string = Diag.redact(header, base: base) + "\n\n" + (UserDefaults.standard.string(forKey: Diag.key) ?? "")
-        diagCopied = true
+        ] + (account ? ["mode " + (local ? "local" : "account " + (host ?? "?"))] : [])
+        return Diag.redact(header.joined(separator: "\n"), base: base) + "\n\n" + (UserDefaults.standard.string(forKey: Diag.key) ?? "")
     }
 
     /// Visual QA (Debug only): `-wgQALoadError 503|404|local` draws N4 without
