@@ -233,8 +233,8 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     const text = opts.meta !== undefined ? opts.meta : _myMedsWhen(med, parsedSchedule);
     if (text) meta.appendChild(_medsEl('span', 'wg-meds-row__schedule', text));
     if (opts.chip) meta.appendChild(opts.chip);
-    const dates = _formatMedDateRange(med.start_date, med.end_date);
-    if (dates) meta.appendChild(_medsEl('span', 'wg-meds-row__dates', `· ${dates}`));
+    const dates = opts.dates !== false && _formatMedDateRange(med.start_date, med.end_date);
+    if (dates) meta.appendChild(_medsEl('span', 'wg-meds-row__dates', dates));
     if (med.normalized_name) {
         meta.appendChild(_medsEl('span', 'wg-meds-row__rx', `Rx ${med.normalized_name}`));
     }
@@ -266,6 +266,7 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
         label: med.name,
         trail,
         tapEdits: true,
+        more: opts.more,
         onEdit: () => showEditModal(med.id),
         onDelete: () => deleteMed(med.id),
         extra: asNeeded || med.archived
@@ -317,11 +318,22 @@ function renderMeds() {
         meta: [m.last_taken_at && `Last ${_myMedsAgo(m.last_taken_at, now)}`, _medsTracked(m) && _myMedsLeft(m)].filter(Boolean).join(' · '),
         trail: [_buildMedsLogButton(m)],
     }));
+    // Not in use (Iris, MY1 review): no ⋯ More — the row tap opens the editor
+    // (Archived switch, Delete) — and no course tag: the meta says "Ended …".
     add('Not in use', 'not-in-use', g.notInUse, (m) => ({
         meta: _myMedsIdleMeta(m, now),
+        dates: false,
+        more: false,
         trail: _medsTracked(m) ? [_medsButton('wg-btn--ghost wg-meds-row__stop', 'Stop tracking', () => stopTrackingMed(m.id))] : [],
     }));
-    if (g.archived.length) list.appendChild(_buildArchivedFold(g.archived.map((m) => _buildMedsRow(m, parse(m)))));
+    // Archived rows show no dose times (they read as live reminders): just
+    // "Last <date>" when known, beside the Archived chip.
+    if (g.archived.length) {
+        list.appendChild(_buildArchivedFold(g.archived.map((m) => _buildMedsRow(m, parse(m), {
+            meta: m.last_taken_at
+                ? `Last ${new Date(m.last_taken_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : '',
+        }))));
+    }
 
     const addBtn = _medsEl('button', 'wg-btn wg-btn--block wg-meds-add');
     addBtn.type = 'button';

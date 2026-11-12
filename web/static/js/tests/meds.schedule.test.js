@@ -138,6 +138,23 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
         expect(rowOf(document, 3).querySelector('.wg-meds-row__actions .wg-btn--sm')).toBeNull();
     });
 
+    it('Not in use rows: no ⋯ More and no course tag; tap or Enter opens the editor', async () => {
+        const { window, document } = env;
+        await seedMedications(window, everyGroup());
+        const editSpy = vi.spyOn(window, 'showEditModal').mockImplementation(() => {});
+        const row = rowOf(document, 6);
+        expect(row.querySelector('.wg-swipe__more, .wg-swipe__menu')).toBeNull();
+        expect(row.querySelector('.wg-meds-row__dates')).toBeNull();
+        expect(row.tabIndex).toBe(0);
+        row.querySelector('.wg-meds-row__info').click();
+        expect(editSpy).toHaveBeenCalledWith(6);
+        editSpy.mockClear();
+        row.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(editSpy).toHaveBeenCalledWith(6);
+        // Other groups keep the overflow.
+        expect(rowOf(document, 1).querySelector('.wg-swipe__more')).not.toBeNull();
+    });
+
     it('Needs a refill: Update opens the stock sheet for that med', async () => {
         const { window, document } = env;
         await seedMedications(window, everyGroup());
@@ -151,7 +168,7 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
         const { window, document } = env;
         await seedMedications(window, [
             ...everyGroup(),
-            { id: 11, name: 'Atorvastatin', schedule: DAILY, archived: true, inventory_count: 3 },
+            { id: 11, name: 'Atorvastatin', schedule: DAILY, archived: true, inventory_count: 3, last_taken_at: '2026-03-04T12:00:00.000Z' },
         ]);
         const section = document.querySelector('#med-list [data-group="archived"]');
         const fold = section.querySelector('.wg-meds-fold');
@@ -178,7 +195,12 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
             expect(row.querySelector('.wg-meds-row__archived').textContent).toBe('Archived');
             expect(row.querySelector('.wg-meds-stock__chip, .wg-meds-stock__update, .wg-chip--warn, .wg-chip--danger')).toBeNull();
             expect(row.textContent).not.toMatch(/left|Out/);
+            // No dose times: they would read as a live reminder.
+            expect(row.textContent).not.toMatch(/\d\d:\d\d/);
         });
+        expect(rowOf(document, 8).querySelector('.wg-meds-row__schedule')).toBeNull();
+        const lastDay = new Date('2026-03-04T12:00:00.000Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        expect(metaOf(document, 11)).toBe(`Last ${lastDay}`);
         expect(document.querySelectorAll('#med-list .wg-meds-row[data-med-id="8"]')).toHaveLength(1);
     });
 
@@ -244,9 +266,10 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
             return el ? el.textContent : null;
         };
         const day = (y, m, d) => new Date(y, m, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-        expect(dates(11)).toBe(`· since ${day(2026, 8, 12)}`);
-        expect(dates(12)).toBe(`· ${day(2026, 8, 12)} – ${day(2099, 9, 1)}`);
-        expect(dates(13)).toBe(`· until ${day(2099, 9, 1)}`);
+        // A wrapped tag line never starts with a separator (Iris, MY1 review).
+        expect(dates(11)).toBe(`since ${day(2026, 8, 12)}`);
+        expect(dates(12)).toBe(`${day(2026, 8, 12)} – ${day(2099, 9, 1)}`);
+        expect(dates(13)).toBe(`until ${day(2099, 9, 1)}`);
         expect(dates(14)).toBeNull();
         // Tags follow the meta.
         const meta = rowOf(document, 13).querySelector('.wg-meds-row__meta');
