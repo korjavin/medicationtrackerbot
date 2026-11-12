@@ -1370,13 +1370,18 @@ describe('Apple Health import', () => {
             const SEEN = 'wg.health.sleepSeen';
             const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
             // A shell that reports deletions on its anchored replies only (a
-            // windowed read carries none, like the shells).
+            // windowed read carries none, like the shells), once: the anchor
+            // that delivered them has moved past them.
             const shell = (data, deleted = {}) => {
                 const h = healthOf(data);
                 const q = h.query;
+                const left = { ...deleted };
                 h.query = async (args) => {
                     const res = await q(args);
-                    return 'anchor' in args ? { ...res, deleted: deleted[args.type] || [] } : res;
+                    if (!('anchor' in args)) return res;
+                    const d = left[args.type] || [];
+                    delete left[args.type];
+                    return { ...res, deleted: d };
                 };
                 return h;
             };
@@ -1486,12 +1491,28 @@ describe('Apple Health import', () => {
                 expect(records.rows.get(DAY_ID).deleted).toBe(false);
             });
 
-            it('an empty read (access denied) deletes nothing', async () => {
+            it('a failed or empty (denied) reconcile read deletes nothing and is retried until one returns samples', async () => {
+                allowConsoleNoise(); // the failed read is logged by design
                 await seed();
-                const health = shell({ sleep: [] }, deletedNight);
-                await go(health);
-                expect(health.calls.some((c) => c.from === NOW - 30 * 24 * H - 48 * H)).toBe(true);
+                const data = { sleep: [] };
+                const health = shell(data, deletedNight);
+                const q = health.query;
+                let fail = true;
+                health.query = async (args) => {
+                    if (fail && args.type === 'sleep' && !('anchor' in args)) { fail = false; throw new TypeError('denied'); }
+                    return q(args);
+                };
+                await go(health); // the deletions arrive, the window read throws
                 expect(records.rows.get(DAY_ID).deleted).toBe(false);
+                await go(health); // no deletions in the reply any more; the read is empty
+                expect(health.calls.filter((c) => c.from === NOW - 30 * 24 * H - 48 * H)).toHaveLength(1);
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+                data.sleep = [early]; // access back
+                await go(health);
+                expect(records.rows.get(DAY_ID).deleted).toBe(true);
+                expect(storage.getItem('wg.health.sleepReconcile')).toBeNull();
+                await go(health); // done: no further window read
+                expect(health.calls.filter((c) => c.from === NOW - 30 * 24 * H - 48 * H)).toHaveLength(2);
             });
 
             it('a read that does not reach back before the night deletes nothing', async () => {

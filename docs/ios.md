@@ -898,7 +898,10 @@ and weight only asks once, at the next open, for the new types.
   read a long stretch of history at once (slow, not wrong).
 - **Deleted in Health** (bd med-w6gx.18.3): a workout goes as a BP reading
   does (above). A sleep deletion names no dates, so it is a **trigger**: the
-  runner re-reads the last 30 days + 48h by window and passes the sleep days
+  runner re-reads the last 30 days + 48h by window (the trigger,
+  `wg.health.sleepReconcile`, is saved before the anchor moves and kept until
+  a re-read returns samples, so a failed or denied read retries next run)
+  and passes the sleep days
   this device has seen (`wg.health.sleepSeen`, device-local: the days its own
   reads found a Health night for, trimmed to that window). A live, unedited
   `sleep-hk-<day>` row is tombstoned only when its day is seen here, the read
