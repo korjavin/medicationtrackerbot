@@ -256,8 +256,10 @@ export function createApiRouter(ctx, {
   };
   const emaPort = createEmaPort({ register: medRegister, loader: emaLoader });
   // Slice 1's device-local key (bd med-3u28.2), read only while the record
-  // has no med_register. Kept, never removed: an open slice-1 tab on this
-  // origin still reads it (removal is a later release).
+  // has no med_register. Kept for good, never removed (bd med-3u28.9 won't-do,
+  // Archie 23626): an old-bundle tab reads only this key, so removing it would
+  // flip that tab to US and post medicine names to RxNav; a .6+ device that
+  // never carried keeps reading it as the fallback.
   function legacyMedRegister() {
     try {
       const accountId = (targetWindow.MedTrackerCloud && targetWindow.MedTrackerCloud.ctx && targetWindow.MedTrackerCloud.ctx.accountId) || 'unknown';
