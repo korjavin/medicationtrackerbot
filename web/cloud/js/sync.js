@@ -1941,7 +1941,7 @@ export function requestDrain(ctx, { wake = false, resume = false } = {}) {
   const before = getRecordsChangeCount();
   let rejected = null;
   drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
-    .catch((e) => { rejected = /^\w{1,40}$/.test(e && e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
+    .catch((e) => { rejected = typeof e?.name === 'string' && /^\w{1,40}$/.test(e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
     .finally(() => {
       drainInFlight = null;
       const failed = authExpired ? 'auth-expired' : updateRequired ? 'update-required' : offline ? 'offline' : rejected;

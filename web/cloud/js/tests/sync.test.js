@@ -1337,6 +1337,25 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(JSON.stringify(settled)).not.toMatch(/weight|kg|json/i);
   });
 
+  // A pull rejecting with a non-Error (null, a string) must not throw out of
+  // the drain's catch: the promise resolves and the failure class is 'Error'.
+  it.each([null, 'boom'])('a pull rejecting with %j settles as failed Error', async (reason) => {
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        return { ok: true, status: 200, headers: new Headers(), json: async () => { throw reason; }, text: async () => { throw reason; } };
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await vi.waitFor(() => expect(settled).toHaveLength(1));
+    expect(settled[0].failed).toBe('Error');
+    await expect(requestDrain(ctx)).resolves.toBeUndefined();
+  });
+
   // The status class is this drain's: taken before its queued rerun can clear
   // (or set) the shared offline flag.
   it('a return\'s pull that went offline reports offline even when the next return\'s pull succeeds', async () => {

@@ -417,6 +417,9 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
     // get the prompt again on the next cold start, which is the next time the
     // question is actually worth asking.
     let prompted = false;
+    // 'same' is logged only when the previous logged outcome differed, so an
+    // idle open app doesn't flood the shell log's 200-line window (med-ay7h).
+    let lastWasSame = false;
 
     const check = async () => {
         if (prompted) return;
@@ -424,6 +427,7 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
         try {
             serving = await fetchServerBuildID(fetchImpl);
         } catch (e) {
+            lastWasSame = false;
             // Offline, or a deploy is mid-flight. Say nothing; the next
             // foreground or tick asks again. The log gets the status or the
             // error class, never its text.
@@ -431,7 +435,8 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
             return;
         }
         if (!serving || serving === DEV_BUILD_ID || serving === booted) {
-            diagLine('update check same');
+            if (!lastWasSame) diagLine('update check same');
+            lastWasSame = true;
             return;
         }
         diagLine('update check new');
