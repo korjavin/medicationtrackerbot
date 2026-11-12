@@ -167,7 +167,8 @@ export function startLocalHealthImport({ ctx, records, win }) {
     records,
     run: (opts) => {
       if (stopped) return Promise.resolve(null);
-      const pass = runHealthImport(ctx, { ...opts, records, flush: async () => {} });
+      // Local mode has no other device to pull from: the mirror is the store.
+      const pass = runHealthImport(ctx, { ...opts, records, flush: async () => {}, pulled: () => true });
       current = pass.catch(() => null); // its failure is startHealthImport's to log
       return pass;
     },

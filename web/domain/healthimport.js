@@ -236,8 +236,9 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // read picks one source per day (healthsource.js visibleSleep), so arrival
   // order never matters and nothing is lost.
   // skip.inBed = the In Bed samples sleepNights left out.
-  // `days` = the sleep days this read holds a whole Health night for (the
-  // runner keeps them as this device's seen set).
+  // `days` = { day: [total_minutes, start_time] } for each sleep day this read
+  // holds a whole Health night for (the runner keeps the fullest per day as
+  // this device's seen set).
   //
   // Health-side deletions (bd med-w6gx.18.3): a deleted sample has no dates,
   // so the runner answers it with a window re-read carrying bounds.reconcile
@@ -246,13 +247,18 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // that night: proof of disappearance, never absence, so a second device
   // whose store never held it deletes nothing), the read holds no Health night
   // for it, and the read reaches back before the row's start (an empty or
-  // windowed read proves nothing). A Mi Band night of that day keeps the row
+  // windowed read proves nothing), and the row still holds this store's
+  // version (else skip.foreign: another store's fuller night replaced it and
+  // still exists there). A Mi Band night of that day keeps the row
   // (skip.ledger: the tombstone would hide the band night too); a night that
   // only shrank keeps its longer version (skip.shorter: fuller wins).
   async function importSleep(samples, bounds) {
     const skip = { inBed: 0, unsettled: 0, clipped: 0, exists: 0 };
-    const seen = bounds && bounds.reconcile ? new Set(bounds.reconcile.seen || []) : null;
-    if (seen) Object.assign(skip, { ledger: 0, shorter: 0 });
+    const given = bounds && bounds.reconcile && bounds.reconcile.seen;
+    const seen = bounds && bounds.reconcile
+      ? new Map(given && typeof given === 'object' && !Array.isArray(given) ? Object.entries(given) : [])
+      : null;
+    if (seen) Object.assign(skip, { ledger: 0, shorter: 0, foreign: 0 });
     const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
     if (bounds && Number.isFinite(bounds.from) && Number.isFinite(bounds.to) && Array.isArray(samples)) {
       skip.inBed = samples.filter((s) => s && s.value === 0).length;
@@ -352,13 +358,20 @@ export function createHealthImportDomain({ records, now, timeZone }) {
           if (best.body.total_minutes < (Number(r.total_minutes) || 0)) skip.shorter++;
           continue;
         }
+        // The row must still hold THIS store's version: another store's longer
+        // night may have replaced the shared day row (fuller wins), and that
+        // night still exists there.
+        const mine = seen.get(day);
+        if (!Array.isArray(mine) || Number(r.total_minutes) !== mine[0] || r.start_time !== mine[1]) { skip.foreign++; continue; }
         if (!(earliest < Date.parse(r.start_time))) continue;
         if (ledgerDays.has(day)) { skip.ledger++; continue; }
         await records.del('sleep', r.recordId);
         removed++;
       }
     }
-    const daysSeen = [...folded].filter(([, b]) => b.whole).map(([day]) => day);
+    // What this store held per day: [total_minutes, start_time] of its version.
+    const daysSeen = Object.fromEntries([...folded].filter(([, b]) => b.whole)
+      .map(([day, b]) => [day, [b.body.total_minutes, b.body.start_time]]));
     return { added, removed, pending, nights: all.length, skip, days: daysSeen };
   }
 

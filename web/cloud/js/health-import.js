@@ -16,7 +16,7 @@
 // Losing them only costs a re-scan, which the deterministic recordIds absorb.
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
-import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled } from './sync.js';
+import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed, onLocalWrite, localWritesSettled, pulledThisSession } from './sync.js';
 import { createHealthImportDomain, OPEN_SESSION_MS, STRENGTH_TYPES, overlaps } from '../../domain/healthimport.js';
 import { findLibraryRowByName, exerciseKey } from '../../domain/workout.js';
 import { localWallToUtcMs } from '../../domain/medschedule.js';
@@ -785,9 +785,10 @@ function kindLine(kind, st) {
         + (st.error ? ` error=${st.error}` : '');
 }
 
+// { day: [total_minutes, start_time] }.
 function seenDays(storage) {
-    const v = readJSON(storage, SLEEP_SEEN_KEY, []);
-    return Array.isArray(v) ? v : [];
+    const v = readJSON(storage, SLEEP_SEEN_KEY, {});
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 }
 
 function timeZone() {
@@ -805,6 +806,9 @@ export async function runHealthImport(ctx, {
     flush = () => flushConfirmed(ctx),
     now = Date.now,
     diag = diagLine,
+    // The sleep reconcile reads the mirror for Mi Band nights (the ledger
+    // guard): it waits, trigger kept, until this session has pulled.
+    pulled = pulledThisSession,
 } = {}) {
     if (!health || !health.isSupported() || !isHealthImportEnabled(storage)) return null;
     const domain = createHealthImportDomain({ records, now, timeZone: timeZone() });
@@ -846,10 +850,15 @@ export async function runHealthImport(ctx, {
                 removed += r.removed || 0;
                 st.removed += r.removed || 0;
                 st.nights += r.nights || 0;
-                if (Array.isArray(r.days) && r.days.length) {
+                if (r.days && Object.keys(r.days).length) {
+                    // Per day the fullest version this store showed (a later
+                    // shorter read must not stop a whole deletion matching it).
                     const keep = new Date(now() - SLEEP_HEAL_MS - 2 * DAY_MS).toISOString().slice(0, 10);
-                    const days = new Set([...seenDays(storage), ...r.days]);
-                    writeJSON(storage, SLEEP_SEEN_KEY, [...days].filter((d) => typeof d === 'string' && d >= keep).sort());
+                    const days = seenDays(storage);
+                    for (const [d, v] of Object.entries(r.days)) {
+                        if (!Array.isArray(days[d]) || v[0] >= days[d][0]) days[d] = v;
+                    }
+                    writeJSON(storage, SLEEP_SEEN_KEY, Object.fromEntries(Object.entries(days).filter(([d]) => d >= keep).sort()));
                 }
                 for (const [k, n] of Object.entries(r.skip || {})) st.skip[k] = (st.skip[k] || 0) + n;
                 // Saved before the caller moves the anchor past these samples:
@@ -905,7 +914,7 @@ export async function runHealthImport(ctx, {
             // A sleep deletion names no dates: re-read the reconcile window and
             // let the domain tombstone the seen days that lost their night.
             // Also a trigger left by an earlier run whose read failed or was empty.
-            if (kind === 'sleep' && readJSON(storage, SLEEP_RECONCILE_KEY, false) === true) {
+            if (kind === 'sleep' && readJSON(storage, SLEEP_RECONCILE_KEY, false) === true && pulled()) {
                 const at = now();
                 const res = await health.query({ type: 'sleep', from: at - SLEEP_HEAL_MS - SLEEP_PAD_MS, to: at });
                 await take(res, { seen: seenDays(storage) });

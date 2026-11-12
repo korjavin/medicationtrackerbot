@@ -902,9 +902,13 @@ and weight only asks once, at the next open, for the new types.
   `wg.health.sleepReconcile`, is saved before the anchor moves and kept until
   a re-read returns samples, so a failed or denied read retries next run)
   and passes the sleep days
-  this device has seen (`wg.health.sleepSeen`, device-local: the days its own
-  reads found a Health night for, trimmed to that window). A live, unedited
-  `sleep-hk-<day>` row is tombstoned only when its day is seen here, the read
+  this device has seen (`wg.health.sleepSeen`, device-local: per day the
+  fullest version — total minutes and start — its own reads found, trimmed to
+  that window). It runs only once this session has pulled (the Mi Band guard
+  reads the mirror); the trigger waits until then. A live, unedited
+  `sleep-hk-<day>` row is tombstoned only when its day is seen here, the row
+  still holds this device's version (another store's fuller night that
+  replaced it still exists there: `skip.foreign`), the read
   holds no Health night for it, the read returned samples, and one of them
   starts before the row (the readable range reaches it). It is proof that the
   night *disappeared from this device's store*, never that it is absent: a

@@ -1386,11 +1386,12 @@ describe('Apple Health import', () => {
                 return h;
             };
             const lines = [];
+            let pulled = true;
             const go = (health, recs = records) => runHealthImport({}, {
-                health, storage, records: recs, flush, now: () => NOW, diag: (l) => lines.push(l),
+                health, storage, records: recs, flush, now: () => NOW, diag: (l) => lines.push(l), pulled: () => pulled,
             });
             const line = (kind) => lines.filter((l) => l.startsWith(`[health] ${kind} `)).pop();
-            beforeEach(() => { lines.length = 0; });
+            beforeEach(() => { lines.length = 0; pulled = true; });
 
             it('a BP, weight or workout deleted in Health is tombstoned at now(), an alias too; an app entry never', async () => {
                 const data = {
@@ -1463,7 +1464,9 @@ describe('Apple Health import', () => {
             const deletedNight = { sleep: night.map((s) => s.uuid) };
             const seed = async () => {
                 expect(await go(shell({ sleep: [early, ...night] }))).toEqual({ added: 2 });
-                expect(JSON.parse(storage.getItem(SEEN))).toEqual(['2026-10-01', '2026-10-02']);
+                expect(JSON.parse(storage.getItem(SEEN))).toEqual({
+                    '2026-10-01': [60, iso(N0 - 30 * H)], '2026-10-02': [470, iso(N0)],
+                });
             };
 
             it('a whole night deleted in Health is tombstoned on the device that imported it', async () => {
@@ -1476,7 +1479,7 @@ describe('Apple Health import', () => {
                 expect(records.rows.get(DAY_ID).deleted).toBe(true);
                 expect(records.rows.get(DAY_ID).clientTs).toBeGreaterThanOrEqual(before);
                 expect(records.rows.get('sleep-hk-2026-10-01').deleted).toBe(false);
-                expect(line('sleep')).toMatch(/ deleted=6 removed=1 skip\{inBed:0,unsettled:0,clipped:0,exists:1,ledger:0,shorter:0\}/);
+                expect(line('sleep')).toMatch(/ deleted=6 removed=1 skip\{inBed:0,unsettled:0,clipped:0,exists:1,ledger:0,shorter:0,foreign:0\}/);
                 expect(flush).toHaveBeenCalledTimes(1);
                 // Stays deleted on a rescan (tombstone permanence).
                 storage.setItem('wg.health.anchors', '{}');
@@ -1486,9 +1489,34 @@ describe('Apple Health import', () => {
 
             it('a device that never held the night (day not seen here) deletes nothing', async () => {
                 await seed();
-                storage.setItem(SEEN, '["2026-10-01"]');
+                storage.setItem(SEEN, JSON.stringify({ '2026-10-01': [60, iso(N0 - 30 * H)] }));
                 await go(shell({ sleep: [early] }, deletedNight));
                 expect(records.rows.get(DAY_ID).deleted).toBe(false);
+            });
+
+            // Breakage review F1: the day row is shared; another store (an
+            // Android phone, a second iPhone) can replace it with its fuller
+            // night, which still exists there.
+            it('a day row another store\'s fuller night replaced is not removed when this store\'s night goes', async () => {
+                await seed();
+                await records.put('sleep', { ...records.rows.get(DAY_ID), clientTs: NOW, start_time: iso(N0 - H), total_minutes: 530 });
+                await go(shell({ sleep: [early] }, deletedNight));
+                expect(records.rows.get(DAY_ID)).toMatchObject({ deleted: false, total_minutes: 530 });
+                expect(line('sleep')).toMatch(/ removed=0 skip\{.*foreign:1\}/);
+            });
+
+            // Breakage review F2: the ledger guard sees only the local mirror.
+            it('waits for this session\'s pull before reconciling, keeping the trigger', async () => {
+                await seed();
+                pulled = false;
+                const health = shell({ sleep: [early] }, deletedNight);
+                await go(health);
+                expect(health.calls.filter((c) => c.from === NOW - 30 * 24 * H - 48 * H)).toEqual([]);
+                expect(records.rows.get(DAY_ID).deleted).toBe(false);
+                expect(storage.getItem('wg.health.sleepReconcile')).toBe('true');
+                pulled = true;
+                await go(health);
+                expect(records.rows.get(DAY_ID).deleted).toBe(true);
             });
 
             it('a failed or empty (denied) reconcile read deletes nothing and is retried until one returns samples', async () => {
@@ -1530,14 +1558,14 @@ describe('Apple Health import', () => {
                 });
                 await go(shell({ sleep: [early] }, deletedNight));
                 expect(records.rows.get(DAY_ID).deleted).toBe(false);
-                expect(line('sleep')).toMatch(/ removed=0 skip\{.*ledger:1,shorter:0\}/);
+                expect(line('sleep')).toMatch(/ removed=0 skip\{.*ledger:1,shorter:0,foreign:0\}/);
             });
 
             it('a night shortened in Health keeps its imported length', async () => {
                 await seed();
                 await go(shell({ sleep: [early, ...night.slice(0, 2)] }, { sleep: night.slice(2).map((s) => s.uuid) }));
                 expect(records.rows.get(DAY_ID)).toMatchObject({ deleted: false, total_minutes: 470 });
-                expect(line('sleep')).toMatch(/ removed=0 skip\{.*ledger:0,shorter:1\}/);
+                expect(line('sleep')).toMatch(/ removed=0 skip\{.*ledger:0,shorter:1,foreign:0\}/);
             });
 
             it('a night edited by hand here is never removed', async () => {
@@ -1548,9 +1576,12 @@ describe('Apple Health import', () => {
             });
 
             it('the seen days are trimmed to the reconcile window and cleared with the anchors', async () => {
-                storage.setItem(SEEN, '["2026-08-01","2026-09-02"]');
+                storage.setItem(SEEN, JSON.stringify({ '2026-08-01': [400, 'a'], '2026-09-02': [400, 'b'], '2026-10-02': [999, 'c'] }));
                 await go(shell({ sleep: [early, ...night] }));
-                expect(JSON.parse(storage.getItem(SEEN))).toEqual(['2026-09-02', '2026-10-01', '2026-10-02']);
+                // Trimmed, and a day keeps the fullest version this store showed.
+                expect(JSON.parse(storage.getItem(SEEN))).toEqual({
+                    '2026-09-02': [400, 'b'], '2026-10-01': [60, iso(N0 - 30 * H)], '2026-10-02': [999, 'c'],
+                });
                 resetHealthAnchors(storage);
                 expect(storage.getItem(SEEN)).toBeNull();
             });
