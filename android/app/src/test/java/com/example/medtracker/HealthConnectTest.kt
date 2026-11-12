@@ -1,6 +1,11 @@
 package com.example.medtracker
 
+import androidx.health.connect.client.changes.DeletionChange
+import androidx.health.connect.client.changes.UpsertionChange
 import androidx.health.connect.client.records.ExerciseSessionRecord
+import androidx.health.connect.client.records.Record
+import androidx.health.connect.client.units.Mass
+import java.util.UUID
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.HeartRateRecord
@@ -260,6 +265,25 @@ class HealthConnectTest {
         val unmarked = workout("our.app", null)
         val foreign = workout("watch.app", "session-42")
         assertEquals(listOf(unmarked, foreign), HealthConnect.importableWorkouts(listOf(ours, unmarked, foreign), "our.app"))
+    }
+
+    @Test
+    fun changesPagesReportOnlyDeletionsThroughTheImportUuidMapping() {
+        // Both Change types have internal constructors; Health Connect builds them in getChanges.
+        fun deletion(id: String) = DeletionChange::class.java.getDeclaredConstructor(String::class.java)
+            .apply { isAccessible = true }.newInstance(id)
+        val at = Instant.ofEpochMilli(1700000000000L)
+        val weight = WeightRecord(time = at, zoneOffset = ZoneOffset.UTC, weight = Mass.kilograms(72.5),
+            metadata = Metadata.manualEntry().populatedWithTestValues(id = "0f8fad5b-d9cb-469f-a165-70867728950e"))
+        val upsert = UpsertionChange::class.java.getDeclaredConstructor(Record::class.java)
+            .apply { isAccessible = true }.newInstance(weight)
+        val hcId = "7C9E6679-7425-40DE-944B-E07FC1F90AE7"
+        assertEquals(listOf(hcId, UUID.nameUUIDFromBytes("legacy-id".toByteArray()).toString()),
+            HealthConnect.deletedIds(listOf(upsert, deletion(hcId), deletion("legacy-id"))))
+        // The same id an imported sample of that record carried.
+        assertEquals(HealthConnect.uuid("legacy-id"), HealthConnect.deletedIds(listOf(deletion("legacy-id"))).single())
+        assertEquals(emptyList<String>(), HealthConnect.deletedIds(listOf(upsert)))
+        assertEquals(setOf("bp", "weight", "sleep", "workout"), HealthConnect.DELETES)
     }
 
     @Test

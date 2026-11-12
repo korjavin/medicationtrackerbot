@@ -630,6 +630,19 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   and starts a token; later queries return only upserts since it. An expired
   token (unused for 30 days) re-reads the 30 days; known readings are skipped
   by id.
+- **Deletions (bd med-w6gx.18.2):** a changes-mode reply for `bp`, `weight`,
+  `sleep` and `workout` carries `deleted: [id]` — each `DeletionChange.recordId`
+  through the same `uuid()` the imported samples use, so it names the
+  `<kind>-hk-<uuid>` row the page wrote (for sleep it is only a trigger: a stage
+  sample's uuid is derived from the session id). Scan modes (no anchor, expired
+  token, `hc1s:` continuation) answer `deleted: []`; `hr`/`spo2`/`steps` replies
+  have no `deleted` key, nor do the replies that never reach the anchor path
+  (Health Connect unavailable, read denied, a sleep `{from, to}` window read). Not filtered by origin: our own writes were never
+  imported, so the page finds no row for them. Two limits the page inherits:
+  an **edit** in Health Connect is an `UpsertionChange` with the *same* id, so
+  the page sees a known row and skips it — edits never propagate, only
+  deletions do; and a token that **expired** (unused for 30 days) restarts as
+  a scan, so deletions made in that gap are never reported.
 - **Sleep:** each `SleepSessionRecord` becomes HealthKit-style
   `HKCategoryValueSleepAnalysis` samples, one per stage (sleeping/unknown → 1
   asleep, awake/awake-in-bed → 2, light → 3 core, deep → 4, REM → 5;
@@ -661,7 +674,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   the app); no background reads, no background permission.
 - **Diagnostics (bd med-nt9p.59):** every `health.query` adds one line to the
   Copy diagnostics log — `health <kind> <scan|changes|expired-scan> read=<n>
-  records=<n> more=<b>`, or `health <kind> denied` (no read access for that
+  records=<n> more=<b>` (plus ` deleted=<n>` for bp/weight/sleep/workout),
+  or `health <kind> denied` (no read access for that
   type), or the op's error. A kind that has never returned anything keeps no
   anchor, so it shows `scan` on every run.
 - **QA:** android-qa `health-connect` writes a BP (plus steps, a heart-rate
