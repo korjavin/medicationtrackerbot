@@ -146,6 +146,8 @@ describe('Meds My meds list (kit MY1, bd med-5uwb.1)', () => {
         expect(row.querySelector('.wg-swipe__more, .wg-swipe__menu')).toBeNull();
         expect(row.querySelector('.wg-meds-row__dates')).toBeNull();
         expect(row.tabIndex).toBe(0);
+        expect(row.getAttribute('role')).toBe('button');
+        expect(row.getAttribute('aria-label')).toBe('Amoxicillin');
         row.querySelector('.wg-meds-row__info').click();
         expect(editSpy).toHaveBeenCalledWith(6);
         editSpy.mockClear();

@@ -12,7 +12,8 @@
 //       label?,       // names the row for the More button ("More actions for …")
 //       trail?,       // element the More button goes into (default: row)
 //       tapEdits?,    // a tap on the row (outside its controls) → onEdit
-//       more?,        // false: no More button/menu; with tapEdits the row is focusable, Enter edits
+//       more?,        // false: no More button/menu; with tapEdits the row is a focusable
+//                     // role=button named by label, Enter edits
 //   }) → row
 //
 // The row itself becomes the swipe host (.wg-swipe.wg-swipe--host): its
@@ -111,6 +112,8 @@
         if (o.more === false) {
             if (o.tapEdits && o.onEdit) {
                 row.tabIndex = 0;
+                row.setAttribute('role', 'button');
+                if (o.label) row.setAttribute('aria-label', o.label);
                 row.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' && e.target === row) { e.preventDefault(); o.onEdit(e); }
                 });
