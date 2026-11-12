@@ -634,7 +634,7 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       # FlowQAFoodGalleryTests (bd med-w6gx.33) picks this JPEG (EXIF
-      # DateTimeOriginal 2030-01-02 12:34:56, the newest photo) in the PHPicker.
+      # DateTimeOriginal 2025-03-15 12:34:56; photo.js drops years past next year) in the PHPicker.
       - name: Add the Gallery test photo
         if: matrix.part == 'rest'
         run: xcrun simctl addmedia "$(cut -d= -f2 "$RUNNER_TEMP/devices" | head -n 1)" ios/qa/food-exif.jpg

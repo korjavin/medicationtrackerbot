@@ -33,11 +33,12 @@ final class FlowQAFoodGalleryTests: XCTestCase {
         XCTAssertFalse(pickerShows(app, timeout: 2), "the picker is still up after Cancel")
         shot("cancelled")
 
-        // Pick the workflow's ios/qa/food-exif.jpg (DateTimeOriginal 2030-01-02
-        // 12:34:56, the newest photo): the review gets it as a JPEG with EXIF.
+        // Pick the workflow's ios/qa/food-exif.jpg (DateTimeOriginal 2025-03-15
+        // 12:34:56; in the past, as photo.js drops EXIF years past next year):
+        // the review gets it as a JPEG with EXIF.
         openGallery(app, state)
-        let cell = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo,' AND label CONTAINS '2030'")).firstMatch
-        XCTAssertTrue(cell.waitForExistence(timeout: 15), "no 2030 test photo in the picker: \(tree(app))")
+        let cell = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo,' AND label CONTAINS '2025'")).firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 15), "no 2025 test photo in the picker: \(tree(app))")
         cell.tap()
         (ok, state) = QA.waitFlow(app, timeout: 30) { Self.photo($0) != nil && QA.target($0, "review") != nil }
         XCTAssertTrue(ok, "the picked photo did not reach the review: \(QA.json(state))")
@@ -46,7 +47,7 @@ final class FlowQAFoodGalleryTests: XCTestCase {
         XCTAssertEqual(photo["jpeg"] as? Bool, true, "picked photo is not JPEG bytes: \(QA.json(photo))")
         XCTAssertGreaterThan(photo["size"] as? Double ?? 0, 1000, "picked photo: \(QA.json(photo))")
         // EXIF kept: photo.js reads DateTimeOriginal (eaten_at). Local time, so the day may shift by the zone.
-        XCTAssertTrue((photo["exif"] as? String ?? "").hasPrefix("2030-01-0"), "EXIF DateTimeOriginal lost: \(QA.json(photo))")
+        XCTAssertTrue((photo["exif"] as? String ?? "").hasPrefix("2025-03-1"), "EXIF DateTimeOriginal lost: \(QA.json(photo))")
         let memo = XCTAttachment(string: QA.json(photo))
         memo.name = "gallery-photo.json"
         memo.lifetime = .keepAlways
