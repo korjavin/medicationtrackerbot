@@ -123,18 +123,40 @@ final class FlowQAPullDeleteTests: XCTestCase {
         shot("pull-delete", "deleted-host")
     }
 
+    /// Open = the tab bar shows and the probe's page has not been replaced
+    /// for 8 s. The first boot reloads once after its first snapshot POST
+    /// (receipts: GET / ~0.3 s after POST /api/sync/snapshot, green run
+    /// 43020751009 too); a probe tapped across it is lost (run 43115428393:
+    /// "peer" stayed at phase boot). W1 mounts after the pull catches up and
+    /// covers the page (run 43121706640), so it is skipped here and before
+    /// every later step.
     private func openAccount(_ app: XCUIApplication) -> Bool {
         let end = Date().addingTimeInterval(120)
+        var page: String?, since = Date()
         while Date() < end {
-            if QA.tabBarShows(app, timeout: 2) { return true }
-            for label in ["Continue in browser anyway", "Skip all", "Unlock with passkey"] {
+            dismissW1(app)
+            if QA.tabBarShows(app, timeout: 2), let id = probeDocument(app) {
+                if id != page { page = id; since = Date() } else if Date().timeIntervalSince(since) >= 8 { return true }
+            } else { page = nil }
+            for label in ["Continue in browser anyway", "Unlock with passkey"] {
                 let button = app.webViews.buttons[label]; if button.exists { button.tap() }
             }
+            Thread.sleep(forTimeInterval: 1)
         }
         return false
     }
 
+    private func dismissW1(_ app: XCUIApplication) { QA.skipW1(app, timeout: 0) }
+
+    private func probeState(_ app: XCUIApplication) -> [String: Any]? {
+        let node = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA Pull {'")).firstMatch
+        guard node.exists, let data = String(node.label.dropFirst("QA Pull ".count)).data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+    private func probeDocument(_ app: XCUIApplication) -> String? { probeState(app)?["document"] as? String }
+
     private func openDelete(_ app: XCUIApplication) throws {
+        dismissW1(app)
         let vault = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS 'Your vault'")).firstMatch
         if !vault.waitForExistence(timeout: 5) {
             let settings = QA.control(app, "Settings")
@@ -180,26 +202,32 @@ final class FlowQAPullDeleteTests: XCTestCase {
     }
 
     private func pull(_ app: XCUIApplication) {
+        dismissW1(app)
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.1)
     }
 
     @discardableResult private func command(_ app: XCUIApplication, _ name: String) throws -> [String: Any] {
+        dismissW1(app)
         let button = app.webViews.buttons["QA Pull " + name]
         XCTAssertTrue(button.waitForExistence(timeout: 30), "missing probe \(name)"); button.tap()
-        let node = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'QA Pull {'")).firstMatch
         let end = Date().addingTimeInterval(120)
+        var retap = Date().addingTimeInterval(10)
         while Date() < end {
-            if node.exists, let data = String(node.label.dropFirst("QA Pull ".count)).data(using: .utf8),
-               let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let phase = state["phase"] as? String, phase == name + "-done" || phase == name + "-error" {
+            let state = probeState(app), phase = state?["phase"] as? String
+            if let state, phase == name + "-done" || phase == name + "-error" {
                 XCTAssertEqual(phase, name + "-done", "probe: \(QA.json(state))")
                 return state
             }
+            // A tap that never reached the page (or a page replaced under it)
+            // leaves the probe idle: tap again, every 10 s.
+            if phase != name + "-running", Date() > retap {
+                dismissW1(app); if button.exists { button.tap() }; retap = Date().addingTimeInterval(10)
+            }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        XCTFail("probe \(name) timed out: \(node.label)"); return [:]
+        XCTFail("probe \(name) timed out: \(probeState(app).map { QA.json($0) } ?? "no probe")"); return [:]
     }
     private func attach(_ object: [String: Any], _ name: String) {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
