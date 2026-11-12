@@ -6760,6 +6760,12 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none;
 }
 
+/* The editor's reminder hint is false with no times (as needed) and contradicts a shown "Reminders won't fire" note (MY2). */
+#times-container.hidden + .wg-hint,
+#times-container:has(.wg-notify-slot:not(:empty)) + .wg-hint {
+    display: none;
+}
+
 /* A time row with no value reads "Set time" (med-fhil); the invisible input
    covers the label so the tap opens the native picker. */
 .wg-meds-editor__timebody {
