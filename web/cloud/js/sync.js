@@ -177,6 +177,12 @@ const SYNC_GEN_KEY = 'syncGen';
 // Fresh per import replace (no epoch), written with its records: a snapshot
 // clears importRejected only if it read the store under the current one.
 const IMPORT_GEN_KEY = 'importGen';
+// bd med-yrq1 — the forceSnapshotPending marker's import identity is importGen
+// too: a cloud import's replace (armImport) re-arms the marker in the tx that
+// writes its importGen (a flight that cleared it between mark and replace
+// snapshotted the pre-import store), and a flight clears the marker only if
+// importGen still equals what its snapshot read.
+const IMPORT_MARK = { forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false };
 const epochMoved = (epoch) => epoch !== undefined && epoch.mem !== syncEpoch;
 async function captureEpoch() {
   const mem = syncEpoch;
@@ -203,6 +209,16 @@ function writeMetaIfEpoch(epoch, patch) {
   return withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
     for (const [key, value] of Object.entries(patch)) store.put(value, key);
   })).then((held) => held.ok);
+}
+// writeMetaIfEpoch that also skips the patch when an import marked or replaced
+// the store since `importGen` was read with it (bd med-yrq1).
+function writeMetaIfImport(epoch, importGen, patch) {
+  return withStore('sync_meta', 'readwrite', (store) => inGen(store, epoch, () => {
+    const cur = store.get(IMPORT_GEN_KEY);
+    cur.onsuccess = () => {
+      if (cur.result === importGen) for (const [key, value] of Object.entries(patch)) store.put(value, key);
+    };
+  }));
 }
 
 // The operational ctx is {accountId, kData, kMac}: non-extractable leaf keys
@@ -499,7 +515,9 @@ const FLOOR_MAX_CLIENT_TS = 1;
 // queued as a repair. An import replace never sets it.
 // `epoch` (bootstrap only): replace nothing and return false when syncEpoch
 // moved on since the caller captured it (bd med-7jgk).
-export async function replaceAllRecords(input, { reduceAcked = false, epoch } = {}) {
+// `armImport` (cloud import only, bd med-yrq1): set forceSnapshotPending in the
+// replace's own tx, whatever cleared it since markForceSnapshotPending.
+export async function replaceAllRecords(input, { reduceAcked = false, epoch, armImport = false } = {}) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -603,6 +621,7 @@ export async function replaceAllRecords(input, { reduceAcked = false, epoch } = 
       }
       for (const r of repairs) queue.put(pendingRow(r.recordId, r.recordType));
       if (epoch === undefined) tx.objectStore('sync_meta').put(crypto.randomUUID(), IMPORT_GEN_KEY);
+      if (armImport) for (const [key, value] of Object.entries(IMPORT_MARK)) tx.objectStore('sync_meta').put(value, key);
     }));
     if (!held.ok) return false;
     return true;
@@ -1307,7 +1326,7 @@ async function snapshotAt(ctx, snapshotSeq, epoch) {
     markUpdateRequired();
     return { ok: false, status: res.status };
   }
-  if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
+  if (!res.ok) return { ok: false, status: res.status, importGen }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
   authExpired = false;
   // A successful snapshot means the store now fits the server cap, so clear any
@@ -1322,7 +1341,7 @@ async function snapshotAt(ctx, snapshotSeq, epoch) {
     const cur = store.get(IMPORT_GEN_KEY);
     cur.onsuccess = () => { if (cur.result === importGen) store.put(false, 'importRejected'); };
   }));
-  return { ok: true, status: res.status };
+  return { ok: true, status: res.status, importGen };
 }
 
 // maybeSnapshot compacts the oplog once it has grown SNAPSHOT_THRESHOLD ops past
@@ -1428,7 +1447,7 @@ export async function markForceSnapshotPending() {
   // that a permanent write-error wedged on, and its snapshot bump bypasses the
   // wedge-guarded flushPending — so without clearing here the device lands the
   // import but leaves syncWedged set, silently blocking every later writeRecord.
-  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0, importRejected: false });
+  await writeMeta(IMPORT_MARK);
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
@@ -1556,7 +1575,8 @@ async function tryForceSnapshot(ctx) {
     if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isUpdateRequiredStatus(snap.status)) return; // snapshotAt flagged it; marker stays set
     if (isPermanentSyncStatus(snap.status)) {
-      await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() }, importRejected: true });
+      // Another tab's import since the read (bd med-yrq1): its own flight decides.
+      await writeMetaIfImport(epoch, snap.importGen, { forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() }, importRejected: true });
       offline = false;
       return;
     }
@@ -1564,7 +1584,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMetaIfEpoch(epoch, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null }); // importRejected: snapshotAt
+    await writeMetaIfImport(epoch, snap.importGen, { forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null }); // importRejected: snapshotAt
   }
 }
 
@@ -1862,7 +1882,7 @@ export async function reauthenticate(ctx) {
   drainInFlight = pullOnOpen(ctx).finally(() => {
     drainInFlight = null;
     drainSettled(ctx);
-    if (onDrainSettled) onDrainSettled();
+    if (onDrainSettled) onDrainSettled({ resumed: false });
   });
   await drainInFlight;
   return getSyncStatus(ctx);
@@ -1880,6 +1900,9 @@ let drainInFlight = null;
 // reauth-owned drain held the slot is not leaked into a later drain. false, or
 // 'wake' (only SSE wakes queued) / 'full' (any open/visibility/online request).
 let drainRerun = false;
+// Whether the queued rerun owes a return to the front (bd med-vjxz.1): the
+// rerun, not the drain already in flight, is the return's pull.
+let rerunResume = false;
 // Installed by startReconnectAutoDrain: surfaces a mid-session auth expiry.
 let onDrainAuthExpired = null;
 function drainSettled(ctx) {
@@ -1887,8 +1910,10 @@ function drainSettled(ctx) {
   // cannot chain another retry; a queued reconnect still gets its full retry.
   if (drainRerun) {
     const wake = drainRerun === 'wake';
+    const resume = rerunResume;
     drainRerun = false;
-    requestDrain(ctx, { wake });
+    rerunResume = false;
+    requestDrain(ctx, { wake, resume });
   }
 }
 
@@ -1897,27 +1922,37 @@ function drainSettled(ctx) {
 // and the SSE sync-ready wake (bd med-eas.9): a wake never overlaps a drain,
 // and a burst of wakes mid-drain coalesces into one follow-up run. Pass
 // { wake: true } from the SSE path: it pulls but never retries a stranded
-// import (see pullOnOpen).
-export function requestDrain(ctx, { wake = false } = {}) {
+// import (see pullOnOpen). { resume: true } marks the pull of a return to the
+// front; onSettled gets { resumed, arrived, failed } for that drain alone.
+export function requestDrain(ctx, { wake = false, resume = false } = {}) {
   // An event landing mid-drain coalesces into a run that may already have
   // missed it (a drain stuck on a dying fetch when connectivity returned, or a
   // peer write landing after this drain's GET) — remember it and run once more
   // after the current one settles.
   if (drainInFlight) {
     if (drainRerun !== 'full') drainRerun = wake ? 'wake' : 'full';
+    if (resume) rerunResume = true;
     return drainInFlight;
   }
+  // For onSettled (bd med-vjxz.1): whether records changed during this drain,
+  // and how it failed — this drain's status class, else a rejected pull's
+  // error name (never its message). Taken before the queued rerun starts and
+  // can move the shared flags.
+  const before = getRecordsChangeCount();
+  let rejected = null;
   drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
-    .catch(() => {}) // failures already land in sync status; retried on the next event
+    .catch((e) => { rejected = typeof e?.name === 'string' && /^\w{1,40}$/.test(e.name) ? e.name : 'Error'; }) // also lands in sync status; retried on the next event
     .finally(() => {
       drainInFlight = null;
+      const failed = authExpired ? 'auth-expired' : updateRequired ? 'update-required' : offline ? 'offline' : rejected;
+      const arrived = getRecordsChangeCount() !== before;
       drainSettled(ctx);
       // A mid-session expiry (the common case for a non-sliding 30-day
       // cookie in a long-lived PWA tab) is only ever detected by these
       // event-driven drains — the boot-time check already ran. Hand it to
       // the caller so the UI can surface it instead of queueing silently.
       if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
-      if (onDrainSettled) onDrainSettled();
+      if (onDrainSettled) onDrainSettled({ resumed: resume, arrived, failed });
     });
   return drainInFlight;
 }
@@ -1939,23 +1974,31 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired, onUpdateRequired: 
   let debounce = null;
   const surface = onAuthExpired ? () => onAuthExpired() : null;
   onDrainAuthExpired = surface;
-  const settled = onSettled ? () => onSettled() : null;
+  const settled = onSettled ? (info) => onSettled(info) : null;
   onDrainSettled = settled;
   // Fired once, the first time any push (drain or a write's inline flush) hits 426.
   const surfaceUpdate = onUpdate ? () => onUpdate() : null;
   onUpdateRequired = surfaceUpdate;
-  const trigger = () => {
+  // A return coalesced with an 'online' inside the debounce still marks the drain.
+  let resume = false;
+  const trigger = (fromVisible = false) => {
+    resume = resume || fromVisible === true;
     clearTimeout(debounce);
-    debounce = setTimeout(() => requestDrain(ctx), 250);
+    debounce = setTimeout(() => {
+      const r = resume;
+      resume = false;
+      requestDrain(ctx, { resume: r });
+    }, 250);
   };
   const onVisible = () => {
-    if (document.visibilityState === 'visible' && navigator.onLine) trigger();
+    if (document.visibilityState === 'visible' && navigator.onLine) trigger(true);
   };
   window.addEventListener('online', trigger);
   document.addEventListener('visibilitychange', onVisible);
   return () => {
     // No queued rerun or expiry surface outlives the teardown.
     drainRerun = false;
+    rerunResume = false;
     if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
     if (onDrainSettled === settled) onDrainSettled = null;
     if (onUpdateRequired === surfaceUpdate) onUpdateRequired = null;

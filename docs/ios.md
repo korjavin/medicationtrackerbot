@@ -114,7 +114,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   to the labeled PR re-run it), or
   `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
-- **Job (bd med-5yr8):** `ios.yml` → twelve `qa-part (<part>)` matrix jobs,
+- **Job (bd med-5yr8):** `ios.yml` → fourteen `qa-part (<part>)` matrix jobs,
   each its own 390pt iPhone ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh),
   shared with `visual`), concurrency group `iOS-qa-<ref>-<part>`, 40 min
   timeout, `fail-fast: false`: **account** (OfflineAccount, AccountGone,
@@ -123,7 +123,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (HealthImport and HealthDenied, separate first-authorization Simulators and
   healthd waits), **data** (Backup,
   Stash), **update** (UpdateBanner), **degraded** (DegradedBoot), **eu**
-  (EURegister), **move** (MoveAccount), **reminders** (grant and cold notification tap), **reminders-denied** (refusal and iOS Settings handoff), **rest** (every other class in the bundle; today Lock and
+  (EURegister), **move** (MoveAccount), **held** (HeldRefresh; also waits for healthd), **reminders**
+  (grant and cold notification tap), **reminders-denied** (refusal and iOS
+  Settings handoff), **pull-delete** (account pull and deletion), **rest**
+  (every other class in the bundle; today Lock and
   Navigation). The class lists live once, in the workflow env `QA_PARTS`;
   rest is the bundle minus every listed class, so **a new class runs in rest
   by default; move it into a named part when rest passes ~8 min of flows.**
@@ -330,6 +333,12 @@ connections) and `POST /start` (`QA.fakeServer` / `QA.receipts`). The `qa` job r
 `MedTrackerUITests` class but `VisualQATests` and `HealthDiagnosticTests`;
 classes absent from `QA_PARTS` run in `rest`.
 
+The isolated `held` part appends `ios/qa/held-refresh-probe.js` to the Debug
+soft-authenticator script. Its account flow seeds HealthKit, claims its own
+invite, keeps a workout session open over Home/return and a host stop/start,
+and uses a real encrypted peer BP operation. The probe observes Health queries,
+the held DOM and post-close rendering; it does not replace refresh handlers.
+
 The update and degraded parts set `QA_BUNDLES=1`: `build-bundles.mjs` makes two stamped
 cloud binaries and tlsfront supervises their serial swap (`-cloud-a`,
 `-cloud-b`, `-cloud-log`; POST `/switch-b` on `127.0.0.1:8766`). The server
@@ -344,6 +353,8 @@ observes banner replacement, and restores those responses for host-stopped
 recovery. The fixture's `/arm` and `/release` controls inject one held 503.
 Both reminder parts append [`ios/qa/reminder-probe.js`](../ios/qa/reminder-probe.js)
 with `QA_REMINDER_PROBE=1` to create a real medication and observe native scheduling.
+The pull-delete part appends [`ios/qa/pull-delete-probe.js`](../ios/qa/pull-delete-probe.js)
+to create an encrypted peer operation, observe the pull, and simulate one soft-authenticator cancellation.
 
 ### Owner device checklist (account flows, need a passkey)
 

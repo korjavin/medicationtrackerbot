@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64, fromBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL, onLocalWrite, localRecordsPort } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, readAllRawRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, markForceSnapshotPending, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, requestFreshDrain, getRecordsChangeCount, hasCaughtUp, ORIGIN_UI, ORIGIN_EXTERNAL, onLocalWrite, localRecordsPort } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 import { mergeSleep } from '../../../domain/healthsource.js';
 
@@ -1268,6 +1268,119 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBe(2);
     await idle(); // `rerun` is a single boolean — the follow-up must not chain another
     expect(opsGets).toBe(2);
+  });
+
+  // bd med-vjxz.1: the shell diag log reports the pull a return to the front
+  // started. A drain already in flight then settles { resumed: false }; the
+  // rerun it queued is the return's pull and settles { resumed: true }.
+  it('onSettled marks the return\'s own drain, not the one in flight at the return', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) await gate; // hold the first drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    window.dispatchEvent(new Event('online'));
+    await fireDebounce();
+    await first; // an online drain is in flight
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce(); // the return coalesces into a queued rerun
+    const rerun = nextOpsGet();
+    release();
+    await rerun;
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled.map((s) => s.resumed)).toEqual([false, true]);
+
+    // A return with no drain in flight: its own drain is marked.
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await vi.waitFor(() => expect(settled).toHaveLength(3));
+    expect(settled[2]).toEqual({ resumed: true, arrived: false, failed: null });
+  });
+
+  // Two returns overlapping (return, Home, return while the first pull runs):
+  // each pull reports its own outcome, and a rejected pull its error class
+  // (never its message), even when the sync status reads normal.
+  it('each return\'s drain reports its own arrived / failure class', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) { await gate; return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 }); }
+        return new Response('not json: weight 80 kg', { status: 200 }); // the second pull rejects after a 200
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await first; // the first return's pull is in flight
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce(); // the second return queues its own rerun
+    release();
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled[0]).toEqual({ resumed: true, arrived: false, failed: null });
+    expect(settled[1].resumed).toBe(true);
+    expect(settled[1].failed).toMatch(/^\w+$/);
+    expect(JSON.stringify(settled)).not.toMatch(/weight|kg|json/i);
+  });
+
+  // A pull rejecting with a non-Error (null, a string) must not throw out of
+  // the drain's catch: the promise resolves and the failure class is 'Error'.
+  it.each([null, 'boom'])('a pull rejecting with %j settles as failed Error', async (reason) => {
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        return { ok: true, status: 200, headers: new Headers(), json: async () => { throw reason; }, text: async () => { throw reason; } };
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await vi.waitFor(() => expect(settled).toHaveLength(1));
+    expect(settled[0].failed).toBe('Error');
+    await expect(requestDrain(ctx)).resolves.toBeUndefined();
+  });
+
+  // The status class is this drain's: taken before its queued rerun can clear
+  // (or set) the shared offline flag.
+  it('a return\'s pull that went offline reports offline even when the next return\'s pull succeeds', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        if (opsGets === 1) { await gate; throw new TypeError('Failed to fetch'); }
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const settled = [];
+    teardown = startReconnectAutoDrain(ctx, { onSettled: (info) => settled.push(info) });
+    const first = nextOpsGet();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    await first;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await fireDebounce();
+    release();
+    await vi.waitFor(() => expect(settled).toHaveLength(2));
+    expect(settled.map((s) => s.failed)).toEqual(['offline', null]);
   });
 
   it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {
@@ -5019,6 +5132,75 @@ describe('another tab\'s reset or same-millisecond edit (med-0vdh)', () => {
     const rejected = rtx.objectStore('sync_meta').get('importRejected');
     await txDone(rtx);
     expect(rejected.result).toBe(true);
+  });
+
+  // bd med-yrq1 — tab B is a second module instance running the real import
+  // calls (cloud-boot importAll: mark, then replace).
+  describe('a forced snapshot read before another tab\'s import keeps that import pending (med-yrq1)', () => {
+    const marker = async () => {
+      const tx = other.transaction('sync_meta', 'readonly');
+      const req = tx.objectStore('sync_meta').get('forceSnapshotPending');
+      await txDone(tx);
+      return req.result;
+    };
+    const imported = [{ recordId: 'bp-imported', recordType: 'bp', clientTs: 3, deleted: false, systolic: 140 }];
+    let post;
+    let tabB;
+    beforeEach(async () => {
+      post = gate();
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        const u = String(url);
+        if (u === '/api/sync/snapshot') {
+          if (init?.method === 'POST') { await post.hold(); return new Response('{}', { status: 200 }); }
+          return snapshot(7, 'bp-old');
+        }
+        if (u === '/api/sync/ops' && init?.method === 'POST') return new Response(JSON.stringify({ assigned: [8] }), { status: 200 });
+        if (u.startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+        return new Response('{}', { status: 200 });
+      }));
+      await listRecords(ctx, 'bp');
+      vi.resetModules();
+      tabB = await import('../sync.js');
+    });
+
+    it('A\'s held flight landing after B\'s mark and replace leaves B\'s marker set', async () => {
+      const forced = forceSnapshot(ctx);
+      await post.reached;
+      await tabB.markForceSnapshotPending();
+      await tabB.replaceAllRecords(imported, { armImport: true });
+      post.release();
+      await forced;
+      expect(await marker()).toBe(true);
+      // B closed here: a later open (any tab) still reads the import as waiting...
+      expect((await getSyncStatus(ctx)).importPending).toBe(true);
+      // ...until that open's retry uploads it.
+      await pullOnOpen(ctx);
+      expect((await getSyncStatus(ctx)).importPending).toBe(false);
+      expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-imported']);
+    });
+
+    it('A\'s flight clearing between B\'s mark and replace is re-armed by the replace', async () => {
+      await tabB.markForceSnapshotPending();
+      const forced = forceSnapshot(ctx); // reads the store B has marked but not yet replaced
+      await post.reached;
+      post.release();
+      expect(await forced).toBe('synced');
+      expect(await marker()).toBe(false);
+      await tabB.replaceAllRecords(imported, { armImport: true });
+      expect(await marker()).toBe(true);
+    });
+
+    it('two overlapping imports: A\'s landed upload does not leave B\'s later replace unmarked', async () => {
+      await markForceSnapshotPending();
+      await tabB.markForceSnapshotPending();
+      await replaceAllRecords([{ ...imported[0], recordId: 'bp-a' }], { armImport: true });
+      const forced = forceSnapshot(ctx);
+      await post.reached;
+      post.release();
+      expect(await forced).toBe('synced');
+      await tabB.replaceAllRecords(imported, { armImport: true });
+      expect(await marker()).toBe(true);
+    });
   });
 
   it('the push ack keeps another tab\'s same-millisecond edit queued', async () => {

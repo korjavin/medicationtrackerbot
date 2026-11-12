@@ -61,7 +61,7 @@ final class FlowQABackupTests: XCTestCase {
         pass.typeText("qa-flow-passphrase")
         QA.dismissKeyboardTip(app)
         shot(flow, "passphrase")
-        hideKeyboard(app)
+        QA.hideKeyboard(app)
         tapUntilGone(app.webViews.buttons["Encrypt and export"])
         XCTAssertTrue(save.waitForExistence(timeout: 120), "encrypted Backup ready never showed")
         shot(flow, "encrypted-ready")
@@ -179,7 +179,7 @@ final class FlowQABackupTests: XCTestCase {
         eraseField.typeText("erase")
         QA.dismissKeyboardTip(app)
         XCTAssertTrue(app.webViews.buttons["Erase"].isEnabled, "typed erase did not enable confirmation")
-        hideKeyboard(app)
+        QA.hideKeyboard(app)
         app.webViews.buttons["Erase"].tap()
         XCTAssertTrue(waitUntil(30) { !QA.readyNode(app).exists }, "erase did not reload")
         _ = QA.skipW1(app, timeout: 30)
@@ -214,7 +214,7 @@ final class FlowQABackupTests: XCTestCase {
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
         field.typeText("replace")
         QA.dismissKeyboardTip(app)
-        hideKeyboard(app)
+        QA.hideKeyboard(app)
         shot(flow, "typed-replace")
         XCTAssertTrue(replace.isEnabled)
         replace.tap()
@@ -313,7 +313,7 @@ final class FlowQABackupTests: XCTestCase {
         shot(flow, "dialog-typed")
         let eraseBtn = app.webViews.buttons["Erase"]
         XCTAssertTrue(eraseBtn.waitForExistence(timeout: 5), "no Erase button in the dialog")
-        hideKeyboard(app)
+        QA.hideKeyboard(app)
         eraseBtn.tap()
         // eraseDevice → local.reset → location.replace('/'): the scene's ready node goes.
         XCTAssertTrue(waitUntil(30) { !QA.readyNode(app).exists }, "the page never reloaded after Erase")
@@ -383,14 +383,6 @@ final class FlowQABackupTests: XCTestCase {
             if waitUntil(5, { !button.exists }) { return }
         }
         XCTAssertFalse(button.exists, "\(button.label): three taps did not close its sheet")
-    }
-
-    /// WKWebView's form accessory bar has Done; else the keyboard's own key.
-    private func hideKeyboard(_ app: XCUIApplication) {
-        guard app.keyboards.firstMatch.exists else { return }
-        let done = app.toolbars.buttons["Done"]
-        if done.exists { done.tap() } else { app.keyboards.buttons.matching(NSPredicate(format: "label IN[c] {'return', 'done', 'go'}")).firstMatch.tap() }
-        _ = waitUntil(5) { !app.keyboards.firstMatch.exists }
     }
 
     private func webText(_ app: XCUIApplication, containing text: String) -> XCUIElement {

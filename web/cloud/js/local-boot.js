@@ -43,6 +43,7 @@ window.MedTrackerCloudReady = (async function boot() {
             import('/js/sync.js'),
             import('/js/local-policy.js'),
         ]);
+        policy.startLifecycleDiag(window);
         // The shell sends the CSP before the page can read its own settings, so
         // it keeps a mirror of the BYOK hosts and a change applies on the next
         // document load: this document's CSP is stale, so reload — at boot and

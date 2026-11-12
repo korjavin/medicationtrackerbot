@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.aggregate.AggregateMetric
+import androidx.health.connect.client.changes.Change
+import androidx.health.connect.client.changes.DeletionChange
 import androidx.health.connect.client.changes.UpsertionChange
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BloodPressureRecord
@@ -109,7 +111,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                diag("health $op ${args?.optString("type")} error ${e.javaClass.simpleName}: ${e.message}")
+                diag("health $op ${args?.optString("type")} error ${e.javaClass.simpleName}") // never e.message: SDK validation text can echo a record value
                 null to (e.message ?: e.javaClass.simpleName)
             }
             runCatching { answer(result, error) } // the WebView may be gone by now
@@ -254,6 +256,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         }
 
         var changed: List<Record>? = null
+        // Ids Health Connect reports deleted since the token; scan modes have none.
+        var deleted = emptyList<String>()
         var anchor = ""
         var returned = 0
         var more = false
@@ -264,6 +268,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             mode = if (r.changesTokenExpired) "expired-scan" else "changes"
             if (!r.changesTokenExpired) {
                 changed = r.changes.mapNotNull { (it as? UpsertionChange)?.record }
+                if (kind in DELETES) deleted = deletedIds(r.changes)
                 anchor = PREFIX + r.nextChangesToken
                 returned = r.changes.size
                 more = r.hasMore
@@ -309,7 +314,8 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         }
 
         // Copy diagnostics (bd med-nt9p.59): per kind, how it read and how much came back.
-        diag("health $kind $mode read=$returned records=${records.size} more=$more")
+        diag("health $kind $mode read=$returned records=${records.size} more=$more" +
+            if (kind in DELETES) " deleted=${deleted.size}" else "")
         // Off the main thread: a page of samples can be large; the answer is posted from Main in handle.
         return withContext(Dispatchers.Default) { when (kind) {
             "sleep" -> {
@@ -331,7 +337,7 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
             }
                 .forEach { r -> samples(r).forEach { put(it) } } }
                 .let { page(it, anchor, returned, more) }
-        } }
+        }.apply { if (kind in DELETES) put("deleted", JSONArray(deleted)) } }
     }
 
     private suspend fun readAll(type: KClass<out Record>, filter: TimeRangeFilter): List<Record> {
@@ -595,6 +601,13 @@ class HealthConnect(private val activity: Activity, private val diag: (String) -
         /** Health Connect ids are UUIDs; anything else gets a stable name-based one (the vault id needs a UUID). */
         fun uuid(id: String): String =
             if (UUID_RE.matches(id)) id else UUID.nameUUIDFromBytes(id.toByteArray()).toString()
+
+        /** Kinds whose anchored replies carry `deleted`; hr/spo2 merge by instant, steps is an aggregate. */
+        val DELETES = setOf("bp", "weight", "sleep", "workout")
+
+        /** A changes page's deleted record ids, through the same uuid() the imported samples use. */
+        fun deletedIds(changes: List<Change>): List<String> =
+            changes.filterIsInstance<DeletionChange>().map { uuid(it.recordId) }
 
         /** Health Connect sleep stage → HKCategoryValueSleepAnalysis; null = not sleep data (out of bed, like inBed). */
         fun sleepValue(stage: Int): Int? = when (stage) {

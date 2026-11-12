@@ -126,6 +126,10 @@ const COPY_BACKOFF_CAP = 15;
 const COPY_STUCK_FAILS = 6;
 // The store's rate limit (Health Connect: "API call quota exceeded").
 const QUOTA_RE = /quota|rate.?limit/i;
+// The diagnostic log gets a class word, never the shell's error text (bd
+// med-vjxz.1): that text can carry values or names.
+const failClass = (text) => (/denied/.test(text) ? 'denied' : QUOTA_RE.test(text) ? 'quota' : 'other');
+const errClass = (e) => failClass(String(e && e.message));
 const COPY_ROW_ID = 'health-copy-row';
 
 function readJSON(storage, key, fallback) {
@@ -317,7 +321,7 @@ export function startHealthWriteBack({
             onAccess(r.granted, kindsSupported, readableFrom);
             return r.granted;
         }).catch((e) => {
-            diag(`[health] write access failed ${e && e.message}`);
+            diag(`[health] write access failed ${errClass(e)}`);
             return null;
         }));
 
@@ -337,7 +341,7 @@ export function startHealthWriteBack({
                     return health.requestAuthorization(HEALTH_KINDS, { write: fresh });
                 })
                 .then(() => readAccess(), (e) => {
-                    diag(`[health] write authorization failed ${e && e.message}`);
+                    diag(`[health] write authorization failed ${errClass(e)}`);
                     return null;
                 })
                 .finally(() => { asking = null; });
@@ -413,7 +417,7 @@ export function startHealthWriteBack({
             .then(() => step(kind, id))
             .then(() => true, (e) => {
                 if (QUOTA_RE.test(String(e && e.message))) quotaHit = true;
-                diag(`[health] write ${kind} failed ${e && e.message}`);
+                diag(`[health] write ${kind} failed ${errClass(e)}`);
                 return false;
             });
         chains.set(id, next);
@@ -531,7 +535,7 @@ export function startHealthWriteBack({
             if (QUOTA_RE.test(msg)) quotaHit = true;
             // HealthKit refuses the whole call on a revoked kind: read again.
             if (/denied/.test(msg)) readAccess();
-            diag(`[health] write batch of ${send.length} failed ${msg}`);
+            diag(`[health] write batch of ${send.length} failed ${failClass(msg)}`);
             return 0;
         }
         const results = Array.isArray(reply) ? reply : [];
@@ -556,7 +560,7 @@ export function startHealthWriteBack({
                 }
                 return;
             }
-            diag(`[health] write ${w.kind} failed ${typeof r === 'string' ? r : 'no result'}`);
+            diag(`[health] write ${w.kind} failed ${typeof r === 'string' ? failClass(r) : 'no result'}`);
             if (typeof r === 'string' && /denied/.test(r)) denied.add(w.kind);
             else if (typeof r === 'string' && l[w.kind]?.[w.id] === w.from && onPermanent(w.kind, w.id)) {
                 delete l[w.kind][w.id];

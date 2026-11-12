@@ -116,6 +116,7 @@ class LocalOriginTest {
         // The invite slot and F1's Paste (bd med-ta2n.12.1): both modes.
         val invite = listOf("invite.pending", "invite.clear", "clipboard.read")
         assertTrue(account.containsAll(invite) && local.containsAll(invite))
+        assertTrue(account.contains("diag.read") && local.contains("diag.read"))
         assertFalse(account.contains("local.leave"))
         assertFalse(account.contains("move.stash"))
         assertTrue(account.contains("leave.stash"))

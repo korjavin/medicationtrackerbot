@@ -300,6 +300,106 @@ describe('feedback-ui', () => {
         expect(audioHandle.stop).not.toHaveBeenCalled();
     });
 
+    describe('Attach the app log (bd med-vjxz.4)', () => {
+        // A fake shell: the native foundation's has()/call() as native/index.js
+        // exposes them under every capability global's __native.
+        function shell(ops, log) {
+            const call = vi.fn(async (op) => {
+                if (op !== 'diag.read') throw new Error('unexpected op ' + op);
+                return log;
+            });
+            window.MediaCapture = {
+                pickPhoto: vi.fn(),
+                __native: { has: vi.fn(async (op) => ops.includes(op)), call },
+            };
+            return call;
+        }
+        async function openWithText(text) {
+            await mountFeedbackLauncher({});
+            click(q('#feedback-launcher'));
+            await flush();
+            const ta = q('.wg-feedback-modal__textarea');
+            ta.value = text;
+            ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+        }
+
+        it('shows no checkbox on the web (no foundation) or in a shell without diag.read', async () => {
+            await openWithText('x');
+            expect(q('[data-feedback-log]')).toBeNull();
+            click(q('[data-feedback-choice="cancel"]'));
+
+            shell(['diag.append'], 'log');
+            await openWithText('x');
+            expect(q('[data-feedback-log]')).toBeNull();
+        });
+
+        it('shows the unticked checkbox and its caption in a shell listing diag.read', async () => {
+            shell(['diag.read'], 'log');
+            await openWithText('x');
+            const box = q('[data-feedback-log]');
+            expect(box).toBeTruthy();
+            expect(box.type).toBe('checkbox');
+            expect(box.checked).toBe(false);
+            const row = box.closest('label');
+            expect(row.textContent).toBe('Attach the app log');
+            expect(row.nextElementSibling.textContent).toBe(
+                'The last 200 lines of the app\'s diagnostic log: app events, timings, error codes, Health import counts, and your app version, phone model, system version and password-manager app (Android). No entries, no names, no account address.');
+        });
+
+        it('ticked: Send adds one text/plain log attachment carrying the diag.read reply', async () => {
+            const call = shell(['diag.read'], 'visible\nhidden\n');
+            await openWithText('it reloaded');
+            q('[data-feedback-log]').checked = true;
+            click(q('[data-feedback-choice="send"]'));
+            await flush();
+
+            expect(call).toHaveBeenCalledWith('diag.read');
+            const bundle = enqueueFeedback.mock.calls[0][0];
+            expect(bundle.text).toBe('it reloaded');
+            expect(bundle.attachments).toHaveLength(1);
+            const [log] = bundle.attachments;
+            expect(log.type).toBe('log');
+            expect(log.mime).toBe('text/plain');
+            expect(new TextDecoder().decode(log.bytes)).toBe('visible\nhidden\n');
+        });
+
+        it('scrubs what a pre-redaction line still carries: path labels, tokens, raw Health error text', async () => {
+            shell(['diag.read'], '{"path":"/d/vivid-vole","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/Xy9 /mcp/tok/tools /unlock\n'
+                + '{"op":"log","line":"[health] write bp failed Systolic 142 \\"bad\\" rejected","x":1}\n'
+                + '[health] write batch of 3 failed Weight 80.0 kg\n'
+                + JSON.stringify({ line: '[health] write bp failed quota\nSystolic 142' }) + '\n'
+                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n'
+                // Operator-resolvable hashes (breakage review): label tag, credential tag, push fingerprint.
+                + '{"op":"get","rp":"<sub-ab12cd>.<base>","result":"ok","id":"0f9e8d","match":true}\n'
+                + JSON.stringify({ e: JSON.stringify({ id: 'a1b2c3' }) }) + '\n'
+                + 'shell push token deadbeef\n');
+            await openWithText('x');
+            q('[data-feedback-log]').checked = true;
+            click(q('[data-feedback-choice="send"]'));
+            await flush();
+
+            const text = new TextDecoder().decode(enqueueFeedback.mock.calls[0][0].attachments[0].bytes);
+            expect(text).toBe('{"path":"/d/<sub>","op":"get"}\n{"path":"/d/<sub>"}\nboot /s/<token> /mcp/<token>/tools /unlock\n'
+                + '{"op":"log","line":"[health] write bp failed <redacted>","x":1}\n'
+                + '[health] write batch of 3 failed <redacted>\n'
+                + '{"line":"[health] write bp failed <redacted>"}\n'
+                + '{"line":"[health] write weight failed quota"}\n[health] write bp failed no result\n'
+                + '{"op":"get","rp":"<sub>.<base>","result":"ok","id":"<tag>","match":true}\n'
+                + JSON.stringify({ e: JSON.stringify({ id: '<tag>' }) }) + '\n'
+                + 'shell push token <tag>\n');
+        });
+
+        it('unticked: no diag.read call and the bundle is as before', async () => {
+            const call = shell(['diag.read'], 'secret log');
+            await openWithText('plain');
+            click(q('[data-feedback-choice="send"]'));
+            await flush();
+
+            expect(call).not.toHaveBeenCalled();
+            expect(enqueueFeedback.mock.calls[0][0]).toEqual({ text: 'plain', attachments: [] });
+        });
+    });
+
     it('hides the Record button when recordAudio is unavailable (graceful degradation)', async () => {
         window.MediaCapture = { pickPhoto: vi.fn() }; // no recordAudio
         await mountFeedbackLauncher({});

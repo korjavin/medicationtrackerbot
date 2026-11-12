@@ -496,7 +496,7 @@ describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {
                 LOCAL_EFFECTS: {}, LOCAL_PROTECTION: {}, LOCAL_FOOD_DB: null, LOCAL_VAULT: {},
                 registerLocalEgress: async () => ({ changed: false, hosts: [] }),
                 showLeaveToastOnce() {}, pickupLeaveStash: async () => {}, keepLocalRemindersFresh() {}, startLocalHealthImport() {},
-                mountLocalLockRow: async () => {}, mountLocalFeedback: async () => {},
+                mountLocalLockRow: async () => {}, mountLocalFeedback: async () => {}, startLifecycleDiag() {},
             },
         };
         run(win, async (spec) => { await imports; return modules[spec]; });
@@ -3421,7 +3421,7 @@ describe('local-only mode feedback (med-ta2n.20)', () => {
         expect(toBase()).toEqual([]);
 
         const modal = await compose('the scale page froze');
-        expect(modal.querySelector('.wg-local-only').textContent).toBe('Sent encrypted to the developer through our server; the server can\'t read it. Your log stays on this phone.');
+        expect(modal.querySelector('.wg-local-only').textContent).toBe('Sent encrypted to the developer through our server; the server can\'t read it. Your records stay on this phone.');
         expect(toBase()).toEqual([]);
         send(modal);
 

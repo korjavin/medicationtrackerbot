@@ -27,8 +27,13 @@ struct HealthDiagnosticView: View {
         let labelKinds: Set<HKSampleType> = [HKQuantityType(.bodyMass), HKQuantityType(.bloodPressureSystolic),
                                             HKQuantityType(.bloodPressureDiastolic)]
         do {
+            // Match the page's HEALTH_KINDS (web/cloud/js/health-import.js):
+            // the Simulator can hang on a second authorization request, so a
+            // seed's single sheet determines every read type the app will ask.
             let requested = labels ? kinds.union(labelKinds) : kinds
-            let read = labels ? Set(["bp", "weight", "sleep", "workout", "steps", "hr", "spo2"].flatMap(Health.readTypes)) : Set(requested.map { $0 as HKObjectType })
+            let read = seed || labels
+                ? Set(["bp", "weight", "sleep", "workout", "steps", "hr", "spo2"].flatMap(Health.readTypes))
+                : Set(requested.map { $0 as HKObjectType })
             try await store.requestAuthorization(toShare: seed ? requested : [], read: read)
             result["authorizationCompleted"] = true
             if seed && !UserDefaults.standard.bool(forKey: "wgQAHealthSeededV1") {

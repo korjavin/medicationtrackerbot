@@ -60,9 +60,11 @@ export async function observeDocument(page, r) {
     if (msg.text().startsWith('B2_SW ')) (r.lifecycle ||= []).push(msg.text());
   });
   const observe = () => {
-    const report = (event) => console.log('B2_EVENT ' + JSON.stringify({ type: event.type,
+    window.__qaVis = [];
+    const report = (event) => { const record = { type: event.type,
       trusted: event.isTrusted, state: document.visibilityState, focused: document.hasFocus(),
-      target: event.target === window ? 'window' : 'document', at: Date.now(), timeOrigin: performance.timeOrigin }));
+      target: event.target === window ? 'window' : 'document', at: Date.now(), timeOrigin: performance.timeOrigin };
+      window.__qaVis.push(record); console.log('B2_EVENT ' + JSON.stringify(record)); };
     document.addEventListener('visibilitychange', report, true);
     window.addEventListener('focus', report);
     window.addEventListener('blur', report);
@@ -75,21 +77,27 @@ export async function foreground(ctx, page, r) {
   const snapshot = () => page.evaluate(() => ({ state: document.visibilityState,
     focused: document.hasFocus(), at: Date.now(), timeOrigin: performance.timeOrigin,
     banners: document.querySelectorAll('#cloud-update-banner').length }));
+  await page.evaluate(() => { window.__qaVis = []; });
   const observation = { before: await snapshot(), homeStarted: Date.now() };
   await ctx.shell('input keyevent KEYCODE_HOME');
   await ctx.sleep(3000);
   observation.away = await snapshot();
+  observation.awayEvents = await page.evaluate(() => window.__qaVis || []);
   observation.returnStarted = Date.now();
   await ctx.shell(`am start -W -n ${ctx.pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
   await page.waitForFunction(() => document.visibilityState === 'visible');
-  await ctx.sleep(1000); // observe native delivery before the explicit check stimulus
+  await ctx.sleep(1000);
   observation.returned = await snapshot();
-  // Run42159109277 observed no subsequent version/SW receipt after Home/return;
-  // that alone does not establish why. Record native events separately from
-  // this explicit DOM stimulus to the real, unchanged update listener.
-  observation.explicitSignalAt = Date.now();
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  observation.events = await page.evaluate(() => window.__qaVis || []);
   if (r) (r.foregrounds ||= []).push(observation);
+  const events = observation.events.filter((e) => e.trusted && e.type === 'visibilitychange' &&
+    e.timeOrigin === observation.before.timeOrigin);
+  const hidden = events.findIndex((e) => e.state === 'hidden');
+  if (!observation.awayEvents.some((e) => e.trusted && e.type === 'visibilitychange' && e.state === 'hidden') ||
+      hidden < 0 || !events.slice(hidden + 1).some((e) => e.state === 'visible')) {
+    throw new Error(`native Home/return did not deliver trusted hidden then visible: ${JSON.stringify(events)}`);
+  }
+  return observation;
 }
 
 export async function prepareAccount(ctx, r) {
