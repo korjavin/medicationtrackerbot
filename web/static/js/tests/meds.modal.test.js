@@ -54,6 +54,22 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(sections).toEqual(['basics', 'schedule', 'inventory', 'advanced']);
     });
 
+    it('section 2 is "When you take it" with one reminder hint, for new and existing meds (MY2)', async () => {
+        const { document, window } = env;
+        const check = () => {
+            const sec = document.querySelector('[data-med-section="schedule"]');
+            expect(sec.querySelector('.wg-eyebrow').textContent).toBe('2 · When you take it');
+            const hints = sec.querySelectorAll('.wg-hint');
+            expect(hints).toHaveLength(1);
+            expect(hints[0].textContent).toBe('You get a reminder at each time, and the doses show on the Timeline.');
+        };
+        window.showAddModal();
+        check();
+        await seedMedications(window, [{ id: 1, name: 'Aspirin', dosage: '100mg', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }) }]);
+        window.showEditModal(1);
+        check();
+    });
+
     it('has no visible native select, date input or checkbox', () => {
         const { document } = env;
         const page = document.getElementById('med-modal');
