@@ -86,7 +86,7 @@ final class FlowQABackupTests: XCTestCase {
         app.terminate()
 
         launch(app, scene: "meds-schedule")
-        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "Meds → Schedule never published #wg-qa-ready")
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "Meds → My meds never published #wg-qa-ready")
         // loads ≥ 2: this launch's page imported the file and reloaded.
         let report = QA.readyNode(app).label
         XCTAssertTrue(report.range(of: #""loads":([2-9]|\d\d)"#, options: .regularExpression) != nil,
@@ -96,7 +96,7 @@ final class FlowQABackupTests: XCTestCase {
         app.terminate()
 
         launch(app)
-        openMedsSchedule(app, flow: flow)
+        openMedsMyMeds(app, flow: flow)
         XCTAssertTrue(webText(app, containing: "Lisinopril").waitForExistence(timeout: 20), "after relaunch the restored medication is gone")
         shot(flow, "relaunch-meds")
         app.terminate()
@@ -272,8 +272,8 @@ final class FlowQABackupTests: XCTestCase {
 
         app.launchArguments = ["-wgLocalLock", "NO"] // the persisted choice only; a scene would re-seed the empty store
         app.launch()
-        openMedsSchedule(app, flow: flow)
-        XCTAssertTrue(webText(app, containing: "No medications yet").waitForExistence(timeout: 20), "Meds → Schedule is not empty after erase")
+        openMedsMyMeds(app, flow: flow)
+        XCTAssertTrue(webText(app, containing: "No medications yet").waitForExistence(timeout: 20), "Meds → My meds is not empty after erase")
         XCTAssertFalse(webText(app, containing: "Lisinopril").exists, "an erased medication is still listed")
         shot(flow, "empty")
         XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "erase dropped the persisted local-mode flag")
@@ -358,8 +358,8 @@ final class FlowQABackupTests: XCTestCase {
         return String(tail ? line.suffix(6000) : line.prefix(6000))
     }
 
-    /// Bottom tab bar → Meds → Schedule (the tab restores its last sub-tab).
-    private func openMedsSchedule(_ app: XCUIApplication, flow: String) {
+    /// Bottom tab bar → Meds → My meds (labelled "Schedule" before med-5uwb.2; the tab restores its last sub-tab).
+    private func openMedsMyMeds(_ app: XCUIApplication, flow: String) {
         // An empty store reopens the web onboarding (its record went with the erase).
         if QA.w1Shows(app, timeout: 20) {
             shot(flow, "onboarding")
@@ -367,8 +367,8 @@ final class FlowQABackupTests: XCTestCase {
         }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar")
         // aria-pressed makes the segment a toggle button, not a button.
-        let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == 'Schedule'")).firstMatch
-        XCTAssertTrue(QA.tapUntil(app.webViews.buttons["Meds"].firstMatch, shows: schedule), "no Meds → Schedule sub-tab")
+        let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Schedule', 'My meds'}")).firstMatch
+        XCTAssertTrue(QA.tapUntil(app.webViews.buttons["Meds"].firstMatch, shows: schedule), "no Meds → My meds sub-tab")
         schedule.tap()
     }
 
