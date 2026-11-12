@@ -5,6 +5,13 @@ the twin of the iOS app ([ios.md](ios.md)). It is **never built locally**:
 every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 [`.github/workflows/android.yml`](../.github/workflows/android.yml).
 
+**Requires Android 14 (API 34) or later.** Play does not offer or install the
+app on Android 13 and older (e.g. a Mi Note 10 on Android 12 / MIUI 13). The
+floor is a choice made in `med-nt9p`, not a bug: passkeys inside the WebView
+(`setWebAuthenticationSupport`) were assumed to need Android 14 (unverified
+below it), and Health Connect is built into the framework from 14 on. Lowering
+it is deferred (owner, 2026-11-12).
+
 - `android/` is a plain Gradle project (AGP 8.9, targetSdk 36, Kotlin 2.0, JDK 17,
   minSdk 34). There is no committed Gradle wrapper: the runner pins the Gradle
   version (`gradle/actions/setup-gradle`), and nothing else ever builds it.
