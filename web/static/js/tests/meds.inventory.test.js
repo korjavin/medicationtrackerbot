@@ -129,6 +129,32 @@ describe('Meds Stock sub-tab (kit v2 ST4) + Update stock sheet (ST1–ST3)', () 
         expect(sheet(document)).toBeNull();
     });
 
+    it('tapping a row (click or Enter) opens that med\'s editor, archived included; Update still opens the sheet only', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [
+            { id: 1, name: 'Metformin', dosage: '1000mg', schedule: TWICE, archived: false, inventory_count: 17 },
+            { id: 2, name: 'Old pill', dosage: '5mg', schedule: DAILY, archived: true, inventory_count: 9 }
+        ]);
+        window.renderInventory();
+        const editorCount = () => document.getElementById('med-inventory-count').value;
+
+        const row = rowOf(document, '1');
+        expect(row.getAttribute('role')).toBe('button');
+        expect(row.tabIndex).toBe(0);
+
+        row.querySelector('.wg-meds-stock__name').click();
+        expect(document.getElementById('med-track-inventory').checked).toBe(true);
+        expect(editorCount()).toBe('17');
+        expect(sheet(document)).toBeNull();
+
+        rowOf(document, '2').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(editorCount()).toBe('9');
+
+        row.querySelector('.wg-meds-stock__update').click();
+        expect(sheet(document)).not.toBeNull();
+        expect(editorCount()).toBe('9');
+    });
+
     it('the app-bar sub on the Stock tab reads "N need a refill"; none needed keeps the default', async () => {
         const { window, document } = env;
         const sub = document.querySelector('#meds-view [data-meds-sub]');
