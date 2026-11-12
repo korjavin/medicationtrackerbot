@@ -90,8 +90,10 @@ struct HealthDiagnosticView: View {
     /// The write-back through the shell's own ops (bd med-8f4s.3): authorize
     /// with write, write a BP and a weight, rewrite them with a higher version,
     /// check the own-id import filter against an unmarked same-bundle pair,
-    /// check that an imported row's id (`*-hk-<uuid>`) deletes nothing, then
-    /// delete ours and find nothing left; then the same for a BP pulse as hr
+    /// check that an imported row's id (`*-hk-<uuid>`) deletes nothing, check
+    /// that a Health-side deletion of the unmarked weight, BP correlation and
+    /// a sleep sample comes back in the anchored page's `deleted` (bd
+    /// med-w6gx.18.1), then delete ours and find nothing left; then the same for a BP pulse as hr
     /// (bd med-8f4s.8), plus a seeded workout whose imported average heart
     /// rate the pulse must not move; then a completed session as a workout (bd
     /// med-8f4s.10): write, replace, activity guard, own-id filter (the seeded
@@ -152,7 +154,10 @@ struct HealthDiagnosticView: View {
             step("authorize")
             check("hr shares heart rate", Health.shareTypes("hr") == [Health.heartRate])
             check("workout shares workouts", Health.shareTypes("workout") == [HKObjectType.workoutType()])
-            try await store.requestAuthorization(toShare: Set(both.flatMap(Health.shareTypes)), read: Set(both.flatMap(Health.readTypes)))
+            // Sleep joins the same sheet (bd med-w6gx.18.1): the deleted probe
+            // seeds a sleep sample. Never a second ask.
+            try await store.requestAuthorization(toShare: Set(both.flatMap(Health.shareTypes) + [Health.sleepAnalysis]),
+                                                 read: Set((both + ["sleep"]).flatMap(Health.readTypes)))
             step("bp/weight")
             let access = try await Health.handle("health.writeAccess", ["types": both]) as? [String: Any] ?? [:]
             let granted = access["granted"] as? [String] ?? []
@@ -257,6 +262,53 @@ struct HealthDiagnosticView: View {
             var left = try await find(Health.bodyMass, HKQuery.predicateForObject(with: plainKg.uuid)).count
             if bpOn { left += try await find(bpType, HKQuery.predicateForObject(with: plainBP.uuid)).count }
             check("imported rows kept", left == (bpOn ? 2 : 1), left)
+
+            // Deletions ride the anchored page (bd med-w6gx.18.1): keep each
+            // kind's last anchor, delete the unmarked weight sample, the BP
+            // correlation itself (the bp page is a correlation query) and a
+            // sleep sample, re-query from the kept anchors.
+            step("deleted")
+            func page(_ kind: String, _ anchor: Any, _ limit: Int = 1000) async throws -> [String: Any] {
+                try await Health.handle("health.query", ["type": kind, "anchor": anchor, "limit": limit]) as? [String: Any] ?? [:]
+            }
+            func tail(_ kind: String) async throws -> Any {
+                var anchor: Any = NSNull(), more = true
+                while more {
+                    let p = try await page(kind, anchor)
+                    anchor = p["anchor"] ?? NSNull()
+                    more = p["more"] as? Bool ?? false
+                }
+                return anchor
+            }
+            var gone: [(kind: String, object: HKObject)] = [("weight", plainKg)]
+            if bpOn { gone.append(("bp", plainBP)) }
+            if store.authorizationStatus(for: Health.sleepAnalysis) == .sharingAuthorized {
+                let night = HKCategorySample(type: Health.sleepAnalysis, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                                             start: t.addingTimeInterval(-3600), end: t)
+                try await store.save(night)
+                plain.append(night)
+                gone.append(("sleep", night))
+            } else {
+                result["sleepSkipped"] = store.authorizationStatus(for: Health.sleepAnalysis).rawValue
+            }
+            var kept: [String: Any] = [:]
+            for g in gone { kept[g.kind] = try await tail(g.kind) }
+            let quiet = try await page("weight", kept["weight"] ?? NSNull())
+            check("deleted [] when none", quiet["deleted"] as? [String] == [], quiet["deleted"] ?? "absent")
+            check("hr carries no deleted", try await page("hr", NSNull(), 1)["deleted"] == nil)
+            for g in gone {
+                do { try await store.delete(g.object) } catch { check("\(g.kind) store.delete", false, error.localizedDescription) }
+            }
+            plain.removeAll { o in gone.contains { $0.object === o } }
+            for g in gone {
+                let p = try await page(g.kind, kept[g.kind] ?? NSNull())
+                let deleted = p["deleted"] as? [String] ?? []
+                check("\(g.kind) deleted has the uuid", deleted.contains(g.object.uuid.uuidString), deleted)
+                check("\(g.kind) deletion page has no samples", (p["samples"] as? [Any])?.isEmpty == true, p["samples"] ?? "absent")
+                check("\(g.kind) deletion page returned", (p["returned"] as? Int ?? 0) >= 1, p["returned"] ?? "absent")
+                if g.kind == "sleep" { check("sleep deletion page has no window", p["from"] == nil && p["to"] == nil) }
+            }
+            result["deletedProbe"] = gone.map(\.kind)
 
             check("delete weight", try await Health.handle("health.delete", ["type": "weight", "id": weight]) as? Bool == true)
             var stray = try await synced(Health.bodyMass, weight).count
@@ -453,7 +505,8 @@ struct HealthDiagnosticView: View {
             let e = error as NSError
             failed.append("error \(e.domain) \(e.code) \(e.localizedDescription)")
         }
-        if !plain.isEmpty { try? await store.delete(plain) }
+        // One by one: a member a correlation delete already took must not fail the rest.
+        for o in plain { try? await store.delete(o) }
         if !seeded.isEmpty { try? await store.delete(seeded) }
         result["failed"] = failed
         result["ok"] = failed.isEmpty

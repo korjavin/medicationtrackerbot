@@ -662,6 +662,15 @@ weight), bd med-8f4s.8 (hr) and bd med-8f4s.10 (workout).
   `health.authorize` and `health.query` (anchored queries, raw samples) over the
   `wgNative` bridge; `window.Health` on iOS is
   [`native/health.js`](../web/static/js/native/health.js).
+  Every anchored reply for bp, weight, sleep and workout carries
+  `deleted: [uuid…]` (bd med-w6gx.18.1): the `uuidString` of each of
+  HealthKit's `deletedObjects` on that page — for bp the correlation's own
+  uuid — unfiltered by source, `[]` when none; `samples`, `anchor`,
+  `returned` (still added + deleted) and the sleep window are unchanged, and
+  hr/spo2/steps replies have no key. An edit in Health is a delete plus a new
+  uuid, so the page sees the old uuid in `deleted` and the new sample in
+  `samples`. Checked by `HealthWriteBackTests` (weight, BP correlation and a
+  sleep sample deleted after the anchor was kept).
 - **Write-back (bd med-8f4s.3):** `health.authorize {types, write}` asks share
   access for systolic + diastolic (bp) and body mass (weight) in the read
   sheet; `health.writeAccess` reports a kind once every share type of it is
