@@ -2436,6 +2436,11 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     color: var(--wg-fg-1);
 }
 
+.wg-feedback-modal__log input[type="checkbox"] {
+    width: auto;
+    flex: none;
+}
+
 .wg-feedback-modal__chip {
     margin: 0;
     font-family: var(--wg-font-ui);
