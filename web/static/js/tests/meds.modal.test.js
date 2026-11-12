@@ -7,6 +7,7 @@
 // / Supplement toggles, and a destructive Delete only when deletion is
 // allowed. The saved payload keeps the existing shape.
 
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { groupEmaCandidates } from '../../../domain/medications.js';
@@ -52,6 +53,37 @@ describe('Medication editor page (kit M5–M6)', () => {
 
         const sections = Array.from(page.querySelectorAll('.wg-content > .wg-section')).map((s) => s.dataset.medSection);
         expect(sections).toEqual(['basics', 'schedule', 'inventory', 'advanced']);
+    });
+
+    it('section 2 is "When you take it" with one reminder hint, for new and existing meds (MY2)', async () => {
+        const { document, window } = env;
+        const check = () => {
+            const sec = document.querySelector('[data-med-section="schedule"]');
+            expect(sec.querySelector('.wg-eyebrow').textContent).toBe('2 · When you take it');
+            const hints = sec.querySelectorAll('.wg-hint');
+            expect(hints).toHaveLength(1);
+            expect(hints[0].textContent).toBe('You get a reminder at each time, and the doses show on the Timeline.');
+        };
+        window.showAddModal();
+        check();
+        await seedMedications(window, [{ id: 1, name: 'Aspirin', dosage: '100mg', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }) }]);
+        window.showEditModal(1);
+        check();
+    });
+
+    it('the reminder hint shows for daily/weekly and is hidden for as needed or a shown notify note (MY2)', () => {
+        const { document, window } = env;
+        const style = document.createElement('style');
+        style.textContent = readFileSync(new URL('../../css/styles.css', import.meta.url), 'utf8');
+        document.head.appendChild(style);
+        const hint = document.querySelector('[data-med-section="schedule"] .wg-hint');
+        const shown = () => window.getComputedStyle(hint).display !== 'none';
+        window.showAddModal();
+        expect(shown()).toBe(false); // as needed: no times
+        document.querySelector('[data-schedule-type="daily"]').click();
+        expect(shown()).toBe(true);
+        document.getElementById('med-notify-note').appendChild(document.createElement('div'));
+        expect(shown()).toBe(false); // "Reminders won't fire" note is showing
     });
 
     it('has no visible native select, date input or checkbox', () => {

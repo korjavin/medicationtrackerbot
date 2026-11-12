@@ -11,8 +11,9 @@ invariants:
   - When the running build matches the server, no banner shows
   - Reload opens the new build (the version in Settings changes)
   - One tap on Reload shows "Updating…" at once and the app restarts on the new build with no second tap; if it cannot update it says so and Reload is live again
+  - Offline with no new version downloaded, no banner shows; it returns when the device is back online. A version already downloaded shows the banner offline and one tap updates.
 covered_by:
-  web: tests/visual/playwright/flows.mjs#app-update-banner
-  android: android/qa/scenarios/update-banner.mjs#updateBanner  # account A/B cold open, dedupe and Reload; update-resume.mjs checks real Home/return; physical-device Home/resume remains to be checked under med-jyxy; local bundled mode N/A; Play-installed update is manual release residue
-  ios: ios/UITests/FlowQAUpdateBannerTests.swift#testAccountUpdateBanner  # account-mode A/B cold open, trusted Home/return visibility with no duplicate, synthetic rechecks and Reload; local mode is bundled and not applicable; TestFlight-installed update remains ios/ios-testflight-update
-source: [med-kk1q.6, med-s8q0]
+  web: tests/visual/playwright/flows.mjs#app-update-banner  # offline rule: web/cloud/js/tests/update-check.test.js#showUpdateBanner
+  android: android/qa/scenarios/update-banner.mjs#updateBanner  # account A/B cold open, dedupe and Reload; update-resume.mjs checks real Home/return; physical-device Home/resume remains to be checked under med-jyxy; local bundled mode N/A; Play-installed update is manual release residue; offline rule: web/cloud/js/tests/update-check.test.js#showUpdateBanner
+  ios: ios/UITests/FlowQAUpdateBannerTests.swift#testAccountUpdateBanner  # account-mode A/B cold open, trusted Home/return visibility with no duplicate, synthetic rechecks and Reload; local mode is bundled and not applicable; TestFlight-installed update remains ios/ios-testflight-update; offline rule: web/cloud/js/tests/update-check.test.js#showUpdateBanner
+source: [med-kk1q.6, med-s8q0, med-s8q0.1]
