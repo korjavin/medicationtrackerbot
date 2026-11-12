@@ -6760,8 +6760,9 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none;
 }
 
-/* The editor's reminder hint would contradict a shown "Reminders won't fire" note (MY2). */
-#times-container:not(.hidden):has(.wg-notify-slot:not(:empty)) + .wg-hint {
+/* The editor's reminder hint is false with no times (as needed) and contradicts a shown "Reminders won't fire" note (MY2). */
+#times-container.hidden + .wg-hint,
+#times-container:has(.wg-notify-slot:not(:empty)) + .wg-hint {
     display: none;
 }
 
