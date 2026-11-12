@@ -446,23 +446,26 @@ function offlineGate(win, doc) {
     if (gate) return gate;
     gate = { pending: false };
     offlineGates.set(win, gate);
-    win.addEventListener?.('offline', () => {
+    const hide = () => {
         // Read live: the worker may have finished installing since the render.
         if (gate.registration?.waiting) return;
         const banner = gate.doc.getElementById('cloud-update-banner');
         if (!banner) return;
         banner.remove();
         gate.pending = true;
-    });
+    };
     const reshow = () => {
-        if (!gate.pending || win.navigator?.onLine === false) return;
+        if (!gate.pending) return;
         gate.pending = false;
         gate.registration?.update?.().catch(() => {});
         gate.show();
     };
+    // A resume may have missed either event: reconcile with the live state.
+    const reconcile = () => (win.navigator?.onLine === false ? hide() : reshow());
+    win.addEventListener?.('offline', hide);
     win.addEventListener?.('online', reshow);
-    win.addEventListener?.('pageshow', reshow);
-    doc.addEventListener('visibilitychange', () => { if (doc.visibilityState === 'visible') reshow(); });
+    win.addEventListener?.('pageshow', reconcile);
+    doc.addEventListener('visibilitychange', () => { if (doc.visibilityState === 'visible') reconcile(); });
     return gate;
 }
 

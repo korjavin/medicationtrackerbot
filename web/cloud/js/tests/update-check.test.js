@@ -772,6 +772,20 @@ describe('showUpdateBanner', () => {
             expect(registration.update).toHaveBeenCalledOnce();
         });
 
+        it('resume offline after a missed offline event removes the banner, unless a worker is downloaded', () => {
+            const { doc, win, fire, banners } = network(true);
+            const registration = { waiting: null, update: vi.fn().mockResolvedValue() };
+            showUpdateBanner({ doc, win, registration });
+            win.navigator.onLine = false; // went offline while suspended: no event
+            registration.waiting = { postMessage: vi.fn() };
+            doc.dispatchEvent(new doc.defaultView.Event('visibilitychange'));
+            expect(banners()).toHaveLength(1); // downloaded meanwhile: the tap works offline
+
+            registration.waiting = null;
+            fire('pageshow');
+            expect(banners()).toHaveLength(0);
+        });
+
         it('a downloaded worker shows the banner offline and keeps it', () => {
             const { doc, win, fire, banners } = network(false);
             const registration = { waiting: { postMessage: vi.fn() } };
