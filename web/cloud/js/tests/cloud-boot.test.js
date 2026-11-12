@@ -372,6 +372,48 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     }
   });
 
+  // bd med-cabs: the med-prk.2 exercise-library backfill runs the domain op,
+  // never the UI-origin route — that route's recompute asks for notification
+  // permission, and boot must never ask (med-ckm5.4). Only after a pull in
+  // this page load reached the tail, once. bd med-czhv: the op is the
+  // link-only CAS workout.linkExerciseLibrary, never updateExercise's rewrite.
+  it('backfills ref-less plan exercises through domains.workout.linkExerciseLibrary, never the route', async () => {
+    let pulled = false;
+    let drainOpts;
+    const calls = [];
+    const shimCall = async (endpoint, method) => { calls.push(`${method} ${String(endpoint).split('?')[0]}`); return null; };
+    shimCall.unifyLegacy = async () => {};
+    shimCall.floorTimeZone = async () => false;
+    const updateExercise = vi.fn(async () => {});
+    const linkExerciseLibrary = vi.fn(async () => 1);
+    shimCall.domains = { workout: { updateExercise, linkExerciseLibrary } };
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => shimCall },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          pulledThisSession: () => pulled,
+          hasCaughtUp: async () => false,
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+      console: { error() {}, warn() {}, info() {} },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(linkExerciseLibrary).not.toHaveBeenCalled(); // offline boot: no derivation from a stale mirror
+    pulled = true;
+    await drainOpts.onSettled();
+    await drainOpts.onSettled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(linkExerciseLibrary).toHaveBeenCalledExactlyOnceWith();
+    expect(updateExercise).not.toHaveBeenCalled();
+    expect(calls).not.toContain('PUT /api/workout/exercises/update');
+  });
+
   // bd med-wi09.19: the account-zone floor runs from the boot, never from a
   // request; tried after the boot pull and each drain until a pull in this
   // page load has let it run, then never again.
