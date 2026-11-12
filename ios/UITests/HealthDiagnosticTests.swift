@@ -16,6 +16,10 @@ final class HealthDiagnosticTests: XCTestCase {
     /// returns its JSON report after asserting `ok`.
     @discardableResult
     static func run(_ mode: String, labels: Bool = false, in test: XCTestCase) throws -> [String: Any] {
+        try runAttempt(mode, labels: labels, in: test, canRetry: true)
+    }
+
+    private static func runAttempt(_ mode: String, labels: Bool, in test: XCTestCase, canRetry: Bool) throws -> [String: Any] {
         let app = XCUIApplication()
         app.launchArguments = [mode, "YES"] + (labels ? ["-wgQAHealthLabels", "YES"] : [])
         app.launch()
@@ -75,6 +79,13 @@ final class HealthDiagnosticTests: XCTestCase {
         }
         let data = try XCTUnwrap(result.label.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if canRetry, json["errorDomain"] as? String == "com.apple.healthkit", json["errorCode"] as? Int == 100 {
+            let retry = XCTAttachment(string: "HealthKit authorization code 100; retrying diagnostic once")
+            retry.name = "health-code-100-retry.txt"; retry.lifetime = .keepAlways; test.add(retry)
+            app.terminate()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
+            return try runAttempt(mode, labels: labels, in: test, canRetry: false)
+        }
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
         return json
     }

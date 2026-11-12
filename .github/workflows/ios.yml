@@ -7,12 +7,13 @@ name: iOS
 # The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
 # PR label `ios-visual`, or a dispatch with visual=true. So is the `qa` job
 # (flow QA on the Simulator, bd med-w6gx.23): PR label `ios-qa`, or qa=true.
-# qa runs as eleven restartable qa-part jobs (bd med-5yr8): account (offline
+# qa runs as twelve restartable qa-part jobs (bd med-5yr8): account (offline
 # account, account gone, ceremony exit), core (core local, FlowQATests,
 # Health write-back), data (backup, stash) and rest (every other class,
 # today Lock + Navigation), update (A/B banner), degraded (boot recovery),
 # eu (EU register), health and health-denied (separate Health permission states),
-# reminders and reminders-denied, joined by the `qa` gate. Lists: env QA_PARTS.
+# held (open-session refresh), reminders and reminders-denied, joined by the
+# `qa` gate. Lists: env QA_PARTS.
 on:
   push:
     branches: [master]
@@ -57,7 +58,7 @@ on:
         type: boolean
         default: false
       qa_parts:
-        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,health,health-denied,reminders,reminders-denied,rest; implies qa, never the qa gate); empty with qa = all + the gate
+        description: Flow QA of only these comma-separated parts (account,core,data,update,degraded,eu,health,health-denied,held,reminders,reminders-denied,rest; implies qa, never the qa gate); empty with qa = all + the gate
         type: string
         default: ''
 
@@ -74,6 +75,7 @@ env:
      "eu": ["FlowQAEURegisterTests"],
      "health": ["FlowQAHealthImportTests"],
      "health-denied": ["FlowQAHealthDeniedTests"],
+     "held": ["FlowQAHeldRefreshTests"],
      "reminders": ["FlowQARemindersTests"],
      "reminders-denied": ["FlowQARemindersDeniedTests"]}
   # Fixed green references in seconds: core/data/update from 42923864088
@@ -596,6 +598,7 @@ jobs:
           QA_UPDATE_PROBE: ${{ matrix.part == 'update' && '1' || '0' }}
           QA_DEGRADED_PROBE: ${{ matrix.part == 'degraded' && '1' || '0' }}
           QA_EU_PROBE: ${{ matrix.part == 'eu' && '1' || '0' }}
+          QA_HELD_PROBE: ${{ matrix.part == 'held' && '1' || '0' }}
           QA_REMINDER_PROBE: ${{ (matrix.part == 'reminders' || matrix.part == 'reminders-denied') && '1' || '0' }}
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
 
@@ -615,8 +618,8 @@ jobs:
 
       - name: Create and boot the simulator
         env:
-          # Health import is the first Health ask on its separate simulator.
-          QA_HEALTH_READY: ${{ (matrix.part == 'core' || matrix.part == 'health' || matrix.part == 'health-denied') && '1' || '0' }}
+          # Every Health part is the first Health ask on its own simulator.
+          QA_HEALTH_READY: ${{ (matrix.part == 'core' || matrix.part == 'health' || matrix.part == 'health-denied' || matrix.part == 'held') && '1' || '0' }}
         run: |
           ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt | tee "$RUNNER_TEMP/qa-boot.log"
           exit "${PIPESTATUS[0]}"
@@ -663,8 +666,9 @@ jobs:
           sampler=$!
           # The invites fake-server.sh minted, for FlowQACeremonyExitTests and
           # FlowQAOfflineAccountTests; FlowQAEURegisterTests, FlowQARemindersTests
-          # and FlowQARemindersDeniedTests also consume the offline invite. Keep
-          # these consumers in separate parts (TEST_RUNNER_ → the runner's env).
+          # FlowQARemindersDeniedTests and FlowQAHeldRefreshTests also consume
+          # the offline invite. Keep these consumers in separate parts
+          # (TEST_RUNNER_ → the runner's env).
           TEST_RUNNER_WG_QA_CLAIM_URL="$QA_CLAIM_URL" TEST_RUNNER_WG_QA_OFFLINE_CLAIM_URL="$QA_OFFLINE_CLAIM_URL" TEST_RUNNER_WG_QA_UPDATE_CLAIM_URL="$QA_UPDATE_CLAIM_URL" xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
             "${sel[@]}" -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
