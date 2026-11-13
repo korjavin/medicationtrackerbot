@@ -1,5 +1,5 @@
 id: med-dose-taken
-title: Add a medication, mark a dose taken, and Today shows it as taken
+title: Add a medication, mark a dose taken in one tap, and Today shows it as taken
 platforms: [web, android, ios]
 preconditions:
   - App open, any mode
@@ -8,10 +8,12 @@ steps:
   - Open Today and tap Take on the dose
 invariants:
   - The due dose shows on Today with Take
+  - Take logs the dose in one tap (no sheet) when it is due within the hour or just passed; a dose 1–2 h ahead opens the "Due at HH:MM. Mark taken now?" sheet instead
   - After Take the dose leaves Today's Next up at once, without a reload
+  - 'A toast "<med> taken · <slot> dose · logged HH:MM" offers Undo for 8 s; Undo puts the dose back on Today and returns the stock'
   - Meds → Timeline shows it as "Taken HH:MM", and it stays taken after a reload
 covered_by:
-  web: web/static/js/tests/cloud.shim-contract.meds.test.js#the due dose shows with Take; Take drops it from Next up at once; Timeline says Taken HH:MM, also after a reload
+  web: web/static/js/tests/cloud.shim-contract.meds.test.js#the due dose shows with Take; one tap drops it from Next up at once; Timeline says Taken HH:MM, also after a reload
   android: android/qa/scenarios/core-local.mjs#dose
   ios: ios/UITests/FlowQACoreLocalTests.swift#testCoreLocal
-source: [Zulip 11272]
+source: [Zulip 11272, Zulip 25551, Zulip 24966, bd med-aa18.1]

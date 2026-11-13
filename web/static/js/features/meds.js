@@ -759,8 +759,10 @@ async function _applyOptimisticTimeline(mutator) {
 // next-intake card), POST /api/doses/act once per batch ({occIds, takenAt?} —
 // one taken_at each), then settle: the doses that landed stay, only refused
 // ones go back, named in a toast (bd med-2l38). Resolves true when every id
-// applied.
-async function _tlAct(action, batches) {
+// applied. doses ({occId, medId, plannedAt}): the caller's own rows for the
+// next-intake clear, for a caller (Today) whose doses the timeline may not
+// have read yet.
+async function _tlAct(action, batches, doses = null) {
     const nowIso = new Date().toISOString();
     const patch = (takenAt) => ({
         take: { state: 'taken', takenAt: takenAt || nowIso },
@@ -773,7 +775,7 @@ async function _tlAct(action, batches) {
 
     const mutate = _tlPatchRows(patches);
     const handles = [await _applyOptimisticTimeline(mutate)];
-    const next = action === 'undo' ? null : await _optimisticNextIntake(_tlDoses([...patches.keys()]));
+    const next = action === 'undo' ? null : await _optimisticNextIntake(doses || _tlDoses([...patches.keys()]));
     const failed = new Set();
     for (const b of batches) {
         let refused;
@@ -794,21 +796,23 @@ async function _tlAct(action, batches) {
 // Acts only on that day's pending occIds at the moment of the tap (so a
 // repeat tap finds nothing left to do); "Mark all taken" writes each dose's
 // planned time. No dialog — the toast's Undo restores exactly those doses.
+// The bulk write's batches over rows ({occId, plannedAt}): a take is one
+// batch per planned instant stamped with it, a skip one batch. Today's
+// missed fold builds its Mark all taken / Skip all from it too.
+function _tlBulkBatches(action, rows) {
+    if (action !== 'take') return [{ occIds: rows.map((r) => r.occId) }];
+    const byPlanned = new Map();
+    rows.forEach((r) => {
+        if (!byPlanned.has(r.plannedAt)) byPlanned.set(r.plannedAt, []);
+        byPlanned.get(r.plannedAt).push(r.occId);
+    });
+    return [...byPlanned].map(([takenAt, occIds]) => ({ occIds, takenAt }));
+}
+
 async function _tlBulk(action, date) {
     const pending = (_medsTimelineState.rows || []).filter((r) => r.localDate === date && (r.state === 'due' || r.state === 'snoozed'));
     if (!pending.length) return false;
-    const batches = [];
-    if (action === 'take') {
-        const byPlanned = new Map();
-        pending.forEach((r) => {
-            if (!byPlanned.has(r.plannedAt)) byPlanned.set(r.plannedAt, []);
-            byPlanned.get(r.plannedAt).push(r.occId);
-        });
-        byPlanned.forEach((occIds, takenAt) => batches.push({ occIds, takenAt }));
-    } else {
-        batches.push({ occIds: pending.map((r) => r.occId) });
-    }
-    if (!await _tlAct(action, batches)) return false;
+    if (!await _tlAct(action, _tlBulkBatches(action, pending))) return false;
     const n = pending.length;
     const occIds = pending.map((r) => r.occId);
     safeToast(`${n} dose${n === 1 ? '' : 's'} ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
@@ -819,15 +823,16 @@ async function _tlBulk(action, date) {
     return true;
 }
 
-function _tlBulkActions(date) {
+// The bulk pair; act(action) runs on a tap ('take' | 'skip').
+function _tlBulkActions(act) {
     const bar = _medsEl('div', 'wg-hstack wg-timeline__bulk');
     const take = _medsEl('button', 'wg-btn wg-btn--sm wg-spacer');
     take.type = 'button';
     take.append(_medsIcon('check', 'wg-ico--sm'), 'Mark all taken');
-    take.addEventListener('click', () => _tlBulk('take', date));
+    take.addEventListener('click', () => act('take'));
     const skip = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-spacer', 'Skip all');
     skip.type = 'button';
-    skip.addEventListener('click', () => _tlBulk('skip', date));
+    skip.addEventListener('click', () => act('skip'));
     bar.append(take, skip);
     return bar;
 }
@@ -1078,7 +1083,7 @@ function _tlPastSection(date, groups, occ, ctx) {
     // The bulk pair only for 2+ listed pending doses: one row has its own
     // Take / Skip, and the card's slot is not listed here (Iris 5020).
     const listed = groups.reduce((n, g) => n + (g.state === 'due' || g.state === 'snoozed' ? g.rows.length : 0), 0);
-    if (listed >= 2) section.appendChild(_tlBulkActions(date));
+    if (listed >= 2) section.appendChild(_tlBulkActions((action) => _tlBulk(action, date)));
     if (groups.length) section.appendChild(_tlList(groups, ctx));
     return section;
 }

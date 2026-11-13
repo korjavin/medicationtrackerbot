@@ -1,0 +1,21 @@
+id: today-missed-fold
+title: Two or more missed doses fold into one Today row with Mark all taken / Skip all, each undoable
+platforms: [web, android, ios]
+preconditions:
+  - A daily 09:00 medication with a stock count, its doses of the last two days not taken, nothing snoozed
+steps:
+  - Open Today
+  - Tap Mark all taken, then Undo in the toast
+  - Tap Skip all, then Undo in the toast
+invariants:
+  - Next up shows one danger row "2 missed doses" with "Since <oldest slot>" and the medication names, instead of one Missed row per dose; Mark all taken and Skip all sit right under it, neither is the primary action
+  - Exactly one missed dose stays its own "Missed HH:MM" row with Log, no fold and no bulk pair
+  - Snoozed doses are not counted or folded
+  - Mark all taken logs each dose at its planned time (toast "N doses marked taken · At their planned times"); Skip all marks them skipped (toast "N doses skipped")
+  - Undo restores exactly those doses to missed and returns their stock
+  - Tapping the fold row opens Meds → Timeline
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.meds.test.js#missed doses fold with Mark all taken / Skip all + Undo; a dose ahead is the early sheet, then one tap
+  android: manual  # the fold is web-rendered in every shell; data/logic: the web test above
+  ios: manual  # the fold is web-rendered in every shell; data/logic: the web test above
+source: [Zulip 25551, Zulip 24966, bd med-aa18.1]

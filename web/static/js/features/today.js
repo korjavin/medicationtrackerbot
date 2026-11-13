@@ -20,6 +20,7 @@
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
     const MED_LOOKAHEAD_MS = 2 * 60 * 60 * 1000; // Next up shows a future dose only within 2h; earlier it lives on Meds
+    const MED_TAKE_WINDOW_MS = 60 * 60 * 1000; // one-tap Take window, = meds.js MEDS_NEXT_TAKE_WINDOW_MS (kit TD1)
     const MIN_TREND_POINTS = 2;
 
     function cell(value, deeplink, status, meta) {
@@ -654,6 +655,18 @@
                 const kind = g.snoozedUntil ? 'med-snoozed' : (at + OVERDUE_GRACE_MS < nowMs ? 'med-missed' : 'med');
                 items.push({ kind, value: g, at });
             }
+            // 2+ missed doses (any slots, any days; snoozed ones excluded)
+            // fold into one row with the bulk pair (kit TD3); one stays a row.
+            const missedItems = items.filter((it) => it.kind === 'med-missed');
+            const doses = [];
+            missedItems.forEach(({ value: g }) => g.ids.forEach((medId, i) => doses.push({
+                occId: g.intakeIds[i], medId, plannedAt: g.scheduledAt, name: g.names[i],
+            })));
+            if (doses.length >= 2) {
+                const kept = items.filter((it) => it.kind !== 'med-missed');
+                items.length = 0;
+                items.push({ kind: 'med-missed-fold', value: { doses }, at: missedItems[0].at }, ...kept);
+            }
         }
         const med = state && state.nextMed;
         const medAt = med && med.value ? Date.parse(med.value.scheduledAt) : NaN;
@@ -673,8 +686,9 @@
             if (v.is_today && !hm) at = nowMs;
             items.push({ kind: 'workout', value: v, at });
         }
+        const isMissed = (it) => it.kind === 'med-missed' || it.kind === 'med-missed-fold';
         items.sort((a, b) => {
-            if ((a.kind === 'med-missed') !== (b.kind === 'med-missed')) return a.kind === 'med-missed' ? -1 : 1;
+            if (isMissed(a) !== isMissed(b)) return isMissed(a) ? -1 : 1;
             return (Number.isFinite(a.at) ? a.at : Infinity) - (Number.isFinite(b.at) ? b.at : Infinity);
         });
         return items;
@@ -691,18 +705,58 @@
         return Array.isArray(v.names) ? v.names.filter(Boolean) : [];
     }
 
+    // A Next up med item's doses as {occId, medId, plannedAt, name}: the
+    // take sheet's occId rule (meds-history.js _medOccId), never re-derived.
+    function medDoses(v, win) {
+        if (typeof win._medOccId !== 'function') return [];
+        const ids = Array.isArray(v.ids) ? v.ids : [];
+        const intakeIds = Array.isArray(v.intakeIds) ? v.intakeIds : [];
+        const names = Array.isArray(v.names) ? v.names : [];
+        return ids.map((medId, i) => ({ occId: win._medOccId(medId, intakeIds[i], v.scheduledAt), medId, plannedAt: v.scheduledAt, name: names[i] }))
+            .filter((d) => d.occId != null)
+            .map((d) => ({ ...d, occId: String(d.occId) }));
+    }
+
     function renderNextUpRow(item, primary, h, nowMs) {
         const row = el('div', 'wg-row');
         row.setAttribute('data-next', item.kind);
         const lead = el('span', 'wg-row__lead');
-        if (item.kind === 'med-missed') lead.classList.add('wg-row__lead--danger');
+        if (item.kind === 'med-missed' || item.kind === 'med-missed-fold') lead.classList.add('wg-row__lead--danger');
         else if (primary) lead.classList.add('wg-row__lead--sun');
         const body = el('span', 'wg-row__body');
         const meta = el('span', 'wg-row__meta');
         const trail = el('span', 'wg-row__trail');
         let action = null;
+        // Tapping the row itself (not its buttons) runs open.
+        const tappable = (label, dataAction, open) => {
+            row.classList.add('wg-today-next__tap');
+            row.setAttribute('role', 'button');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-action', dataAction);
+            row.setAttribute('aria-label', label);
+            row.addEventListener('click', (e) => {
+                if (e.target.closest && e.target.closest('.wg-btn')) return;
+                open();
+            });
+            row.addEventListener('keydown', (e) => {
+                if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); }
+            });
+        };
 
-        if (item.kind === 'med' || item.kind === 'med-missed' || item.kind === 'med-snoozed') {
+        if (item.kind === 'med-missed-fold') {
+            // TD3: "N missed doses", the oldest slot, the meds; the bulk pair
+            // sits under it (renderNextUp). The row opens Meds → Timeline.
+            const doses = item.value.doses;
+            lead.appendChild(ico('pill'));
+            body.appendChild(el('span', 'wg-row__title', `${doses.length} missed doses`));
+            const slot = h.slotLabel ? h.slotLabel(new Date(item.at), new Date(nowMs)) : fmtTimeHM(new Date(item.at).toISOString());
+            meta.appendChild(chip(`Since ${slot}`, 'danger'));
+            meta.appendChild(doc().createTextNode(` ${[...new Set(doses.map((d) => d.name))].join(', ')}`));
+            const chev = ico('chev-r');
+            chev.classList.add('wg-row__chev');
+            trail.appendChild(chev);
+            tappable(`${doses.length} missed doses — open the Meds timeline`, 'open-missed', h.onOpenMissed);
+        } else if (item.kind === 'med' || item.kind === 'med-missed' || item.kind === 'med-snoozed') {
             const v = item.value;
             const names = medNames(v);
             lead.appendChild(ico('pill'));
@@ -729,11 +783,18 @@
                 if (names.length > 1) parts.push(names.join(', '));
                 meta.textContent = parts.join(' · ');
             }
-            const label = item.kind === 'med-missed' ? 'Log' : 'Take';
+            // TD1: a due dose (within the hour, or past inside the grace)
+            // takes in one tap; one further ahead opens the early sheet
+            // (bd med-wt2q). Missed / snoozed rows open the sheet.
+            let onClick = () => h.onTakeMed(v);
+            if (item.kind === 'med') {
+                onClick = item.at - nowMs <= MED_TAKE_WINDOW_MS ? () => h.onTakeNow(v) : () => h.onTakeEarly(v);
+            }
+            const label = item.kind === 'med-missed' ? 'Log' : (names.length > 1 ? `Take ${names.length}` : 'Take');
             action = btn(label, {
-                sm: true, primary, action: item.kind === 'med-missed' ? 'log-missed' : 'take',
-                onClick: () => h.onTakeMed(v),
+                sm: true, primary, action: item.kind === 'med-missed' ? 'log-missed' : 'take', onClick,
             });
+            tappable(`${names.join(', ') || 'Medication'} — open the take sheet`, 'open-take-sheet', () => h.onTakeMed(v));
         } else {
             const v = item.value;
             lead.appendChild(ico('dumbbell'));
@@ -763,19 +824,7 @@
             }
             // Tapping the row itself (not its buttons) does what View does:
             // the planned Day's exercises in the Plan → Day pages.
-            row.classList.add('wg-today-next__tap');
-            row.setAttribute('role', 'button');
-            row.setAttribute('tabindex', '0');
-            row.setAttribute('data-action', 'open-workout-plan');
-            row.setAttribute('aria-label', `${v.group_name || 'Workout'} — view planned exercises`);
-            const open = () => h.onViewWorkout(v);
-            row.addEventListener('click', (e) => {
-                if (e.target.closest && e.target.closest('.wg-btn')) return;
-                open();
-            });
-            row.addEventListener('keydown', (e) => {
-                if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); }
-            });
+            tappable(`${v.group_name || 'Workout'} — view planned exercises`, 'open-workout-plan', () => h.onViewWorkout(v));
         }
         body.appendChild(meta);
         if (action) trail.appendChild(action);
@@ -827,14 +876,23 @@
 
         // Due by the end of today — past days' pending doses included.
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
-        const dueCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
+        const dueCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd)
+            .reduce((n, it) => n + (it.kind === 'med-missed-fold' ? it.value.doses.length : 1), 0);
         if (dueCount > 0) head.appendChild(el('span', 'wg-meta', `${dueCount} due`));
 
         const primaryIdx = !allowPrimary ? -1 : items.findIndex((it) => it.kind === 'med'
             || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));
-        const list = el('div', 'wg-list');
-        items.forEach((it, i) => list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs)));
-        section.appendChild(list);
+        let list = el('div', 'wg-list');
+        items.forEach((it, i) => {
+            list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs));
+            // The fold's bulk pair (kit TD3) splits the list under its row.
+            const bar = it.kind === 'med-missed-fold' && h.foldBulkActions ? h.foldBulkActions(it.value.doses) : null;
+            if (bar) {
+                section.append(list, bar);
+                list = el('div', 'wg-list');
+            }
+        });
+        if (list.childNodes.length) section.appendChild(list);
         return { node: section, hasPrimary: primaryIdx !== -1 };
     }
 
@@ -3194,6 +3252,14 @@
             if (target && typeof win.switchTab === 'function') win.switchTab(target);
         });
         const onLogFood = opts.onLogFood || defaultHandler('showAddFoodModal', 'food');
+        const onTakeMed = opts.onTakeMed || ((v) => {
+            const ids = Array.isArray(v && v.ids) ? v.ids : [];
+            if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
+                win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
+            } else {
+                onDeeplink('meds');
+            }
+        });
         return {
             onDeeplink,
             onLogFood,
@@ -3238,14 +3304,50 @@
             // and the print helper is served from the cloud shell. No handler →
             // no button rather than one that can only fail.
             onDoctorBrief: opts.onDoctorBrief || briefOpenerOrNull(),
-            onTakeMed: opts.onTakeMed || ((v) => {
-                const ids = Array.isArray(v && v.ids) ? v.ids : [];
-                if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
-                    win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
-                } else {
-                    onDeeplink('meds');
-                }
+            onTakeMed,
+            // TD1/TD2: the Timeline's write (meds.js _tlAct) on the item's
+            // doses, then a toast whose Undo puts them back (stock too).
+            onTakeNow: opts.onTakeNow || ((v) => {
+                const doses = medDoses(v, win);
+                if (!doses.length || typeof win._tlAct !== 'function') { onTakeMed(v); return; }
+                const occIds = doses.map((d) => d.occId);
+                const names = medNames(v);
+                return win._tlAct('take', [{ occIds }], doses).then((ok) => {
+                    if (!ok || typeof win.safeToast !== 'function') return;
+                    win.safeToast(`${names.join(', ') || 'Medication'} taken`, 'success', {
+                        detail: `${fmtTimeHM(v.scheduledAt)} dose · logged ${fmtTimeHM(new Date(Date.now()).toISOString())}`,
+                        action: { label: 'Undo', onClick: () => win._tlAct('undo', [{ occIds }]) },
+                        duration: 8000,
+                    });
+                });
             }),
+            // A dose 1–2 h ahead: the Timeline's early sheet, "Due at HH:MM.
+            // Mark taken now?" (bd med-wt2q).
+            onTakeEarly: opts.onTakeEarly || ((v) => {
+                const doses = medDoses(v, win);
+                if (!doses.length || typeof win._tlOpenEarlySheet !== 'function') { onTakeMed(v); return; }
+                const medById = new Map((Array.isArray(win.medications) ? win.medications : []).map((m) => [String(m.id), m]));
+                win._tlOpenEarlySheet({ rows: doses, localTime: fmtTimeHM(v.scheduledAt) }, { medById });
+            }),
+            // TD3: the missed fold opens Meds → Timeline.
+            onOpenMissed: opts.onOpenMissed || (() => {
+                if (typeof win.setActiveMedsSubTab === 'function') win.setActiveMedsSubTab('timeline');
+                onDeeplink('meds');
+            }),
+            // TD3/TD4: the fold's Mark all taken (each at its planned time) /
+            // Skip all — the Timeline's bulk pair and batches — with one Undo.
+            foldBulkActions: opts.foldBulkActions || (typeof win._tlBulkActions !== 'function' ? null : (doses) => win._tlBulkActions((action) => {
+                const occIds = doses.map((d) => d.occId);
+                return win._tlAct(action, win._tlBulkBatches(action, doses), doses).then((ok) => {
+                    if (!ok || typeof win.safeToast !== 'function') return;
+                    const n = doses.length;
+                    win.safeToast(`${n} doses ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
+                        ...(action === 'take' ? { detail: 'At their planned times' } : {}),
+                        action: { label: 'Undo', onClick: () => win._tlAct('undo', [{ occIds }]) },
+                        duration: 8000,
+                    });
+                });
+            })),
             onStartWorkout: opts.onStartWorkout || ((id) => {
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.start === 'function') win.WorkoutSessions.start(id);
                 else onDeeplink('workouts');

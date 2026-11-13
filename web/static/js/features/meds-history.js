@@ -775,13 +775,18 @@ async function _settleDoseWrite(handles, mutate, failed, next) {
 // The sheet's explicit occIds (bd med-wi09.2), index-aligned with its meds:
 // the row's own id when the opener had one, else the slot's deterministic id
 // `intake-<medId>-<slotUnix>` (the record-id convention the projection's
-// forecast rows carry as occId) — an exact dose, never a guess.
+// forecast rows carry as occId) — an exact dose, never a guess. _medOccId is
+// the same rule for one dose; Today's one-tap Take reaches it too.
+function _medOccId(medId, intakeId, scheduledAt) {
+    if (intakeId != null) return intakeId;
+    const slotSec = Math.floor(Date.parse(scheduledAt) / 1000);
+    return Number.isFinite(slotSec) && medId != null ? `intake-${medId}-${slotSec}` : null;
+}
+
 function _medConfirmOccId(idx) {
-    const ids = window.PushModalState.getMedConfirmIds();
-    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
-    if (intakeIds[idx] != null) return intakeIds[idx];
-    const slotSec = Math.floor(Date.parse(window.PushModalState.getMedConfirmScheduled()) / 1000);
-    return Number.isFinite(slotSec) && ids[idx] != null ? `intake-${ids[idx]}-${slotSec}` : null;
+    return _medOccId(window.PushModalState.getMedConfirmIds()[idx],
+        window.PushModalState.getMedConfirmIntakeIds()[idx],
+        window.PushModalState.getMedConfirmScheduled());
 }
 
 function _medConfirmOccIds(indices) {
