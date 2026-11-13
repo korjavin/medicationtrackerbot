@@ -13,6 +13,6 @@ invariants:
   - '"+N more pending" counts only pending doses outside the card''s slot (a sixth dose left pending yesterday → "+1 more pending", the card still holds today''s 08:20)'
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js
-  android: manual  # data/logic only: web/static/js/tests/meds.timeline.test.js; the card is web-rendered in every shell
+  android: android/qa/scenarios/meds-focus.mjs
   ios: manual  # data/logic only: web/static/js/tests/meds.timeline.test.js; the card is web-rendered in every shell
 source: [Zulip 20470, Zulip 20475, Zulip 20478, Zulip 20479, bd med-ry7b.8]
