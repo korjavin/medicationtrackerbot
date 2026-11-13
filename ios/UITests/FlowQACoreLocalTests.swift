@@ -44,7 +44,7 @@ final class FlowQACoreLocalTests: XCTestCase {
         let gone: ([String: Any]) -> Bool = { !Self.rows($0, "nextUp").contains { $0.contains("QA B1 Dose") } }
         (ok, f) = QA.tapTarget(app, "take", until: { gone($0) || QA.target($0, "confirm") != nil })
         XCTAssertTrue(ok, "Take neither logged the dose nor opened a confirm sheet: \(QA.json(f))")
-        if let f, QA.target(f, "confirm") != nil {
+        if QA.target(f, "confirm") != nil {
             (ok, f) = QA.tapTarget(app, "confirm", timeout: 5, until: gone)
         }
         XCTAssertTrue(ok, "after Take the dose is still in Next up: \(QA.json(f))")
