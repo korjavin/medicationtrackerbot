@@ -1113,7 +1113,10 @@ status timeline, click → picker ms; bd med-nvd4) → the add-BP sheet, a real 
 focused input sits inside the visual viewport) → rotated with the sheet open
 (portrait lock: expected unchanged) → Back (the first hides the keyboard) closes
 the sheet → one Back on Today leaves the app → cold relaunch reopens the vault
-from the warm cache. The Back steps record PASS/FAIL and the press counts
+from the warm cache → an expired invite (a second one the workflow mints and backdates in the
+cloud DB) shows "may be expired" (`smoke-expired-link.png`) → the claimed invite reopened shows
+the already-claimed screen with no passkey button (`smoke-claimed-link.png`; bd med-88x0.10).
+The Back steps record PASS/FAIL and the press counts
 (`results.smoke.backPressesToCloseSheet`, `backPressesToLeave`, and `backTrail`: the page path after each Back on Today) without
 stopping the scenario.
 
