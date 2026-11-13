@@ -359,7 +359,7 @@ export default async function healthConnect(ctx) {
     // a fresh BP, weight and workout, plus B3's night and B3's weight after an in-app edit. After a
     // force-stop and relaunch the import tombstones the four, while the app-edited weight, the
     // hand-entered readings and the untouched B3 BP stay and the import count does not move. A
-    // Health night on a fixture Mi Band day, deleted too, keeps its day row (the ledger guard).
+    // Health night on a day with a seeded Mi Band session, deleted too, keeps its day row (the ledger guard).
     // A second, older night stays in Health Connect: the night reconcile needs a read reaching back
     // before the deleted night (an empty read proves nothing).
     async function deletedInHealth() {
@@ -410,15 +410,22 @@ export default async function healthConnect(ctx) {
       // Health must leave the day row live and the day unchanged (the reconcile's ledger guard).
       // The writer's night ends 06:00 UTC sleepDays ago; days 2..9 are settled and after the
       // keeper night, so the reconcile read reaches back before it.
+      // The fixture's Mi Band nights sit on unsettled days, so the step seeds its own ledger
+      // session (a non -hk- row, the shape a Mi Band import leaves) on a free day.
       const sleepRows = (await vault()).sleep;
-      const ledger = new Set(sleepRows.filter((x) => !x.deleted && !String(x.recordId).includes('-hk-')).map(sleepDayOfRow));
       const today = new Date(Number((await shell('date +%s')).trim()) * 1000).toISOString().slice(0, 10);
-      const mbDays = [2, 3, 4, 5, 6, 7, 8, 9].find((n) => {
-        const day = sleepDayOf(Date.parse(`${today}T06:00:00Z`) - n * 86400_000, 0);
-        return ledger.has(day) && !sleepRows.some((x) => x.recordId === healthRecordId('sleep', day));
-      });
-      if (!mbDays) throw new Error(`no fixture Mi Band day without a Health row in days 2..9: ${JSON.stringify([...ledger])}`);
-      id.mbDay = sleepDayOf(Date.parse(`${today}T06:00:00Z`) - mbDays * 86400_000, 0);
+      const nightEnd = (n) => Date.parse(`${today}T06:00:00Z`) - n * 86400_000;
+      const used = new Set(sleepRows.map(sleepDayOfRow)); // tombstones too: a deleted day stays deleted
+      const mbDays = [2, 3, 4, 5, 6, 7, 8, 9].find((n) => !used.has(sleepDayOf(nightEnd(n), 0)));
+      if (!mbDays) throw new Error(`no free sleep day in days 2..9: ${JSON.stringify([...used])}`);
+      id.mbDay = sleepDayOf(nightEnd(mbDays), 0);
+      await ctx.page.evaluate(async ({ day, end }) => {
+        await (await import('/js/sync.js')).localRecordsPort().put('sleep', {
+          recordId: `sleep-mbqa-${day}`, clientTs: Date.now(), deleted: false, day,
+          start_time: new Date(end - 5 * 3600_000).toISOString(), end_time: new Date(end).toISOString(),
+          timezone_offset: 0, total_minutes: 300, source: 'miband', notes: 'health-deleted Mi Band ledger QA',
+        });
+      }, { day: id.mbDay, end: nightEnd(mbDays) });
       const mbNight = (await writer(`hmb-${Date.now()}`, `--ei sys ${SECOND[0] + 4} --ei dia 103 --ei sleepDays ${mbDays}`)).records.find((x) => x.type === 'SleepSessionRecord');
       id.mbNight = healthRecordId('sleep', id.mbDay);
       d.inserted = inserted;
