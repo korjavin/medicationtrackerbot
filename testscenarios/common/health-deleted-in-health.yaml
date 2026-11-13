@@ -22,5 +22,5 @@ invariants:
 covered_by:
   web: web/cloud/js/tests/health-import.test.js
   android: manual  # web/cloud/js/tests/health-import.test.js covers the data logic; the shell's deleted list (med-w6gx.18.2) needs a device check
-  ios: ios/UITests/FlowQAHealthImportTests.swift#testHealthDeletedInHealth  # Simulator: a seeded weight and BP imported, deleted in Health, gone after the relaunch; the typed weight stays; Settings' import count unchanged (invariants 1, 2, 9). Not exercised here: a whole or shortened night, a Mi Band night, an edit in Health (delete + add), the ~80-day guard; their data logic is web/cloud/js/tests/health-import.test.js
+  ios: ios/UITests/FlowQAHealthImportTests.swift#testHealthDeletedInHealth  # Simulator: a seeded weight and BP imported, deleted in Health, gone after the relaunch; the typed weight stays; Settings' import count unchanged (invariants 1 deletion half, 2, 9). Not exercised here: an imported weight edited in the app, a workout deleted in Health, a whole or shortened night, a Mi Band night, an edit in Health (delete + add), the ~80-day guard; their data logic is web/cloud/js/tests/health-import.test.js
 source: [med-w6gx.18.3, med-w6gx.18.1, med-w6gx.18.2]

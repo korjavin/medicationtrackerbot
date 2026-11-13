@@ -97,8 +97,11 @@ private enum HealthFlow {
 /// testscenarios/common/health-deleted-in-health.yaml (bd med-88x0.6): a
 /// weight and a BP seeded in Health and imported, a typed weight, both seeded
 /// samples deleted in Health; the relaunch's anchored query carries their
-/// uuids. Runs after or before testHealthImport on the same Simulator: the
-/// first seed's sheet grants both, every later ask resolves without one.
+/// uuids. Rows are matched by their imported record id (<kind>-hk-<uuid>,
+/// web/domain/healthsource.js), never by value: HealthKit outlives QA.reset,
+/// so testHealthImport's same-valued seed may still be in Health; either
+/// class may run first on the Simulator, every ask after the first sheet
+/// resolves without one.
 @MainActor
 final class FlowQAHealthDeletedTests: XCTestCase {
     func testHealthDeletedInHealth() throws {
@@ -106,15 +109,16 @@ final class FlowQAHealthDeletedTests: XCTestCase {
         QA.reset()
         let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
         let uuids = try ["weightUUID", "bpUUID"].map { try XCTUnwrap(seed[$0] as? String, "seed wrote no \($0): \(QA.json(seed))") }
+        let weight = "weight-hk-" + uuids[0].lowercased(), bp = "bp-hk-" + uuids[1].lowercased()
 
         let app = XCUIApplication()
         try HealthFlow.turnOn(app, in: self)
         HealthFlow.launch(app, "health-qa-weight")
-        var (ok, f) = QA.waitFlow(app, timeout: 30) { Self.imported($0, "weight", "73.4") }
-        XCTAssertTrue(ok, "imported weight absent: \(QA.json(f))")
+        var (ok, f) = QA.waitFlow(app, timeout: 30) { Self.row($0, "weight", weight)?.contains("Health import") == true }
+        XCTAssertTrue(ok, "imported weight \(weight) absent or unlabelled: \(QA.json(f))")
         HealthFlow.launch(app, "health-qa-bp")
-        (ok, f) = QA.waitFlow(app, timeout: 30) { Self.imported($0, "bp", "123/79") }
-        XCTAssertTrue(ok, "imported BP absent: \(QA.json(f))")
+        (ok, f) = QA.waitFlow(app, timeout: 30) { Self.row($0, "bp", bp)?.contains("Health import") == true }
+        XCTAssertTrue(ok, "imported BP \(bp) absent or unlabelled: \(QA.json(f))")
 
         HealthFlow.launch(app, "core-local-weight")
         HealthFlow.type(app, "value", "77.7")
@@ -127,18 +131,19 @@ final class FlowQAHealthDeletedTests: XCTestCase {
 
         // The relaunch: a new anchored query, its reply carries the deleted uuids.
         HealthFlow.launch(app, "health-qa-weight")
-        (ok, f) = QA.waitFlow(app, timeout: 30) { Self.typed($0) && !Self.imported($0, "weight", "73.4") }
-        XCTAssertTrue(ok, "imported weight not removed, or the typed one went with it: \(QA.json(f))")
+        (ok, f) = QA.waitFlow(app, timeout: 30) { Self.typed($0) && Self.row($0, "weight", weight) == nil }
+        XCTAssertTrue(ok, "imported weight \(weight) not removed, or the typed one went with it: \(QA.json(f))")
         HealthFlow.shot("health-deleted-weight", in: self)
         HealthFlow.launch(app, "health-qa-bp")
-        (ok, f) = QA.waitFlow(app, timeout: 30) { !HealthFlow.rows($0, "bp").isEmpty && !Self.imported($0, "bp", "123/79") }
-        XCTAssertTrue(ok, "imported BP not removed: \(QA.json(f))")
+        (ok, f) = QA.waitFlow(app, timeout: 30) { !HealthFlow.rows($0, "bp").isEmpty && Self.row($0, "bp", bp) == nil }
+        XCTAssertTrue(ok, "imported BP \(bp) not removed: \(QA.json(f))")
         HealthFlow.shot("health-deleted-bp", in: self)
         XCTAssertEqual(try count(app), before, "the Health import count moved for deletions")
     }
 
-    private static func imported(_ flow: [String: Any], _ key: String, _ value: String) -> Bool {
-        HealthFlow.rows(flow, key).contains { $0.contains(value) && $0.contains("Health import") }
+    /// The text of the list row whose record id is `id`.
+    private static func row(_ flow: [String: Any], _ key: String, _ id: String) -> String? {
+        (flow[key] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == id })?["text"] as? String
     }
     private static func typed(_ flow: [String: Any]) -> Bool {
         HealthFlow.rows(flow, "weight").contains { $0.contains("77.7") && !$0.contains("Health import") }
