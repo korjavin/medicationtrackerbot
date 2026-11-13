@@ -14,7 +14,7 @@ You need the paid Apple Developer account that owns the app.
 
 1. Open developer.apple.com/account, sign in. **Membership details** shows your **Team ID** (10 characters). Note it. It must equal the repo variable `IOS_TEAM_ID`.
 2. **Keys** (Certificates, Identifiers & Profiles → Keys) → the **+** button.
-   - Key Name: anything (e.g. `push`). Tick **Apple Push Notifications service (APNs)**. Continue → Register.
+   - Key Name: anything (e.g. `push`). Tick **Apple Push Notifications service (APNs)**; if Apple asks for the key's environment, choose **Sandbox & Production** (or Production): a Sandbox-only key is refused for TestFlight and App Store builds. Continue → Register.
    - Note the **Key ID** (10 characters) shown on the page.
    - **Download** the `.p8` file now: Apple lets you download it only once. Keep it safe; you paste its content in section 3.
 3. **Identifiers** → open the app's App ID. Its Bundle ID is the repo variable `IOS_BUNDLE_ID` (GitHub → Settings → Secrets and variables → Actions → Variables). Under Capabilities tick **Push Notifications** → Save (confirm the prompt).
@@ -58,19 +58,19 @@ Set these in the Portainer stack's **secrets / environment** for the cloud servi
 
 | Variable | Value |
 |---|---|
-| `APNS_KEY_P8` | content of the `.p8` file: the PEM inline, or base64 of it |
+| `APNS_KEY_P8` | **base64** of the `.p8` file: `base64 -i AuthKey_XXXX.p8` (macOS) or `base64 -w0 AuthKey_XXXX.p8` (Linux). Do not paste the multi-line PEM: Portainer's field is single-line and drops the newlines, which breaks the key |
 | `APNS_KEY_ID` | Key ID from section 1 step 2 |
 | `APNS_TEAM_ID` | Team ID from section 1 step 1 |
 | `APNS_BUNDLE_ID` | the app's Bundle ID (`IOS_BUNDLE_ID`) |
 | `APNS_SANDBOX` | leave unset (or `0`) for TestFlight and App Store builds; `1` only for Xcode-run development builds |
 | `FCM_PROJECT_ID` | Firebase project id (same as `FIREBASE_PROJECT_ID`) |
-| `FCM_SERVICE_ACCOUNT_JSON` | content of the service-account JSON from section 2 step 5: raw JSON, or base64 of it |
+| `FCM_SERVICE_ACCOUNT_JSON` | content of the service-account JSON from section 2 step 5: **base64** of the file (same command as above); raw JSON also parses, base64 is the safe paste |
 
 A platform is on only when all its variables are set. A partial or unparseable set never stops the server; it only keeps that platform off.
 
 Check in the cloud service's startup log:
 
-- `native push ios=true android=true` (a platform you did not configure shows `false`).
+- `level=INFO msg="native push" ios=true android=true` (search for `msg="native push"`; a platform you did not configure shows `false`).
 - Errors name the variables, never values: `native push: APNs config invalid, iOS push off` or `native push: FCM config invalid, Android push off`. Re-check the paste (a truncated key is the usual cause) and redeploy.
 
 ## 4. Final device check (per platform)
@@ -79,6 +79,9 @@ Check in the cloud service's startup log:
 2. Open the app, sign in in account (cloud) mode.
 3. Allow notifications when the system asks (Settings → the app → Notifications if you declined earlier).
 4. Close the app fully (swipe it away).
-5. Trigger a reminder (or wait for one): a notification arrives with the app closed.
+5. In the app, Settings shows `Wake-ups: on` once the device token is registered. `Wake-ups: off (not connected yet)` or `Wake-ups: off (allow notifications)` means it is not.
+6. With the app closed, send any message to the account's Telegram bot: a notification "Open the app to record what you sent" arrives. Without Telegram, start the add-device flow from another device: "Approve the new device?" arrives.
 
-If it does not: confirm the startup log line in section 3 shows that platform `true`, the build is the new one (sections 1.6 and 2.7), and notifications are allowed for the app.
+Do not use a reminder as the test. Reminders are not sent through native push (iOS uses local notifications, other channels use web push or Telegram), so a reminder arriving proves nothing about APNs/FCM.
+
+If it does not arrive: confirm the startup log line in section 3 shows that platform `true`, the build is the new one (sections 1.6 and 2.7), and notifications are allowed for the app.

@@ -80,7 +80,7 @@ CLOUD_INTERNAL_WEBHOOK_BASE=...     # Optional. Internal docker-network origin t
 VAPID_SUBJECT=mailto:you@example.com  # Optional. Operator contact identifier (RFC 8292), never user data. Default: mailto:noreply@<CLOUD_BASE_DOMAIN>. Apple endpoints automatically get https://<CLOUD_BASE_DOMAIN> instead.
 # Native push for the app shells (bd med-erq1.2) — all OPTIONAL. The Telegram inbox wake and the dry-queue
 # warning also go to the iOS/Android shells' registered device tokens via APNs / FCM HTTP v1, as a fixed,
-# content-free notification ("Open the app to …" + a kind tag; never account data). Owner click-path for all of this: [native-push-setup.md](native-push-setup.md). Each platform is
+# content-free notification ("Open the app to …" + a kind tag; never account data). Owner click-path for all of this: docs/native-push-setup.md. Each platform is
 # independent: all its vars unset = that platform off and its tokens skipped, the server starts exactly as
 # before. A partial or unparseable set logs an error naming the vars (never values) and leaves that platform
 # off — never a startup failure. Startup logs `native push ios=<bool> android=<bool>`. Dead tokens (APNs 410 /
