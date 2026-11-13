@@ -11,6 +11,6 @@ invariants:
   - The in-context ask appears only after the user's own write (med-ckm5.4)
 covered_by:
   web: web/cloud/js/tests/cloud-boot.test.js#backfills ref-less plan exercises through domains.workout.linkExerciseLibrary, never the route
-  android: manual
+  android: android/qa/scenarios/notifications-no-ask.mjs#account cold relaunch + unlock runs the backfill  # local and account cold opens (the account's plan exercise imported without exercise_library_id, linked by the boot backfill) show neither the ask sheet nor the permissioncontroller dialog; a med write opens the sheet, the system dialog only after its Allow (med-88x0.9)
   ios: ios/UITests/FlowQAOfflineAccountTests.swift#testOfflineColdOpen  # med-wqj8 F6 rows 12/14/19 were this bug: the boot exercise-library backfill's ask sheet covered Today
 source: [med-cabs, med-wqj8]
