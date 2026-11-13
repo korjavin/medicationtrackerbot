@@ -214,36 +214,30 @@
         const medName = new Map((Array.isArray(bootstrap.medications) ? bootstrap.medications : [])
             .filter((m) => m && typeof m.name === 'string' && m.name)
             .map((m) => [String(m.id), m.name]));
+        // One group per slot and state: a snooze still running keeps its dose
+        // in the slot's snoozed group; a due row (or a lapsed snooze —
+        // clock-only, no refetch) goes in the due group. A slot with both
+        // gives two groups, so a Take or fold never acts on a running snooze.
         const bySlot = new Map();
         for (const r of rows) {
             if (!r || (r.state !== 'due' && r.state !== 'snoozed')) continue;
             const at = Date.parse(r.plannedAt);
             if (!Number.isFinite(at)) continue;
-            let g = bySlot.get(at);
-            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], due: false, snoozedUntil: null, snoozed: [] }; bySlot.set(at, g); }
+            const until = r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : NaN;
+            const snoozed = until > nowMs;
+            const key = `${at}|${snoozed}`;
+            let g = bySlot.get(key);
+            if (!g) { g = { at, snoozed, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], snoozedUntil: null }; bySlot.set(key, g); }
             g.names.push(medName.get(String(r.medId)) || r.name || 'Medication');
             g.ids.push(r.medId);
             g.intakeIds.push(r.occId);
-            // A snooze still running keeps the slot snoozed; a due row (or a
-            // lapsed snooze — clock-only, no refetch) makes it due.
-            const until = r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : NaN;
-            if (until > nowMs) {
-                if (!(Date.parse(g.snoozedUntil) >= until)) g.snoozedUntil = r.snoozedUntil;
-                g.snoozed.push(r.occId);
-            } else {
-                g.due = true;
-            }
+            if (snoozed && !(Date.parse(g.snoozedUntil) >= until)) g.snoozedUntil = r.snoozedUntil;
         }
-        // `snoozedUntil` only on a slot whose every dose is snoozed; a due
-        // slot names its still-snoozed doses in `snoozedIntakeIds` (the
-        // missed fold leaves them out).
-        const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at)
-            .map(({ scheduledAt, names, ids, intakeIds, due, snoozedUntil, snoozed }) => {
-                if (!due) return { scheduledAt, names, ids, intakeIds, snoozedUntil };
-                return snoozed.length
-                    ? { scheduledAt, names, ids, intakeIds, snoozedIntakeIds: snoozed }
-                    : { scheduledAt, names, ids, intakeIds };
-            });
+        // `snoozedUntil` only on a snoozed group; due before snoozed at a slot.
+        const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at || a.snoozed - b.snoozed)
+            .map(({ scheduledAt, names, ids, intakeIds, snoozed, snoozedUntil }) => (snoozed
+                ? { scheduledAt, names, ids, intakeIds, snoozedUntil }
+                : { scheduledAt, names, ids, intakeIds }));
         return cell(groups, 'meds', 'ok');
     }
 
@@ -661,11 +655,9 @@
             // fold into one row with the bulk pair (kit TD3); one stays a row.
             const missedItems = items.filter((it) => it.kind === 'med-missed');
             const doses = [];
-            missedItems.forEach(({ value: g }) => g.ids.forEach((medId, i) => {
-                // A dose still snoozed in a due slot keeps its snooze.
-                if ((g.snoozedIntakeIds || []).includes(g.intakeIds[i])) return;
-                doses.push({ occId: g.intakeIds[i], medId, plannedAt: g.scheduledAt, name: g.names[i] });
-            }));
+            missedItems.forEach(({ value: g }) => g.ids.forEach((medId, i) => doses.push({
+                occId: g.intakeIds[i], medId, plannedAt: g.scheduledAt, name: g.names[i],
+            })));
             if (doses.length >= 2) {
                 const kept = items.filter((it) => it.kind !== 'med-missed');
                 items.length = 0;
