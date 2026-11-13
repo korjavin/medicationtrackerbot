@@ -78,9 +78,9 @@ Check in the cloud service's startup log:
 1. Install the build made after the steps above: TestFlight build for iOS, Play build for Android.
 2. Open the app, sign in in account (cloud) mode.
 3. Allow notifications when the system asks (Settings → the app → Notifications if you declined earlier).
-4. Close the app fully (swipe it away).
-5. In the app, Settings shows `Wake-ups: on` once the device token is registered. `Wake-ups: off (not connected yet)` or `Wake-ups: off (allow notifications)` means it is not.
-6. With the app closed, send any message to the account's Telegram bot: a notification "Open the app to record what you sent" arrives. Without Telegram, start the add-device flow from another device: "Approve the new device?" arrives.
+4. In the app, Settings shows `Wake-ups: on` once the device token is registered. `Wake-ups: off (not connected yet)` or `Wake-ups: off (allow notifications)` means it is not.
+5. Close the app fully (swipe it away).
+6. Send any message to the account's Telegram bot: a notification "Open the app to record what you sent" arrives. Without Telegram: before closing the app, open Settings → Add a device and note the link/code, close the app, then open that link/code on another device (e.g. a laptop browser); the phone gets "Approve the new device?".
 
 Do not use a reminder as the test. Reminders are not sent through native push (iOS uses local notifications, other channels use web push or Telegram), so a reminder arriving proves nothing about APNs/FCM.
 
