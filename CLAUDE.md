@@ -78,6 +78,7 @@ Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/openfo
 | Cloud deployment (Traefik + Portainer, wildcard cert, gitops) | [docs/cloud-deployment.md](docs/cloud-deployment.md) |
 | Cloud operations security (retention, backup, deletion, subprocessors, incidents) | [docs/cloud-operations-security.md](docs/cloud-operations-security.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
+| Native push (APNs/FCM) owner setup: click-path for Apple, Firebase, GitHub vars, cloud env | [docs/native-push-setup.md](docs/native-push-setup.md) |
 | iOS/Android parity rules + feature matrix | [docs/mobile-parity.md](docs/mobile-parity.md) |
 | MCP agent-usage evals | [docs/mcp-evals.md](docs/mcp-evals.md) |
 | Frontend architecture, load order, tokens, data flow | [docs/frontend.md](docs/frontend.md) |
