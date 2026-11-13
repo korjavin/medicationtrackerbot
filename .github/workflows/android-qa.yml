@@ -151,8 +151,9 @@ jobs:
             # smoke's expired-link step (bd med-88x0.10): a second invite, its expiry backdated in the
             # DB so the server's own check refuses it. Nothing provisions after this, so no sweep drops it.
             exp="$(grep -oE 'https://[^[:space:]/]+/i/[a-z0-9-]+#[a-f0-9]+' <<<"$("$RUNNER_TEMP/cloud" admin invite)" | head -1)"
+            [ -n "$exp" ] || { echo "no claim URL from the second admin invite"; exit 1; }
             erest="${exp#https://}"; esub="${erest#*/i/}"; esub="${esub%%#*}"
-            sqlite3 "$CLOUD_DB_PATH" "UPDATE accounts SET claim_expires_unix = 1 WHERE subdomain = '$esub'"
+            [ "$(sqlite3 "$CLOUD_DB_PATH" "UPDATE accounts SET claim_expires_unix = 1 WHERE subdomain = '$esub'; SELECT changes();")" = 1 ] || { echo "backdating $esub matched no row"; exit 1; }
             echo "QA_EXPIRED_CLAIM_URL=https://$esub.${erest%%/*}/#claim=${exp##*#}" >> "$GITHUB_ENV"
           fi
           echo "QA_CA=$RUNNER_TEMP/ca.pem" >> "$GITHUB_ENV"
