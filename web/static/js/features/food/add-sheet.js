@@ -528,7 +528,8 @@
     }
 
     // Take = the log_past write at now. The sheet closes first; the toast
-    // reads the count from the medications cache once the write re-read it.
+    // reads the count from the medications cache once the write re-read it,
+    // and leaves it out when that re-read did not land.
     async function takeMed(med) {
         close();
         const takenAt = new Date();
@@ -541,8 +542,10 @@
             return;
         }
         if (!res) return;
+        // Only a count the post-write read returned: its last dose is this one.
         const fresh = (Array.isArray(medications) ? medications : []).find((m) => String(m.id) === String(med.id));
-        const left = stockLeft(fresh);
+        const confirmed = fresh && Date.parse(fresh.last_taken_at) >= takenAt.getTime();
+        const left = confirmed ? stockLeft(fresh) : '';
         safeToast(`${med.name} taken`, 'success', { detail: `Logged ${hhmm(takenAt)}${left ? ` · ${left}` : ''}` });
     }
 

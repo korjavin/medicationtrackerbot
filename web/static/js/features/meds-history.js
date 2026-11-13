@@ -1022,7 +1022,8 @@ async function confirmLogPast() {
 // Take, kit LS2): one TAKEN intake at takenAt via POST /log-past, an
 // optimistic timeline row first, then meds + timeline re-read. onLogged runs
 // once the write landed, before the re-reads. Returns the response, or null
-// when nothing was written; a thrown write rolls back and rethrows.
+// when nothing was written; a thrown write rolls back and rethrows (a failed
+// re-read after a landed write does not throw).
 async function logPastIntake(medId, takenAt, onLogged) {
     // Optimistic: a synthesised taken row joins the timeline so the user
     // sees the new entry before /log-past resolves.
@@ -1046,13 +1047,21 @@ async function logPastIntake(medId, takenAt, onLogged) {
     await _commitOptimistic(handles);
 
     if (typeof onLogged === 'function') onLogged(res);
-    if (window.DataStore) {
-        await window.DataStore.invalidateByTag('history');
-        await window.DataStore.invalidateByTag('medications');
-        await window.DataStore.invalidateByTag('gamification');
+    // The dose is written: a failed refresh must not read as a failed write
+    // (a retry would log a second dose).
+    let timelineRows = null;
+    try {
+        if (window.DataStore) {
+            await window.DataStore.invalidateByTag('history');
+            await window.DataStore.invalidateByTag('medications');
+            await window.DataStore.invalidateByTag('gamification');
+        }
+        await loadMeds();
+        timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
+    } catch (e) {
+        console.warn('log-past: refresh after the write failed', e);
+        return res;
     }
-    await loadMeds();
-    const timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
     const newId = res && typeof res.id !== 'undefined' ? res.id : null;
     // Only run the visibility check when the timeline read actually
     // returned rows. If it failed (null), the user is offline/degraded —

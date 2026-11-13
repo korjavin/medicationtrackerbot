@@ -478,6 +478,24 @@ describe('Food Add sheet', () => {
             expect(apiCall.mock.calls.some(([u]) => String(u).startsWith('/api/doses/act'))).toBe(false);
         });
 
+        it('LS2 Take: a refresh that fails after the write still reads as taken, with no unconfirmed count', async () => {
+            const { window, document } = env;
+            apiCall.mockImplementation(async (url, method) => {
+                if (url === '/api/medications/log-past' && method === 'POST') return { id: 'intake-manual-2', status: 'TAKEN' };
+                if (String(url).startsWith('/api/medications') || String(url).startsWith('/api/doses')) throw new Error('offline');
+                if (String(url).startsWith('/api/food/log?')) return RECENT_GROUPS;
+                return null;
+            });
+            fromToday();
+            await settle();
+            document.querySelector('#food-add-also-row [data-log="med"]').click();
+            document.querySelector('#food-add-med-list .wg-row[data-med-id="1"] .wg-btn').click();
+            await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Ibuprofen taken', 'success', expect.any(Object)));
+            const opts = window.safeToast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2];
+            expect(opts.detail).toMatch(/^Logged \d\d:\d\d$/);
+            expect(window.safeToast.mock.calls.some(([, type]) => type === 'error')).toBe(false);
+        });
+
         it('LS2 row tap → the log_past sheet for another time', async () => {
             const { window, document } = env;
             window.logMedicationPast = vi.fn();
