@@ -410,7 +410,8 @@ export default async function healthConnect(ctx) {
 
       // Import them (switch-on rescan): the anchors then sit on changes tokens, so the deletions
       // below arrive as DeletionChanges on the next open, not as an absence in a scan.
-      await ctx.page.locator('[data-nav-to="settings"]:visible').first().click();
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      await ctx.page.locator('#health-import-toggle').waitFor({ state: 'attached', timeout: 15_000 });
       const t0 = await ctx.page.evaluate(() => Date.now());
       await toggle(); await sleep(1000); await toggle();
       const imported = (v) => ({ bp: live(v, 'bp', id.bp), weight: live(v, 'weight', id.weight), workout: live(v, 'miband', id.workout),
