@@ -37,11 +37,16 @@ import java.time.ZoneOffset
  * B3: `--ei grams G` inserts WeightRecord; `--ei sleepDays D` inserts an 8h UTC night ending
  * at 06:00 D days ago; `--es request R` keys a second JSON line `{request, now, records}` with
  * SDK IDs, null client IDs and exact timestamps/values. Same package, SDK-assigned dataOrigin.
+ * `--el workoutStart MS` places the workout (10 min) there instead of 2h ago.
+ * health-deleted-in-health (bd med-88x0.12): `--es delete bp:ID,weight:ID,workout:ID,sleep:ID`
+ * deletes those records by Health Connect id (as another app or the Health Connect UI would:
+ * ordinary DeletionChanges) and inserts nothing; logs `{request, deleted}`.
  */
 class QaHealthWrite : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!DebugHooks.qa()) return finish()
+        intent.getStringExtra("delete")?.let { return delete(it.split(','), intent.getStringExtra("request").orEmpty()) }
         val sys = intent.getIntExtra("sys", 0).toDouble()
         val dia = intent.getIntExtra("dia", 0).toDouble()
         val steps = intent.getIntExtra("steps", 0).toLong()
@@ -72,9 +77,11 @@ class QaHealthWrite : Activity() {
                 samples = listOf(HeartRateRecord.Sample(now.minusSeconds(600), hr), HeartRateRecord.Sample(now.minusSeconds(120), hr + 1))))
             if (spo2 > 0) for (i in 0 until spo2n) add(OxygenSaturationRecord(time = now.minusSeconds(30L + 60L * i),
                 zoneOffset = utc, percentage = Percentage(spo2), metadata = Metadata.manualEntry()))
+            val workoutStart = intent.getLongExtra("workoutStart", 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+                ?: now.minusSeconds(7200)
             if (intent.getBooleanExtra("workout", false)) add(ExerciseSessionRecord(
-                startTime = now.minusSeconds(7200), startZoneOffset = utc,
-                endTime = now.minusSeconds(6600), endZoneOffset = utc,
+                startTime = workoutStart, startZoneOffset = utc,
+                endTime = workoutStart.plusSeconds(600), endZoneOffset = utc,
                 metadata = Metadata.manualEntry(), exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_RUNNING))
         }
         CoroutineScope(Dispatchers.Main).launch {
@@ -91,6 +98,7 @@ class QaHealthWrite : Activity() {
                                     when (record) {
                                         is WeightRecord -> put("kg", record.weight.inKilograms).put("at", record.time.toEpochMilli())
                                         is SleepSessionRecord -> put("start", record.startTime.toEpochMilli()).put("end", record.endTime.toEpochMilli())
+                                        is ExerciseSessionRecord -> put("start", record.startTime.toEpochMilli()).put("end", record.endTime.toEpochMilli())
                                         is BloodPressureRecord -> put("systolic", sys).put("diastolic", dia).put("at", record.time.toEpochMilli())
                                     }
                                 })
@@ -102,7 +110,23 @@ class QaHealthWrite : Activity() {
         }
     }
 
+    private fun delete(targets: List<String>, request: String) {
+        CoroutineScope(Dispatchers.Main).launch {
+            runCatching {
+                val client = HealthConnectClient.getOrCreate(this@QaHealthWrite)
+                for (target in targets) {
+                    val (kind, id) = target.split(':', limit = 2)
+                    client.deleteRecords(DELETABLE.getValue(kind), recordIdsList = listOf(id), clientRecordIdsList = emptyList())
+                }
+            }.onSuccess { Log.i(TAG, JSONObject().put("request", request).put("deleted", JSONArray(targets)).toString()) }
+                .onFailure { Log.e(TAG, "failed ${it.javaClass.simpleName}: ${it.message}") }
+            finish()
+        }
+    }
+
     private companion object {
         const val TAG = "qa-health-write"
+        val DELETABLE = mapOf("bp" to BloodPressureRecord::class, "weight" to WeightRecord::class,
+            "workout" to ExerciseSessionRecord::class, "sleep" to SleepSessionRecord::class)
     }
 }
