@@ -9,7 +9,8 @@ export default async function medsFocus(ctx) {
   await ctx.shell(`pm clear ${ctx.pkg}`);
   // The notification ask after a take is not this scenario's subject (local-smoke's setup).
   await ctx.shell(`pm grant ${ctx.pkg} android.permission.POST_NOTIFICATIONS`);
-  const page = await ctx.step('fixture: five meds at 08:20, one dose pending yesterday, clock 08:30', async () => {
+  const at0830 = `${ctx.LOCAL_ORIGIN}/?qa=today&clock=08:30`;
+  const page = await ctx.step('fixture: five meds at 08:20, nothing else pending, clock 08:30', async () => {
     const p = await ctx.launchLocal('today');
     // The 23:00 seed boot sets the ledger cut after 08:20, so no 08:20 dose could be generated
     // today. As core-local does: wipe the origin, boot fresh at 07:00 (the cut), then move to 08:30.
@@ -25,8 +26,7 @@ export default async function medsFocus(ctx) {
     await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=07:00`, { waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
     // Only these medications exist: the golden ones (and their pile-up of pending doses) go, so
-    // "+N more pending" can only count the planted yesterday dose. The yesterday dose is a stored
-    // PENDING intake: generation starts at the cut, so the vault is the only way to plant it.
+    // nothing else is pending until the yesterday dose is planted (a later step).
     r.fixture = await p.evaluate(async (names) => {
       window.localStorage.setItem('wg.notifyPermission.asked', '1');
       const vault = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false }));
@@ -40,14 +40,12 @@ export default async function medsFocus(ctx) {
         id: 101 + i, name, dosage: '5 mg', schedule: JSON.stringify({ type: 'daily', times: ['08:20'] }),
         archived: false, supplement: false, start_date: null, end_date: null, tz_shift_policy: 'flexible', created_at: iso(created),
       }));
-      const intakes = [{ medication_id: 101, scheduled_at: iso(yesterday), taken_at: null, status: 'PENDING',
-        snoozed_until: null, source: 'schedule', tz: timezone }];
-      vault.data.medications = { items, intakes, restocks: [], schedules: [], stock: [] };
+      vault.data.medications = { items, intakes: [], restocks: [], schedules: [], stock: [] };
       await window.CloudVault.importAll(JSON.stringify(vault));
       const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      return { timezone, ids: items.map((m) => String(m.id)), yesterday: ymd(yesterday), scheduledAt: intakes[0].scheduled_at };
+      return { timezone, ids: items.map((m) => String(m.id)), yesterday: ymd(yesterday), scheduledAt: iso(yesterday) };
     }, MEDS);
-    await p.goto(`${ctx.LOCAL_ORIGIN}/?qa=today&clock=08:30`, { waitUntil: 'load' });
+    await p.goto(at0830, { waitUntil: 'load' });
     await ctx.waitLocalReady(p, 'today');
     r.clock = await p.evaluate(async () => ({ now: new Date().toString(), pinned: !!Date.wgQAPinned,
       cut: (await (await import('/js/sync.js')).localRecordsPort().list('ledgercut')).map((c) => c.at),
@@ -59,7 +57,9 @@ export default async function medsFocus(ctx) {
   const ids = r.fixture.ids;
   const focusRow = page.locator('#med-timeline-list .wg-tl-focus .wg-timeline__row[data-state="due"]');
 
-  await ctx.step('Meds → Timeline: one 08:20 row naming all five, Skip + Take 5, +1 more pending', async () => {
+  // Meds → Timeline; the focus card must be one 08:20 row of all five with Skip + Take 5, none of
+  // them repeated under Today, and `more` as its "+N more pending" (null: none shown).
+  const assertSlot = async (more, key) => {
     await page.evaluate(() => window.switchTab('meds'));
     await page.locator('.med-tab[data-tab="timeline"]').click();
     await focusRow.first().waitFor({ timeout: 20_000 });
@@ -79,21 +79,37 @@ export default async function medsFocus(ctx) {
           .map((row) => `${row.dataset.state} ${t(row)}`),
       };
     }, ids);
-    const s = (r.before = await timeline());
+    const s = (r[key] = await timeline());
     const [row] = s.rows;
     if (s.rows.length !== 1 || row.date !== today || row.title !== '08:20' || row.medIds.join() !== [...ids].sort().join()) throw new Error(`focus card is not one 08:20 row of the five: ${JSON.stringify(s)}`);
     const missing = MEDS.filter((n) => !row.meta.includes(n));
     if (missing.length) throw new Error(`focus row does not name ${missing}: ${row.meta}`);
     if (row.take !== 'Take 5' || row.skip !== 'Skip') throw new Error(`focus row buttons: ${JSON.stringify(row)}`);
-    if (s.more !== '+1 more pending') throw new Error(`expected "+1 more pending" (yesterday's dose), got ${JSON.stringify(s.more)}`);
+    if (s.more !== more) throw new Error(`expected "+N more pending" ${JSON.stringify(more)}, got ${JSON.stringify(s.more)}`);
     if (s.repeated.length) throw new Error(`the five repeat under Today: ${s.repeated}`);
+    await ctx.stableShot(key);
+  };
+  const yesterdayHead = async () => (await page.locator(`#med-timeline-list section[data-local-date="${r.fixture.yesterday}"] .wg-section__head .wg-meta`).first().textContent()).trim();
+
+  await ctx.step('Meds → Timeline: one 08:20 row naming all five, Skip + Take 5, no "+N more pending"', () => assertSlot(null, 'five-only'));
+
+  await ctx.step('a sixth dose left pending yesterday: "+1 more pending", the card still holds today\'s 08:20', async () => {
+    // A stored PENDING intake: generation starts at the cut, so the vault is the only way to plant it.
+    await page.evaluate(async ({ scheduledAt, timezone }) => {
+      const vault = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false }));
+      vault.data.medications.intakes.push({ medication_id: 101, scheduled_at: scheduledAt, taken_at: null, status: 'PENDING',
+        snoozed_until: null, source: 'schedule', tz: timezone });
+      await window.CloudVault.importAll(JSON.stringify(vault));
+    }, r.fixture);
+    await page.goto(at0830, { waitUntil: 'load' });
+    await ctx.waitLocalReady(page, 'today');
+    await assertSlot('+1 more pending', 'focus-take-5');
     // The +1 is yesterday's planted dose, listed on its own day.
-    r.yesterdayHead = (await page.locator(`#med-timeline-list section[data-local-date="${r.fixture.yesterday}"] .wg-section__head .wg-meta`).first().textContent()).trim();
+    r.yesterdayHead = await yesterdayHead();
     if (r.yesterdayHead !== '1 pending') throw new Error(`yesterday says ${JSON.stringify(r.yesterdayHead)}, not "1 pending"`);
-    await ctx.stableShot('focus-take-5');
   });
 
-  await ctx.step('Take 5 takes all five at once', async () => {
+  await ctx.step('Take 5 takes all five at once, and only them', async () => {
     await focusRow.first().locator('.wg-btn--primary').click();
     await page.waitForFunction(({ ids, today }) => {
       const taken = [...document.querySelectorAll(`#med-timeline-list .wg-timeline__row[data-state="taken"][data-local-date="${today}"]`)]
@@ -105,13 +121,15 @@ export default async function medsFocus(ctx) {
       r.after = await page.evaluate(async ({ ids, today }) => ({
         takenRows: [...document.querySelectorAll(`#med-timeline-list .wg-timeline__row[data-state="taken"][data-local-date="${today}"]`)]
           .map((row) => row.textContent.replace(/\s+/g, ' ').trim()),
-        stillDue: (await window.apiCall('/api/doses?status=due,snoozed'))
-          .filter((d) => ids.includes(String(d.medId)) && d.localDate === today).map((d) => `${d.medId} ${d.localTime}`),
+        due: (await window.apiCall('/api/doses?status=due,snoozed')).map((d) => `${d.medId} ${d.localDate} ${d.localTime}`),
       }), { ids, today });
+      r.after.stillDue = r.after.due.filter((d) => d.includes(` ${today} `));
       if (!r.after.stillDue.length) break;
       if (i === 20) throw new Error(`still due after Take 5: ${r.after.stillDue}`);
       await ctx.sleep(500);
     }
+    // The out-of-slot dose is not part of Take 5: yesterday's stays pending.
+    if (r.after.due.join() !== `101 ${r.fixture.yesterday} 08:20`) throw new Error(`after Take 5 the open doses are ${r.after.due}, not yesterday's alone`);
     await ctx.stableShot('after-take-5');
   });
 }
