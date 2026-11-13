@@ -357,6 +357,36 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/logs/update', 'POST', expect.anything(), expect.anything());
     });
 
+    it('a blank ghost cell ("—") makes its row active and opens the number pad in one tap (kit WR4); a valued ghost still accepts in one tap', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ status: '', source: 'library', sets_completed: 0,
+            reps_completed: 8, weight_kg: 0, exercise_name: 'Band press' })]);
+        window.WorkoutSessionsState.logs[0]._targetSets = 2;
+        window.renderWorkoutSessionLogs(logsEl(document));
+        const cells = (i) => setRows(document)[i].querySelectorAll('.wg-set__cell');
+        const input = () => document.querySelector('.mt-confirm-modal__input');
+        expect(cells(1)[0].firstChild.textContent).toBe('—');
+        expect(setRows(document)[1].classList.contains('wg-set--active')).toBe(false);
+
+        cells(1)[0].click();
+        await vi.waitFor(() => expect(input()).not.toBeNull());
+        expect(setRows(document)[1].classList.contains('wg-set--active')).toBe(true);
+        expect(input().value).toBe(''); // the pad opens empty, as drawn (no "0")
+        input().value = '20';
+        input().dispatchEvent(new window.Event('input'));
+        document.querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => expect(cells(1)[0].firstChild.textContent).toBe('20'));
+        expect(cells(1)[0].classList.contains('wg-set__cell--ghost')).toBe(false);
+        await vi.waitFor(() => expect(input()).toBeNull());
+
+        // The reps cell shows a real default (8): one tap accepts it, no pad.
+        expect(cells(1)[1].classList.contains('wg-set__cell--ghost')).toBe(true);
+        cells(1)[1].click();
+        expect(cells(1)[1].classList.contains('wg-set__cell--ghost')).toBe(false);
+        expect(cells(1)[1].firstChild.textContent).toBe('8');
+        expect(input()).toBeNull();
+    });
+
     // med-rqt5: a weight change carries over to every later pending row.
     it('a pending-row weight change cascades to the later pending rows; ghost-accept and reps do not', async () => {
         const { window, document } = env;

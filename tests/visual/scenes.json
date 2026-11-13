@@ -174,6 +174,16 @@
         { "click": "#workout-session-logs .wg-set__delete" }
       ],
       "ready": [".mt-confirm-modal__confirm"] },
+    { "name": "workout-blank-cell-pad",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "click": "#workout-session-add-btn" },
+        { "fill": "#session-add-exercise-name", "value": "Plank" },
+        { "click": "#session-add-exercise-suggest .wg-row" },
+        { "click": "#notify-permission-sheet [data-notify-choice=\"not-now\"]", "optional": true },
+        { "click": "#workout-session-logs .wg-set__cell--ghost[data-field=\"weight_kg\"]" }
+      ],
+      "ready": [".mt-confirm-modal__input"] },
     { "name": "health-bp", "steps": [{ "tab": "bp" }],
       "ready": ["#bp-view.active", "#bpChart svg"] },
     { "name": "health-vitals", "steps": [{ "tab": "health" }],
@@ -521,6 +531,15 @@
         { "click": "#next-workout-card [data-action=\"skip\"]", "optional": true }, { "click": ".mt-confirm-modal__confirm", "optional": true }
       ],
       "ready": ["#next-workout-card .wg-wn [data-action=\"undo-skip\"]"] },
+    { "name": "today-workout-row-start",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" },
+        { "click": "#next-workout-card [data-action=\"undo-skip\"]", "optional": true },
+        { "click": "#notify-permission-sheet [data-notify-choice=\"not-now\"]", "optional": true },
+        { "tab": "today" },
+        { "click": "#today-content [data-next=\"workout\"][data-action=\"start-workout\"] .wg-row__title" }
+      ],
+      "ready": ["#today-view.active", ".mt-confirm-modal__confirm"] },
     { "name": "workout-next-card-start",
       "steps": [
         { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" },
@@ -531,6 +550,9 @@
     { "name": "workout-next-card-running",
       "steps": [{ "clockAdvance": 25 }, { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }],
       "ready": ["#next-workout-card .wg-wn [data-action=\"continue\"]"] },
+    { "name": "today-workout-row-resume",
+      "steps": [{ "tab": "today" }, { "click": "#today-content [data-next=\"workout\"][data-action=\"resume-workout\"] .wg-row__title" }],
+      "ready": ["#workout-session-modal #workout-session-prog"] },
     { "name": "workout-next-step-empty",
       "steps": [
         { "tab": "workouts" }, { "emptyWorkout": true }, { "click": ".workout-tab[data-tab=\"history\"]" },
