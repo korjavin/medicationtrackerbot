@@ -19,5 +19,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/cloud.shim-contract.meds-history.test.js
   android: manual  # partial: web/static/js/tests/cloud.shim-contract.meds-history.test.js (pending/text logic); no delivered device follow-up, snooze/end-of-chain across channels or cross-device taken-state run
-  ios: manual  # the device-notification half; the Telegram text is built on web
+  ios: web/static/js/tests/cloud.shim-contract.meds-history.test.js  # no device re-fire by design: a due dose gets no device fire (web/domain/reminders.js:544-545, :587-594), relay re-fires are Telegram-only (internal/cloudstore/push.go:399), native pushes are wake kinds only (ios/App/Push.swift:18); the only second device fire is snooze-end (med-4j49). The Telegram text is built and tested on web (med-88x0.7)
 source: [med-lmd6, med-4j49, med-kbpf, med-88x0.7]
