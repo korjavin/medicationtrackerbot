@@ -267,6 +267,12 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (driver.js `flowState`: the rows as shown, plus `targets`, each named
   element's on-screen rect for a coordinate tap); the fake server must have
   received nothing over the run (also asserted by `testLocalFirstRun`).
+  `testMedsFocusWholeSlot` (bd med-88x0.8, twin of Android's `meds-focus`):
+  the `meds-focus-*` scenes replace the meds with five due at 08:20 on the
+  store's first boot (07:00, `medsOnly`), then at 08:30 the Timeline focus
+  card is one 08:20 row of all five with Take 5 and no "+N more pending"; a
+  dose planted pending yesterday (`pendingYesterday`) makes it "+1 more
+  pending"; a native tap on Take 5 takes the five and leaves yesterday's.
 - **Offline account flow** ([`FlowQAOfflineAccountTests.swift`](../ios/UITests/FlowQAOfflineAccountTests.swift),
   bd med-sz4k.6.1, twin of Android's `offline-account`): `testOfflineColdOpen`
   — the golden seed in local mode → "Turn on sync" with the run's second invite

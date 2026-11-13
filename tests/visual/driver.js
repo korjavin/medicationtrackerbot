@@ -1116,6 +1116,10 @@
             await settle();
         } else if (step.myMeds) {
             await myMedsSetup();
+        } else if (step.medsOnly) {
+            await medsOnlySetup(step.medsOnly);
+        } else if (step.pendingYesterday) {
+            await pendingYesterdaySetup(step.pendingYesterday);
         } else {
             throw new Error(`unknown step ${JSON.stringify(step)}`);
         }
@@ -1201,6 +1205,58 @@
         }
         await window.DataStore.invalidateTags(['medications', 'history']);
         await settle();
+    }
+
+    // FlowQACoreLocalTests.testMedsFocusWholeSlot's fixture (bd med-88x0.8,
+    // the seed of android/qa meds-focus.mjs): only `meds` (name → daily
+    // times) exist, created three days ago, with no intakes, so nothing else
+    // is pending. Through the vault import, then one reload; the scene runs
+    // again and finds them. Run it on the first launch, before the slots: a
+    // med's first dose is after the ledger cut, the store's first boot.
+    async function medsOnlySetup(meds) {
+        window.localStorage.setItem('wg.notifyPermission.asked', '1'); // as coreLocalSetup
+        const names = Object.keys(meds);
+        const have = ((await window.apiCall('/api/medications?archived=true')) || []).map((m) => m.name);
+        if (have.length === names.length && names.every((n) => have.includes(n))) return;
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const vault = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false }));
+        vault.data.tz = { current: tz, history: [], transition_plans: [], transitions: [] };
+        vault.data.settings.timezone = tz;
+        const created = new Date();
+        created.setDate(created.getDate() - 3);
+        created.setHours(6, 0, 0, 0);
+        const items = names.map((name, i) => ({
+            id: 101 + i, name, dosage: '5 mg', schedule: JSON.stringify({ type: 'daily', times: meds[name] }),
+            archived: false, supplement: false, start_date: null, end_date: null, tz_shift_policy: 'flexible',
+            created_at: created.toISOString().replace('.000Z', 'Z'),
+        }));
+        vault.data.medications = { items, intakes: [], restocks: [], schedules: [], stock: [] };
+        await window.CloudVault.importAll(JSON.stringify(vault));
+        window.location.reload();
+        await new Promise(() => {}); // the next load runs the scene
+    }
+
+    // A dose of that medication left pending yesterday at `at` (HH:MM): a
+    // stored PENDING intake, since dose generation starts at the ledger cut.
+    // Once: the vault import, then one reload, as medsOnlySetup.
+    async function pendingYesterdaySetup({ med: name, at }) {
+        const vault = JSON.parse(await window.CloudVault.exportAll({ includeSecrets: false }));
+        const meds = vault.data.medications;
+        const med = (meds.items || []).find((m) => m.name === name);
+        if (!med) throw new Error(`pendingYesterday: no medication ${name}`);
+        const day = new Date();
+        day.setDate(day.getDate() - 1);
+        const [h, m] = at.split(':').map(Number);
+        day.setHours(h, m, 0, 0);
+        meds.intakes = meds.intakes || [];
+        if (meds.intakes.some((i) => String(i.medication_id) === String(med.id) && Date.parse(i.scheduled_at) === day.getTime())) return;
+        meds.intakes.push({
+            medication_id: med.id, scheduled_at: day.toISOString().replace('.000Z', 'Z'), taken_at: null, status: 'PENDING',
+            snoozed_until: null, source: 'schedule', tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        });
+        await window.CloudVault.importAll(JSON.stringify(vault));
+        window.location.reload();
+        await new Promise(() => {}); // the next load runs the scene
     }
 
     // jsdom has no layout (every rect is empty), so there "visible" falls back
@@ -1540,6 +1596,7 @@
             modals: all('mt-modal').map((m) => m.id),
             nextUp: all('[data-section="next-up"] .wg-row').map(text),
             focus: all('#med-timeline-list .wg-tl-focus .wg-timeline__row').map((r) => ({ occIds: r.dataset.occIds, medIds: r.dataset.medIds, state: r.dataset.state, text: text(r) })),
+            focusMore: text(firstVisible('#med-timeline-list .wg-tl-focus .wg-tl-focus__label .wg-meta')), // "+N more pending"
             timeline: all('#med-timeline-list .wg-timeline__row').map((r) => ({ medIds: r.dataset.medIds, state: r.dataset.state, date: r.dataset.localDate, text: text(r) })),
             foodKcal: kcal ? text(kcal) : null,
             food: all('#food-list .wg-food-item-row .wg-row__title').map(text),
