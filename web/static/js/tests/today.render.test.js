@@ -474,6 +474,14 @@ describe('Today v2 — Next up', () => {
         expect(env.window.setActiveMedsSubTab).toHaveBeenCalledWith('timeline');
         expect(onDeeplink).toHaveBeenCalledWith('meds');
 
+        // A dose still snoozed in a due slot keeps its snooze: not folded,
+        // never in the bulk pair's doses.
+        foldBulkActions.mockClear();
+        const mixed = [...rows.slice(0, 3), dose('e', 'm2', at(8, 20, -2), 'snoozed', { snoozedUntil: at(15, 0) })];
+        env.render(env.aggregate(bootstrap(mixed), {}, NOW), root, { now: NOW, onDeeplink, slotLabel, foldBulkActions });
+        expect(root.querySelector('[data-next="med-missed-fold"] .wg-row__title').textContent).toBe('3 missed doses');
+        expect(foldBulkActions.mock.calls[0][0].map((d) => d.occId)).toEqual(['a', 'b', 'c']);
+
         // One missed dose: the Log row, unchanged (TD3b).
         env.render(env.aggregate(bootstrap([rows[0], rows[3]]), {}, NOW), root, { now: NOW, onDeeplink, slotLabel, foldBulkActions });
         expect(nextKinds(root)).toEqual(['med-missed', 'med-snoozed']);

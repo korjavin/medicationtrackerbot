@@ -220,7 +220,7 @@
             const at = Date.parse(r.plannedAt);
             if (!Number.isFinite(at)) continue;
             let g = bySlot.get(at);
-            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], due: false, snoozedUntil: null }; bySlot.set(at, g); }
+            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], due: false, snoozedUntil: null, snoozed: [] }; bySlot.set(at, g); }
             g.names.push(medName.get(String(r.medId)) || r.name || 'Medication');
             g.ids.push(r.medId);
             g.intakeIds.push(r.occId);
@@ -229,15 +229,21 @@
             const until = r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : NaN;
             if (until > nowMs) {
                 if (!(Date.parse(g.snoozedUntil) >= until)) g.snoozedUntil = r.snoozedUntil;
+                g.snoozed.push(r.occId);
             } else {
                 g.due = true;
             }
         }
-        // `snoozedUntil` only on a slot whose every dose is snoozed.
+        // `snoozedUntil` only on a slot whose every dose is snoozed; a due
+        // slot names its still-snoozed doses in `snoozedIntakeIds` (the
+        // missed fold leaves them out).
         const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at)
-            .map(({ scheduledAt, names, ids, intakeIds, due, snoozedUntil }) => (due
-                ? { scheduledAt, names, ids, intakeIds }
-                : { scheduledAt, names, ids, intakeIds, snoozedUntil }));
+            .map(({ scheduledAt, names, ids, intakeIds, due, snoozedUntil, snoozed }) => {
+                if (!due) return { scheduledAt, names, ids, intakeIds, snoozedUntil };
+                return snoozed.length
+                    ? { scheduledAt, names, ids, intakeIds, snoozedIntakeIds: snoozed }
+                    : { scheduledAt, names, ids, intakeIds };
+            });
         return cell(groups, 'meds', 'ok');
     }
 
@@ -655,9 +661,11 @@
             // fold into one row with the bulk pair (kit TD3); one stays a row.
             const missedItems = items.filter((it) => it.kind === 'med-missed');
             const doses = [];
-            missedItems.forEach(({ value: g }) => g.ids.forEach((medId, i) => doses.push({
-                occId: g.intakeIds[i], medId, plannedAt: g.scheduledAt, name: g.names[i],
-            })));
+            missedItems.forEach(({ value: g }) => g.ids.forEach((medId, i) => {
+                // A dose still snoozed in a due slot keeps its snooze.
+                if ((g.snoozedIntakeIds || []).includes(g.intakeIds[i])) return;
+                doses.push({ occId: g.intakeIds[i], medId, plannedAt: g.scheduledAt, name: g.names[i] });
+            }));
             if (doses.length >= 2) {
                 const kept = items.filter((it) => it.kind !== 'med-missed');
                 items.length = 0;
