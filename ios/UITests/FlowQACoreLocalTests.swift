@@ -9,7 +9,8 @@ import XCTest
 /// user's part is native: keyboard entry, Save, Take, swipe. Assertions read
 /// the page's state from the driver's report (driver.js flowState), not pixels.
 /// The page clock is pinned per launch (`-wgQAClock`): 07:00 for the existing
-/// schedule, then mid-day, a later minute each launch.
+/// schedule, then mid-day, a later minute each launch. testMedsFocusWholeSlot
+/// is meds-focus-whole-slot (twin of android/qa meds-focus.mjs) on its own store.
 @MainActor
 final class FlowQACoreLocalTests: XCTestCase {
     nonisolated override func setUp() {
@@ -144,6 +145,46 @@ final class FlowQACoreLocalTests: XCTestCase {
         XCTAssertEqual(after.count, receiptsBefore, "the local flows sent requests to the fake sync server: \(QA.json(Array(after.dropFirst(receiptsBefore))))")
     }
 
+    /// testscenarios/common meds-focus-whole-slot (bd med-88x0.8, the seed of
+    /// Android's meds-focus.mjs): five meds all due at 08:20 and nothing else
+    /// pending (the store's first boot at 07:00, so the 08:20 slot is after
+    /// its ledger cut); at 08:30 the focus card holds the whole slot; a dose
+    /// left pending yesterday makes it "+1 more pending"; Take 5 takes the
+    /// five and leaves yesterday's.
+    func testMedsFocusWholeSlot() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launch(app, "meds-focus-seed", clock: "07:00")
+
+        launch(app, "meds-focus", clock: "08:30")
+        var (ok, f) = QA.waitFlow(app) { Self.wholeSlot($0, more: nil) }
+        XCTAssertTrue(ok, "the focus card is not one 08:20 row of all five with Skip + Take 5 and no \"+N more pending\", or a dose repeats under Today: \(QA.json(f))")
+        shot("meds-focus", "five-only")
+
+        launch(app, "meds-focus-yesterday", clock: "08:31")
+        (ok, f) = QA.waitFlow(app) { Self.wholeSlot($0, more: "+1 more pending") }
+        XCTAssertTrue(ok, "with a dose left pending yesterday the card is not today's 08:20 slot with \"+1 more pending\": \(QA.json(f))")
+        shot("meds-focus", "plus-one-more")
+        // The Timeline's Take is one tap; a confirm sheet, if one opens, is confirmed.
+        // The target is the row naming Metformin: once taken it is gone, so no retap lands on yesterday's.
+        let loads = QA.report(app)?["loads"] as? Int
+        (ok, f) = QA.tapTarget(app, "take", until: { Self.fiveTaken($0) || QA.target($0, "confirm") != nil })
+        XCTAssertTrue(ok, "Take 5 neither took the five nor opened a confirm sheet: \(QA.json(f))")
+        if QA.target(f, "confirm") != nil {
+            (ok, f) = QA.tapTarget(app, "confirm", timeout: 5, until: { Self.fiveTaken($0) })
+        }
+        XCTAssertTrue(ok, "after Take 5 the Timeline does not show all five \"Taken 08:3x\" today: \(QA.json(f))")
+        XCTAssertEqual(QA.report(app)?["loads"] as? Int, loads, "Take 5 reloaded the page")
+        // Only the five: yesterday's dose is the card's pending slot now.
+        (ok, f) = QA.waitFlow(app, timeout: 10) { g in
+            let focus = g["focus"] as? [[String: Any]] ?? []
+            return focus.count == 1 && Self.text(focus[0]).contains("Amlodipine") && !Self.text(focus[0]).contains("Metformin")
+        }
+        XCTAssertTrue(ok, "after Take 5 the card does not hold yesterday's Amlodipine alone: \(QA.json(f))")
+        attach("meds-focus-after", f ?? [:])
+        shot("meds-focus", "after-take-5")
+    }
+
     // MARK: Steps
 
     /// Launches local mode on a flow scene at that page clock; the report says ok.
@@ -243,6 +284,35 @@ final class FlowQACoreLocalTests: XCTestCase {
             return $0["date"] as? String == f["today"] as? String && text.contains("QA B1 Dose")
                 && text.range(of: #"Taken 10:0\d"#, options: .regularExpression) != nil
         }
+    }
+
+    private static let focusMeds = ["Amlodipine", "Metformin", "Atorvastatin", "Levothyroxine", "Omeprazole"]
+
+    private static func text(_ row: [String: Any]) -> String {
+        row["text"] as? String ?? ""
+    }
+
+    /// The focus card is one due 08:20 row naming all five with Skip and Take 5,
+    /// `more` its "+N more pending" (nil: none shown), and no other row of
+    /// today carries one of the five.
+    private static func wholeSlot(_ f: [String: Any], more: String?) -> Bool {
+        let focus = f["focus"] as? [[String: Any]] ?? []
+        guard focus.count == 1, focus[0]["state"] as? String == "due", f["focusMore"] as? String == more else { return false }
+        let row = text(focus[0])
+        let today = (f["timeline"] as? [[String: Any]] ?? []).filter { r in
+            r["date"] as? String == f["today"] as? String && focusMeds.contains { name in text(r).contains(name) }
+        }
+        return row.contains("08:20") && row.contains("Skip") && row.contains("Take 5")
+            && focusMeds.allSatisfy { name in row.contains(name) } && today.count == 1
+    }
+
+    /// Each of the five is in a row of today "Taken 08:3x".
+    private static func fiveTaken(_ f: [String: Any]) -> Bool {
+        let taken = (f["timeline"] as? [[String: Any]] ?? []).filter { r in
+            r["date"] as? String == f["today"] as? String && r["state"] as? String == "taken"
+                && text(r).range(of: #"Taken 08:3\d"#, options: .regularExpression) != nil
+        }
+        return focusMeds.allSatisfy { name in taken.contains { r in text(r).contains(name) } }
     }
 
     /// A list of the flow state as texts (rows that are {text} objects too).
