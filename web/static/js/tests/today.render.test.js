@@ -137,12 +137,12 @@ describe('Today v2 — Next up', () => {
         const only = primaries(root);
         expect(only).toHaveLength(1);
         expect(only[0].getAttribute('data-action')).toBe('tz-plan-apply');
-        expect(root.querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(false);
+        expect(root.querySelector('.wg-btn[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(false);
 
         awaiting = false;
         env.render(s, root, { now: NOW });
         expect(primaries(root)).toHaveLength(1);
-        expect(root.querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(true);
+        expect(root.querySelector('.wg-btn[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(true);
     });
 
     it('missed dose, then the due workout, then later meds — with exactly one sun action', () => {
@@ -167,8 +167,8 @@ describe('Today v2 — Next up', () => {
         const sun = primaries(root);
         expect(sun.length).toBe(1);
         expect(sun[0].getAttribute('data-action')).toBe('start-workout');
-        // The no-goal card stays a plain button while Next up owns the sun.
-        expect(root.querySelector('[data-action="set-goal"]').classList.contains('wg-btn--primary')).toBe(false);
+        // No "Set goal" card on Today (med-ge9q): Health → Weight owns the goal.
+        expect(root.querySelector('[data-action="set-goal"]')).toBeNull();
         expect(root.querySelector('[data-section="next-up"] .wg-section__head .wg-meta').textContent).toBe('3 due');
     });
 
@@ -187,7 +187,7 @@ describe('Today v2 — Next up', () => {
         env.render(busyState(), root, { now: NOW });
         root.querySelector('[data-action="log-missed"]').click();
         root.querySelector('[data-action="take"]').click();
-        root.querySelector('[data-action="start-workout"]').click();
+        root.querySelector('.wg-btn[data-action="start-workout"]').click();
         expect(env.window.showMedicationConfirmModal.mock.calls).toEqual([
             [[3], ['Allopurinol'], MISSED.scheduledAt, 'confirm', ['i-31']],
             [[4, 5, 6], LATER.names, LATER.scheduledAt, 'confirm', []]
@@ -197,7 +197,7 @@ describe('Today v2 — Next up', () => {
         const s = busyState();
         s.nextWorkout.value.status = 'in_progress';
         env.render(s, root, { now: NOW });
-        root.querySelector('[data-action="resume-workout"]').click();
+        root.querySelector('.wg-btn[data-action="resume-workout"]').click();
         expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
     });
 
@@ -231,40 +231,78 @@ describe('Today v2 — Next up', () => {
         expect(ids(trailOf({ ...WORKOUT_TODAY, status: 'completed' }))).toEqual(['view-workout']);
     });
 
-    it('tapping the workout row does what View does; its buttons keep their own actions', () => {
+    it('tapping today\'s workout row starts or resumes it (kit WR1); its buttons keep their own actions', () => {
         env.window.WorkoutNextCard = { openEdit: vi.fn() };
         env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
         const onDeeplink = vi.fn();
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, group_id: 3, variant_id: 11 };
         env.render(s, root, { now: NOW, onDeeplink });
-        const row = root.querySelector('[data-next="workout"]');
-        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        let row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('start-workout');
+        expect(row.getAttribute('aria-label')).toBe('Start Daily split');
         expect(row.getAttribute('role')).toBe('button');
 
-        row.querySelector('[data-action="start-workout"]').click();
+        // Pending today: the row tap is Start (WorkoutSessions.start keeps its confirm, WR2).
+        row.querySelector('.wg-row__title').click();
         expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
         expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
+        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(2);
 
-        row.querySelector('.wg-row__title').click();
+        // Buttons are not double-fired by the row handler.
+        row.querySelector('.wg-btn[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(3);
+        row.querySelector('[data-action="view-workout"]').click();
         expect(onDeeplink).toHaveBeenCalledWith('workouts');
         expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledWith(11, 3);
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(3);
 
-        // View is not double-fired by the row handler.
-        row.querySelector('[data-action="view-workout"]').click();
+        // In progress today: the row tap is Resume.
+        s.nextWorkout.value = { ...s.nextWorkout.value, status: 'in_progress' };
+        env.render(s, root, { now: NOW, onDeeplink });
+        row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('resume-workout');
+        expect(row.getAttribute('aria-label')).toBe('Resume Daily split');
+        row.querySelector('.wg-row__title').click();
+        expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
+        row.querySelector('.wg-btn[data-action="resume-workout"]').click();
+        expect(env.window.WorkoutSessions.open).toHaveBeenCalledTimes(2);
+
+        // Finished today: the row tap opens the plan day, as View does.
+        s.nextWorkout.value = { ...s.nextWorkout.value, status: 'completed' };
+        env.render(s, root, { now: NOW, onDeeplink });
+        row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        row.querySelector('.wg-row__title').click();
         expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(2);
-
-        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(3);
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(3);
     });
 
-    it('an ad-hoc session row (no plan) taps through to Workouts without opening a plan', () => {
+    it('a later day\'s workout row tap opens the plan day and never starts it (med-gmyf early start stays on the button)', () => {
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
+        const onDeeplink = vi.fn();
+        const s = busyState();
+        s.nextWorkout.value = { ...WORKOUT_TODAY, is_today: false, scheduled_date: '2026-04-22', group_id: 3, variant_id: 11 };
+        env.render(s, root, { now: NOW, onDeeplink });
+        const row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        row.querySelector('.wg-row__title').click();
+        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(2);
+        expect(env.window.WorkoutSessions.start).not.toHaveBeenCalled();
+        row.querySelector('.wg-btn[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
+    });
+
+    it('an ad-hoc session row (no plan): View goes to Workouts without opening a plan', () => {
         env.window.WorkoutNextCard = { openEdit: vi.fn() };
         const onDeeplink = vi.fn();
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, status: 'in_progress', group_id: -1, variant_id: -1 };
         env.render(s, root, { now: NOW, onDeeplink });
-        root.querySelector('[data-next="workout"] .wg-row__title').click();
+        root.querySelector('[data-next="workout"] [data-action="view-workout"]').click();
         expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
         expect(onDeeplink).toHaveBeenCalledWith('workouts');
     });
@@ -361,25 +399,21 @@ describe('Today v2 — Next up', () => {
         expect(nextKinds(root)).toEqual(['med-missed']);
     });
 
-    it('first run: with nothing scheduled Add medication is the single sun, not the goal card (O2, med-ckm5.3)', () => {
+    it('first run: with nothing scheduled Add medication is the single sun (O2, med-ckm5.3)', () => {
         const s = baseState();
         s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
-        const onDeeplink = vi.fn();
-        env.render(s, root, { now: NOW, onDeeplink });
-        const sun = primaries(root);
-        expect(sun.map((b) => b.textContent)).toEqual(['Add medication']);
-        const setGoal = root.querySelector('[data-action="set-goal"]');
-        expect(setGoal.classList.contains('wg-btn--primary')).toBe(false);
-        setGoal.click();
-        expect(onDeeplink).toHaveBeenCalledWith('weight');
+        env.render(s, root, { now: NOW });
+        expect(primaries(root).map((b) => b.textContent)).toEqual(['Add medication']);
+        expect(root.querySelector('[data-action="set-goal"]')).toBeNull();
     });
 
-    it('first run with meds off: no sun from Next up, so the goal card keeps it', () => {
+    it('first run with meds off: no sun from Next up and no "Set goal" fallback sun (med-ge9q)', () => {
         const s = baseState();
         s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
         s.nextMed = { status: 'disabled' };
         env.render(s, root, { now: NOW });
-        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['set-goal']);
+        expect(primaries(root)).toEqual([]);
+        expect(root.querySelector('[data-section="goal-line"]')).toBeNull();
     });
 
     // bd med-ckm5.3 (O2, shot 33): the last card ends the 24px reserve above the
@@ -493,37 +527,90 @@ describe('Today v2 — Next up', () => {
     });
 });
 
-describe('Today v2 — Log sheet', () => {
+// One Log sheet (kit LS1–LS4, med-aa18.4): Today's Log opens the food Add
+// sheet with the other kinds; the sheet itself is covered by
+// food.add-sheet.test.js ("One Log sheet").
+describe('Today v2 — Log', () => {
     let env;
     let root;
     beforeEach(() => { env = loadRenderEnv(); root = env.document.getElementById('today-content'); });
     afterEach(() => { env.cleanup(); });
 
-    const sheet = () => env.document.getElementById('today-log-sheet');
-    const tiles = () => Array.from(sheet().querySelectorAll('[data-log]')).map((t) => t.getAttribute('data-log'));
     const open = () => root.querySelector('[data-action="open-log"]').click();
+    const ASNEEDED = [{ id: 9, name: 'Ibuprofen' }];
+    const handlers = (extra) => ({ now: NOW, onLogFood: vi.fn(), onAddBp: vi.fn(), onAddWeight: vi.fn(), onAddNote: vi.fn(), asNeededMeds: () => [], ...extra });
+    const medsOn = (s) => { s.nextMed = { value: null, deeplink: 'meds', status: 'missing' }; return s; };
+    const sent = (h) => h.onLogFood.mock.calls[0][0];
+    const ids = (o) => o.kinds.map((k) => k.id);
 
-    it('opens a kit sheet: food fast paths first, then BP / Weight / Note', () => {
-        env.render(baseState(), root, { now: NOW });
+    it('opens the food Add sheet from Today with BP · Weight · Note, each running its own opener', () => {
+        const h = handlers();
+        env.render(baseState(), root, h);
         open();
-        const s = sheet();
-        expect(s.classList.contains('wg-sheet')).toBe(true);
-        expect(s.classList.contains('hidden')).toBe(false);
-        expect(s.querySelector('.wg-sheethead__title').textContent).toBe('Log');
-        expect(tiles()).toEqual(['food-search', 'food-photo', 'food-library', 'food-scan', 'food-describe', 'bp', 'weight', 'note']);
-        const eyebrows = Array.from(s.querySelectorAll('.wg-sheet__body > .wg-eyebrow')).map((n) => n.textContent);
-        expect(eyebrows).toEqual(['Food', 'Measurements & notes']);
-        expect(s.querySelector('.wg-actions--3 [data-log="bp"]')).not.toBeNull();
+        expect(h.onLogFood).toHaveBeenCalledTimes(1);
+        const o = sent(h);
+        expect(o).toEqual(expect.objectContaining({ from: 'today', food: true, view: 'home' }));
+        expect(ids(o)).toEqual(['bp', 'weight', 'note']);
+        o.kinds.forEach((k) => k.run());
+        expect(h.onAddBp).toHaveBeenCalledTimes(1);
+        expect(h.onAddWeight).toHaveBeenCalledTimes(1);
+        expect(h.onAddNote).toHaveBeenCalledTimes(1);
+        // No sheet of Today's own any more.
+        expect(env.document.getElementById('today-log-sheet')).toBeNull();
     });
 
-    it('disabled features drop out of the grid', () => {
+    it('Med shows only with Meds on and a When needed med, between Weight and Note', () => {
+        let h = handlers({ asNeededMeds: () => ASNEEDED });
+        env.render(medsOn(baseState()), root, h);
+        open();
+        expect(ids(sent(h))).toEqual(['bp', 'weight', 'med', 'note']);
+
+        h = handlers();
+        env.render(medsOn(baseState()), root, h);
+        open();
+        expect(ids(sent(h))).not.toContain('med');
+
+        const off = baseState();
+        off.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
+        h = handlers({ asNeededMeds: () => ASNEEDED });
+        env.render(off, root, h);
+        open();
+        expect(ids(sent(h))).not.toContain('med');
+    });
+
+    it('a kind whose feature is off drops out', () => {
+        const s = baseState();
+        s.weightLatest = { value: null, deeplink: 'weight', status: 'disabled' };
+        s.sleepLastNight = { value: null, deeplink: 'health', status: 'disabled' };
+        const h = handlers();
+        env.render(s, root, h);
+        open();
+        expect(ids(sent(h))).toEqual(['bp']);
+    });
+
+    it('Food off: the kinds become the sheet; exactly one kind opens its form directly', () => {
         const s = baseState();
         s.caloriesToday = { value: null, deeplink: 'food', status: 'disabled' };
-        s.weightLatest = { value: null, deeplink: 'weight', status: 'disabled' };
-        env.render(s, root, { now: NOW });
+        let h = handlers();
+        env.render(s, root, h);
         open();
-        expect(tiles()).toEqual(['bp', 'note']);
-        expect(sheet().querySelector('.wg-sheet__body').textContent).not.toContain('Food');
+        expect(sent(h)).toEqual(expect.objectContaining({ from: 'today', food: false, view: 'home' }));
+        expect(ids(sent(h))).toEqual(['bp', 'weight', 'note']);
+
+        const one = disabledState();
+        one.bpLatest = baseState().bpLatest;
+        h = handlers();
+        env.render(one, root, h);
+        open();
+        expect(h.onAddBp).toHaveBeenCalledTimes(1);
+        expect(h.onLogFood).not.toHaveBeenCalled();
+
+        // Med the one kind: the sheet's Med pane is that form.
+        const med = medsOn(disabledState());
+        h = handlers({ asNeededMeds: () => ASNEEDED });
+        env.render(med, root, h);
+        open();
+        expect(sent(h)).toEqual(expect.objectContaining({ food: false, view: 'med' }));
     });
 
     it('every feature that can log is off → no Log button', () => {
@@ -531,82 +618,34 @@ describe('Today v2 — Log sheet', () => {
         expect(root.querySelector('[data-action="open-log"]')).toBeNull();
     });
 
-    it('each tile closes the sheet and runs the same opener as before', () => {
-        const h = {
-            onLogFood: vi.fn(), onPhotoMeal: vi.fn(), onLibraryMeal: vi.fn(), onScanFood: vi.fn(), onDescribeFood: vi.fn(),
-            onAddBp: vi.fn(), onAddWeight: vi.fn(), onAddNote: vi.fn()
-        };
-        env.render(baseState(), root, { now: NOW, ...h });
-        const expected = {
-            'food-search': h.onLogFood, 'food-photo': h.onPhotoMeal, 'food-library': h.onLibraryMeal, 'food-scan': h.onScanFood,
-            'food-describe': h.onDescribeFood, bp: h.onAddBp, weight: h.onAddWeight, note: h.onAddNote
-        };
-        for (const [id, fn] of Object.entries(expected)) {
-            open();
-            sheet().querySelector(`[data-log="${id}"]`).click();
-            expect(sheet().classList.contains('hidden')).toBe(true);
-            expect(fn).toHaveBeenCalledTimes(1);
-        }
-    });
-
-    it('opens and closes through ModalManager so Back / Esc reach it', () => {
-        const mm = {
-            register: vi.fn(),
-            open: vi.fn((id) => env.document.getElementById(id).classList.remove('hidden')),
-            close: vi.fn((id) => env.document.getElementById(id).classList.add('hidden'))
-        };
-        env.window.ModalManager = mm;
-        env.render(baseState(), root, { now: NOW });
-        open();
-        expect(mm.register).toHaveBeenCalledWith('today-log-sheet', expect.any(Function));
-        expect(mm.open).toHaveBeenCalledWith('today-log-sheet');
-        sheet().querySelector('[data-action="close"]').click();
-        expect(mm.close).toHaveBeenCalledWith('today-log-sheet');
-        expect(sheet().classList.contains('hidden')).toBe(true);
-        // Re-opening reuses the one sheet node.
-        open();
-        expect(env.document.querySelectorAll('#today-log-sheet').length).toBe(1);
-    });
-
-    it('default openers: the food Add sheet, its scanner and photo picker, AI describe, BP / weight forms, the notes composer', () => {
+    it('default openers: showAddFoodModal gets the Today options; BP / weight forms; the notes composer', () => {
         const w = env.window;
         w.showAddFoodModal = vi.fn();
-        w.FoodLog = { openAdd: vi.fn(), addSheet: { openDescribe: vi.fn() } };
-        w.FoodScanner = { openFoodScannerModal: vi.fn() };
-        w.FoodActions = { triggerPhotoPicker: vi.fn() };
         w.showBPRecordModal = vi.fn();
         w.showWeightModal = vi.fn();
         w.switchTab = vi.fn();
+        w.asNeededMeds = () => ASNEEDED;
         const notesTab = env.document.createElement('button');
         notesTab.className = 'health-tab';
         notesTab.setAttribute('data-tab', 'notes');
         notesTab.addEventListener('click', w.notesClicked = vi.fn());
         env.document.body.appendChild(notesTab);
 
-        env.render(baseState(), root, { now: NOW });
-        const tap = (id) => { open(); sheet().querySelector(`[data-log="${id}"]`).click(); };
-        tap('food-search');
+        env.render(medsOn(baseState()), root, { now: NOW });
+        open();
         expect(w.showAddFoodModal).toHaveBeenCalledTimes(1);
-        tap('food-scan');
-        expect(w.FoodLog.openAdd).toHaveBeenCalledTimes(1);
-        expect(w.FoodScanner.openFoodScannerModal).toHaveBeenCalledTimes(1);
-        tap('food-photo');
-        expect(w.FoodActions.triggerPhotoPicker).toHaveBeenCalledTimes(1);
-        tap('food-library');
-        expect(w.FoodActions.triggerPhotoPicker).toHaveBeenLastCalledWith({ gallery: true });
-        tap('food-describe');
-        expect(w.FoodLog.addSheet.openDescribe).toHaveBeenCalledTimes(1);
-        expect(w.showAddFoodModal).toHaveBeenCalledTimes(1);
-        tap('bp');
+        const o = w.showAddFoodModal.mock.calls[0][0];
+        expect(o.from).toBe('today');
+        expect(ids(o)).toEqual(['bp', 'weight', 'med', 'note']);
+        const run = (id) => o.kinds.find((k) => k.id === id).run();
+        run('bp');
         expect(w.showBPRecordModal).toHaveBeenCalledTimes(1);
-        tap('weight');
+        run('weight');
         expect(w.showWeightModal).toHaveBeenCalledTimes(1);
-        tap('note');
+        run('note');
         expect(w.switchTab).toHaveBeenCalledWith('health');
         expect(w.notesClicked).toHaveBeenCalledTimes(1);
-        // None of these is a bare tab switch to the feature tab.
         expect(w.switchTab).not.toHaveBeenCalledWith('food');
-        expect(w.switchTab).not.toHaveBeenCalledWith('bp');
     });
 });
 
@@ -651,9 +690,8 @@ describe('Today v2 — states (T4–T6) and offline', () => {
 
     it('offline: cached values carry a stale "cached" chip', () => {
         const s = baseState();
-        s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload() }, NOW).goalLine;
         env.render(s, root, { now: NOW, offline: true });
-        for (const sel of ['[data-section="bp"]', '[data-section="weight"]', '[data-section="goal-line"]']) {
+        for (const sel of ['[data-section="bp"]', '[data-section="weight"]']) {
             const c = root.querySelector(`${sel} .wg-chip--stale`);
             expect(c, sel).not.toBeNull();
             expect(c.textContent).toBe('cached');
@@ -715,7 +753,10 @@ describe('Today v2 — states (T4–T6) and offline', () => {
     });
 });
 
-describe('Today v2 — Goal Line', () => {
+// med-ge9q: Today renders no weight-goal card in any goal state — Health →
+// Weight owns the goal. The Goal Line payload's adherence alert keeps a plain
+// card whenever active, ED-safe or not.
+describe('Today v2 — no Goal Line card; the adherence alert stays', () => {
     let env;
     let root;
     beforeEach(() => { env = loadRenderEnv(); root = env.document.getElementById('today-content'); });
@@ -728,173 +769,49 @@ describe('Today v2 — Goal Line', () => {
     }
     const card = () => root.querySelector('[data-section="goal-line"]');
 
-    it('ok: current → target, a marker track with a pin, three numbers; tap opens Journey', () => {
-        const onAddWeight = vi.fn();
-        const onDeeplink = vi.fn();
-        env.render(goalLineState(goalLinePayload()), root, { now: NOW, onAddWeight, onDeeplink });
-
-        const c = card();
-        expect(c.getAttribute('data-status')).toBe('ok');
-        const values = c.querySelectorAll('.wg-stat__value');
-        expect(values[0].textContent).toBe('82.4');
-        expect(values[1].classList.contains('wg-sun')).toBe(true);
-        expect(values[1].textContent).toBe('78.0kg');
-        const track = c.querySelector('.wg-track');
-        expect(track.style.getPropertyValue('--p')).toBe('45.0%');
-        expect(track.style.getPropertyValue('--n')).toBe('8');
-        expect(track.querySelector('.wg-track__fill')).not.toBeNull();
-        expect(track.querySelector('.wg-track__pin').style.getPropertyValue('--p')).toBe('50.0%');
-        const ends = Array.from(c.querySelectorAll('.wg-track__ends > span')).map((n) => n.textContent);
-        expect(ends).toEqual(['start 86.0', 'next 82.0', '3 / 8']);
-        const weekChip = c.querySelector('.wg-hstack .wg-chip');
-        expect(weekChip.textContent).toBe('−0.4 kg · 7d');
-        expect(weekChip.classList.contains('wg-chip--warn')).toBe(false);
-        // No HP, level, Health Score or rings, and no Bootstrap buttons.
-        expect(c.textContent).not.toMatch(/\bHP\b|Lvl|Health Score|rings/i);
-        expect(root.querySelector('.btn')).toBeNull();
-
-        c.querySelector('[data-action="weigh-in"]').click();
-        expect(onAddWeight).toHaveBeenCalledTimes(1);
-        expect(onDeeplink).not.toHaveBeenCalled();
-        c.click();
-        expect(onDeeplink).toHaveBeenCalledWith('journey');
-        onDeeplink.mockClear();
-        c.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        expect(onDeeplink).toHaveBeenCalledWith('journey');
-    });
-
-    it('moving away from the target this week → a warn chip, never praise the other way', () => {
-        env.render(goalLineState(goalLinePayload({ change_7d: 1.1 })), root, { now: NOW });
-        const chip = card().querySelector('.wg-hstack .wg-chip');
-        expect(chip.textContent).toBe('+1.1 kg · 7d');
-        expect(chip.classList.contains('wg-chip--warn')).toBe(true);
-    });
-
-    it('shows the chosen intention + cadence, or "Paused this week"', () => {
-        env.render(goalLineState(goalLinePayload({}, {
-            plan: { paused: false, intention: { text: 'Stop eating after dinner' }, cadence: { weigh_in: 'daily', bp_days: 3 } }
-        })), root, { now: NOW });
-        expect(card().querySelector('[data-fact="plan"]').textContent)
-            .toBe('This week · Stop eating after dinner · weigh-in daily · BP 3 days');
-        env.render(goalLineState(goalLinePayload({}, { plan: { paused: true } })), root, { now: NOW });
-        expect(card().querySelector('[data-fact="plan"]').textContent).toBe('Paused this week');
-    });
-
-    it('no_goal with the Weight feature off: no dead "Set a weight goal" card', () => {
-        const state = baseState();
-        state.goalLine = env.aggregate({ features: { gamification: true, weight: false } },
-            { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
-        env.render(state, root, { now: NOW });
+    it.each([
+        ['no_goal', goalLinePayload({ status: 'no_goal' })],
+        ['ok with weigh-in CTA', goalLinePayload()],
+        ['preliminary', goalLinePayload({ status: 'preliminary', trend_weight: null })],
+        ['at_goal', goalLinePayload({ status: 'at_goal', trend_weight: 78.2, next_milestone: null })],
+        ['maintaining', goalLinePayload({ status: 'maintaining', trend_weight: 77.9, next_milestone: null })],
+        ['too_fast', goalLinePayload({ too_fast: true })],
+        ['a pending milestone + plan', goalLinePayload({}, {
+            milestone: { id: 'gamificationmilestone-weightgoal-1-4', title: 'Halfway to your weight goal' },
+            plan: { paused: true },
+        })],
+    ])('%s → no goal card, no goal controls, no Goal Line copy', (_name, payload) => {
+        env.render(goalLineState(payload), root, { now: NOW });
         expect(card()).toBeNull();
+        for (const a of ['set-goal', 'weigh-in', 'ack-milestone']) expect(root.querySelector(`[data-action="${a}"]`), a).toBeNull();
+        expect(root.querySelector('[data-milestone-id]')).toBeNull();
+        expect(root.textContent).not.toMatch(/Goal line|Set a weight goal|1% a week|Paused this week/);
+        expect(root.querySelector('[data-section="adherence-alert"]')).toBeNull();
     });
 
-    it('missed-dose safety net: an active adherence alert renders one link to Meds; inactive renders nothing', () => {
+    it('an active adherence alert (ED-safe off) → the plain alert card, one link to Meds; inactive renders nothing', () => {
         const onDeeplink = vi.fn();
         env.render(goalLineState(goalLinePayload({}, { adherence_alert: { active: true, pdc: 0.72, missed_doses: 2 } })), root, { now: NOW, onDeeplink });
-        const nudge = root.querySelector('.wg-today-goal__adherence');
+        const alertCard = root.querySelector('[data-section="adherence-alert"]');
+        expect(alertCard.classList.contains('wg-card')).toBe(true);
+        const nudge = alertCard.querySelector('.wg-today-goal__adherence');
         expect(nudge.textContent).toBe('2 missed doses recently — worth a look');
+        expect(alertCard.textContent).not.toMatch(/78|82|kg/);
         nudge.click();
         expect(onDeeplink).toHaveBeenCalledWith('meds');
         expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+        expect(card()).toBeNull();
 
         env.render(goalLineState(goalLinePayload({}, { adherence_alert: { active: false, pdc: 0.95, missed_doses: 1 } })), root, { now: NOW });
-        expect(root.querySelector('.wg-today-goal__adherence')).toBeNull();
+        expect(root.querySelector('[data-section="adherence-alert"]')).toBeNull();
     });
 
-    const MILESTONE = {
-        id: 'gamificationmilestone-weightgoal-1-4', ordinal: 4, count: 8, is_halfway: true, is_goal: false,
-        earned_at: '2026-06-10', title: 'Halfway to your weight goal',
-    };
-
-    it('milestone: one line with "Got it" that acks without opening Journey; none without a milestone', () => {
-        const onDeeplink = vi.fn();
-        const onAckMilestone = vi.fn();
-        env.render(goalLineState(goalLinePayload({}, { milestone: MILESTONE })), root, { now: NOW, onDeeplink, onAckMilestone });
-        const row = root.querySelector(`[data-milestone-id="${MILESTONE.id}"]`);
-        expect(row.textContent).toContain('Halfway to your weight goal');
-        const ack = row.querySelector('[data-action="ack-milestone"]');
-        expect(ack.classList.contains('wg-btn')).toBe(true);
-        ack.click();
-        expect(onAckMilestone).toHaveBeenCalledWith(MILESTONE.id);
-        expect(onDeeplink).not.toHaveBeenCalled();
-
-        env.render(goalLineState(goalLinePayload({}, { milestone: null })), root, { now: NOW, onAckMilestone });
-        expect(root.querySelector('[data-milestone-id]')).toBeNull();
-    });
-
-    it('milestone default ack: optimistic milestone:null on the Goal Line cache, POST ack, commit (rollback on failure)', async () => {
-        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
-        let projected = null;
-        env.window.DataStore = {
-            applyOptimistic: vi.fn(async (key, mutator) => { projected = mutator({ goal: {}, milestone: MILESTONE }); return handle; }),
-        };
-        env.window.offlineAwareApiCall = vi.fn(async () => ({ ok: true }));
-        const click = async () => {
-            env.render(goalLineState(goalLinePayload({}, { milestone: MILESTONE })), root, { now: NOW });
-            root.querySelector('[data-action="ack-milestone"]').click();
-            await vi.waitFor(() => expect(handle.commit.mock.calls.length + handle.rollback.mock.calls.length).toBeGreaterThan(0));
-        };
-
-        await click();
-        expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_goal_line', expect.any(Function), ['gamification']);
-        expect(projected).toEqual({ goal: {}, milestone: null });
-        expect(env.window.offlineAwareApiCall).toHaveBeenCalledWith(`/api/gamification/milestones/${encodeURIComponent(MILESTONE.id)}/ack`, 'POST');
-        expect(handle.commit).toHaveBeenCalledWith(null);
-        expect(handle.rollback).not.toHaveBeenCalled();
-
-        handle.commit.mockClear();
-        env.window.offlineAwareApiCall = vi.fn(async () => ({ ok: false, error: 'not_found' }));
-        await click();
-        expect(handle.rollback).toHaveBeenCalled();
-        expect(handle.commit).not.toHaveBeenCalled();
-    });
-
-    it('preliminary: the latest reading, how many weigh-ins until a trend, no track', () => {
-        const payload = goalLinePayload({
-            status: 'preliminary', trend_weight: null, change_7d: null, next_milestone: null, start_ref_source: 'first_reading',
-            latest_reading: { weight: 82.9, measured_at: '2026-04-19T07:00:00Z' },
-            coverage: { weigh_in_days_28d: 3, last_weigh_in_day: '2026-04-19', min_weigh_in_days: 5 }
-        });
-        env.render(goalLineState(payload), root, { now: NOW });
-        expect(card().textContent).toContain('Latest 82.9 kg · trend forms after 2 more weigh-ins');
-        expect(card().querySelector('.wg-track')).toBeNull();
-        expect(card().textContent).not.toContain('7d');
-    });
-
-    it('at_goal and maintaining get explicit copy, no track', () => {
-        env.render(goalLineState(goalLinePayload({ status: 'at_goal', trend_weight: 78.2, next_milestone: null })), root, { now: NOW });
-        expect(card().textContent).toContain('At your goal — trend has reached 78.0 kg');
-        expect(card().querySelector('.wg-track')).toBeNull();
-
-        env.render(goalLineState(goalLinePayload({ status: 'maintaining', trend_weight: 77.9, next_milestone: null })), root, { now: NOW });
-        expect(card().textContent).toContain('Maintaining your goal — trend holding at 78.0 kg');
-    });
-
-    it('too_fast: one calm safety line, never praise', () => {
-        env.render(goalLineState(goalLinePayload({ too_fast: true })), root, { now: NOW });
-        const c = card();
-        const lines = Array.from(c.querySelectorAll('.wg-hint')).filter((n) => n.textContent.includes('1% a week'));
-        expect(lines.length).toBe(1);
-        expect(lines[0].textContent).toBe('Faster than 1% a week — worth checking with your doctor.');
-        expect(c.textContent).not.toMatch(/great|nice|well done|on pace|ahead/i);
-    });
-
-    it('start_session lives in Next up now: the goal card renders no session button; cta none → no button', () => {
-        env.render(goalLineState(goalLinePayload({}, { cta: 'start_session', weighed_today: true })), root, { now: NOW });
-        expect(card().querySelector('[data-action="start-session"]')).toBeNull();
-        expect(card().querySelector('.wg-btn')).toBeNull();
-        env.render(goalLineState(goalLinePayload({}, { cta: 'none', weighed_today: true })), root, { now: NOW });
-        expect(card().querySelector('.wg-btn')).toBeNull();
-    });
-
-    it('gamification off (flag or payload) → no card at all', () => {
+    it('gamification flag off → no alert card either', () => {
         const off = baseState();
-        off.goalLine = env.aggregate({ features: { gamification: false } }, { gamification_goal_line: goalLinePayload() }, NOW).goalLine;
+        off.goalLine = env.aggregate({ features: { gamification: false } },
+            { gamification_goal_line: goalLinePayload({}, { adherence_alert: { active: true, pdc: 0.6, missed_doses: 3 } }) }, NOW).goalLine;
         env.render(off, root, { now: NOW });
-        expect(card()).toBeNull();
-
-        env.render(goalLineState({ enabled: false }), root, { now: NOW });
-        expect(card()).toBeNull();
+        expect(root.querySelector('[data-section="adherence-alert"]')).toBeNull();
     });
 
     // med-8tur.12: ED-safe rides the Goal Line payload — no Goal Line card and
@@ -2074,7 +1991,7 @@ describe('W3 Start here', () => {
         expect(block().querySelector('.wg-section__head .wg-meta').textContent).toBe('4 picked');
         expect(block().querySelector('[data-start="medication"] .wg-row__title').textContent).toBe('Your medications');
         expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['start-here-medication']);
-        expect(root.querySelector('[data-action="set-goal"]').classList.contains('wg-btn--primary')).toBe(false);
+        expect(root.querySelector('[data-action="set-goal"]')).toBeNull();
         // W3 has no "Nothing scheduled" card: its actions are rows here.
         expect(sections()).not.toContain('next-up');
         expect(sections().indexOf('start-here')).toBeLessThan(sections().indexOf('vitals'));

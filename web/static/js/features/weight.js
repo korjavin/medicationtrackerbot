@@ -598,7 +598,7 @@ function renderWeightGoalCard(logs, goalData, goalLine, bmiRes) {
     fill.className = 'wg-weight-goal-card__fill';
 
     // Gamification on → the Goal Line episode progress (docs/gamification.md
-    // §0.3.1) so this card and Today render the same distance/progress.
+    // §0.3.1), the one distance/progress the read model computes.
     const line = goalLine && goalLine.enabled && goalLine.goal && goalLine.goal.status !== 'no_goal'
         ? goalLine.goal : null;
     const fmt = (kg) => {
@@ -669,6 +669,16 @@ function renderWeightGoalCard(logs, goalData, goalLine, bmiRes) {
         delta.textContent = text;
         container.appendChild(delta);
     });
+
+    // The Goal Line's only pace judgment: a calm safety line, never praise
+    // (moved here from Today / Journey in med-ge9q).
+    if (line && line.too_fast) {
+        const safety = document.createElement('p');
+        safety.className = 'wg-hint';
+        safety.setAttribute('data-fact', 'too-fast');
+        safety.textContent = 'Faster than 1% a week — worth checking with your doctor.';
+        container.appendChild(safety);
+    }
 }
 
 // Render the chart legend — Actual / Plan / Goal swatches. Mirrors the design

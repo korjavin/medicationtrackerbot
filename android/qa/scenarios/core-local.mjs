@@ -133,7 +133,10 @@ export default async function coreLocal(ctx) {
     const row = page.locator('[data-section="next-up"] .wg-row').filter({ hasText: dose.name });
     await row.getByRole('button', { name: 'Take', exact: true }).click();
     r.takenClock = await page.evaluate(() => { const d = new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; });
-    await page.locator('#med-confirm-action-btn').click();
+    // med-aa18.1: Take is one-tap (no confirm sheet); older builds still show #med-confirm-action-btn.
+    await page.waitForFunction((name) => !!document.querySelector('#med-confirm-action-btn')?.offsetParent
+      || ![...document.querySelectorAll('[data-section="next-up"] .wg-row')].some((el) => el.textContent.includes(name)), dose.name, { timeout: 5000 });
+    if (await page.locator('#med-confirm-action-btn').isVisible()) await page.locator('#med-confirm-action-btn').click();
     await page.waitForFunction((name) => ![...document.querySelectorAll('[data-section="next-up"] .wg-row')]
       .some((el) => el.textContent.includes(name)), dose.name, { timeout: 5000 });
     r.doseRemovedWithoutReload = true;

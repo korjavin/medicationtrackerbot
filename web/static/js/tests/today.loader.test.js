@@ -522,7 +522,6 @@ describe('Today loader — features/today-loader.js', () => {
 
         it('refetches a Goal Line from an earlier day', async () => {
             await run('2000-01-01', null);
-            expect(env.document.querySelector('[data-section="goal-line"]')).not.toBeNull();
             expect(goalLineFetches().length).toBe(1);
             expect(goalLineFetches()[0][2]).toEqual(['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
         });

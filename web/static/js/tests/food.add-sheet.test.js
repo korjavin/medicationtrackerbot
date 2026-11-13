@@ -338,4 +338,182 @@ describe('Food Add sheet', () => {
         await settle();
         expect(input.classList.contains('hidden')).toBe(true);
     });
+
+    // One Log sheet (kit LS1–LS4, med-aa18.4): Today's Log opens this sheet
+    // with the other kinds (today.js logKinds, covered by today.render.test.js).
+    describe('One Log sheet', () => {
+        const asNeeded = JSON.stringify({ type: 'as_needed' });
+        const MEDS = [
+            { id: 2, name: 'Paracetamol', dosage: '500 mg', schedule: asNeeded, inventory_count: 20, archived: false, created_at: new Date().toISOString() },
+            { id: 1, name: 'Ibuprofen', dosage: '400 mg', schedule: asNeeded, inventory_count: 12, archived: false, last_taken_at: new Date(Date.now() - 3600e3).toISOString() },
+            { id: 3, name: 'Metformin', dosage: '850 mg', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), archived: false },
+            { id: 4, name: 'Cetirizine', dosage: '10 mg', schedule: asNeeded, archived: true },
+        ];
+        const fromToday = (extra) => {
+            const runs = { bp: vi.fn(), weight: vi.fn(), note: vi.fn() };
+            const kinds = [
+                { id: 'bp', icon: 'activity', label: 'BP', run: runs.bp },
+                { id: 'weight', icon: 'scale', label: 'Weight', run: runs.weight },
+                { id: 'med', icon: 'pill', label: 'Med' },
+                { id: 'note', icon: 'note', label: 'Note', run: runs.note },
+            ];
+            env.window.showAddFoodModal({ from: 'today', food: true, kinds, view: 'home', ...extra });
+            return runs;
+        };
+        const title = () => env.document.getElementById('food-add-title').textContent;
+        const hidden = (id) => env.document.getElementById(id).classList.contains('hidden');
+        const also = () => Array.from(env.document.querySelectorAll('#food-add-also-row [data-log]')).map((b) => b.textContent);
+
+        beforeEach(() => {
+            env.window.medications = MEDS.map((m) => ({ ...m }));
+        });
+
+        it('LS1: from Today it is titled "Log" with an Also log row under the food paths, above Recent', async () => {
+            const { document } = env;
+            fromToday();
+            await settle();
+            expect(title()).toBe('Log');
+            expect(hidden('food-add-also')).toBe(false);
+            expect(also()).toEqual(['BP', 'Weight', 'Med', 'Note']);
+            expect(document.querySelectorAll('#food-add-also-row .wg-btn.wg-btn--sm')).toHaveLength(4);
+            const pane = Array.from(document.querySelector('[data-pane="home"]').children).map((n) => n.id);
+            expect(pane.indexOf('food-add-tiles')).toBeLessThan(pane.indexOf('food-add-also'));
+            expect(pane.indexOf('food-add-also')).toBeLessThan(pane.indexOf('food-add-recent-section'));
+            expect(hidden('food-add-search-bar')).toBe(false);
+            expect(hidden('food-add-time-btn')).toBe(false);
+            expect(hidden('food-add-recent-section')).toBe(false);
+        });
+
+        it('each Also log button closes the sheet and runs its opener', async () => {
+            const { document } = env;
+            for (const id of ['bp', 'weight', 'note']) {
+                const runs = fromToday();
+                await settle();
+                document.querySelector(`#food-add-also-row [data-log="${id}"]`).click();
+                expect(sheet().classList.contains('hidden')).toBe(true);
+                expect(runs[id]).toHaveBeenCalledTimes(1);
+            }
+        });
+
+        it("LS4: Food's + has no row and keeps \"Log food\", even after a Today open", async () => {
+            const { window, document } = env;
+            fromToday();
+            await settle();
+            window.FoodLog.addSheet.close();
+            document.getElementById('add-food-inline-btn').click();
+            await settle();
+            expect(sheet().classList.contains('hidden')).toBe(false);
+            expect(title()).toBe('Log food');
+            expect(hidden('food-add-also')).toBe(true);
+            expect(document.querySelectorAll('#food-add-also-row [data-log]')).toHaveLength(0);
+        });
+
+        it('LS3: Food off → the kinds are the tiles; no search, food tiles, Recent, manual entry or time chip', async () => {
+            const { document } = env;
+            fromToday({ food: false });
+            await settle();
+            expect(title()).toBe('Log');
+            expect(document.getElementById('food-add-eyebrow').textContent).toMatch(/^Now · \d\d:\d\d$/);
+            const tiles = Array.from(document.querySelectorAll('#food-add-kinds .wg-action .wg-action__label')).map((n) => n.textContent);
+            expect(tiles).toEqual(['BP', 'Weight', 'Med', 'Note']);
+            expect(document.getElementById('food-add-kinds').classList.contains('wg-actions--4')).toBe(true);
+            for (const id of ['food-add-search-bar', 'food-add-tiles', 'food-add-recent-section', 'food-add-manual-btn', 'food-add-time-btn', 'food-add-also']) {
+                expect(hidden(id), id).toBe(true);
+            }
+            expect(apiCall.mock.calls.some(([url]) => String(url).startsWith('/api/food/log?'))).toBe(false);
+        });
+
+        it('LS2: Med lists only the When needed group, in My meds order, with stock and last dose', async () => {
+            const { document } = env;
+            fromToday();
+            await settle();
+            document.querySelector('#food-add-also-row [data-log="med"]').click();
+            expect(sheet().classList.contains('hidden')).toBe(false);
+            expect(title()).toBe('Log a med');
+            expect(document.getElementById('food-add-eyebrow').textContent).toBe('When needed');
+            expect(hidden('food-add-back-btn')).toBe(false);
+            expect(document.getElementById('food-add-back-label').textContent).toBe('Log');
+            expect(hidden('food-add-search-bar')).toBe(true);
+            expect(hidden('food-add-time-btn')).toBe(true);
+            const rows = Array.from(document.querySelectorAll('#food-add-med-list .wg-row'));
+            expect(rows.map((r) => r.querySelector('.wg-row__title').textContent)).toEqual(['Ibuprofen · 400 mg', 'Paracetamol · 500 mg']);
+            expect(rows[0].querySelector('.wg-row__meta').textContent).toMatch(/^12 left · last \d\d:\d\d$/);
+            expect(rows[1].querySelector('.wg-row__meta').textContent).toBe('20 left');
+
+            document.getElementById('food-add-back-btn').click();
+            expect(title()).toBe('Log');
+            expect(hidden('food-add-also')).toBe(false);
+        });
+
+        it('LS2 Take: one log-past write at now, the sheet closed first, toast with the re-read count; no Undo', async () => {
+            const { window, document } = env;
+            let openAtPost = null;
+            apiCall.mockImplementation(async (url, method) => {
+                if (url === '/api/medications/log-past' && method === 'POST') {
+                    openAtPost = !sheet().classList.contains('hidden');
+                    return { id: 'intake-manual-1', status: 'TAKEN' };
+                }
+                if (String(url).startsWith('/api/medications')) {
+                    return MEDS.map((m) => (m.id === 1 ? { ...m, inventory_count: 11, last_taken_at: new Date().toISOString() } : m));
+                }
+                if (String(url).startsWith('/api/food/log?')) return RECENT_GROUPS;
+                return null;
+            });
+            fromToday();
+            await settle();
+            document.querySelector('#food-add-also-row [data-log="med"]').click();
+            const before = Date.now();
+            document.querySelector('#food-add-med-list .wg-row[data-med-id="1"] .wg-btn').click();
+            await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Ibuprofen taken', 'success', expect.any(Object)));
+
+            const writes = apiCall.mock.calls.filter(([u, m]) => u === '/api/medications/log-past' && m === 'POST');
+            expect(writes).toHaveLength(1);
+            expect(writes[0][2].medication_id).toBe(1);
+            expect(Math.abs(Date.parse(writes[0][2].taken_at) - before)).toBeLessThan(5000);
+            expect(openAtPost).toBe(false);
+            const opts = window.safeToast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2];
+            expect(opts.detail).toMatch(/^Logged \d\d:\d\d · 11 left$/);
+            expect(opts.action).toBeUndefined();
+            expect(opts.actions).toBeUndefined();
+            expect(apiCall.mock.calls.some(([u]) => String(u).startsWith('/api/doses/act'))).toBe(false);
+        });
+
+        it('LS2 Take: a refresh that fails after the write still reads as taken, with no unconfirmed count', async () => {
+            const { window, document } = env;
+            apiCall.mockImplementation(async (url, method) => {
+                if (url === '/api/medications/log-past' && method === 'POST') return { id: 'intake-manual-2', status: 'TAKEN' };
+                if (String(url).startsWith('/api/medications') || String(url).startsWith('/api/doses')) throw new Error('offline');
+                if (String(url).startsWith('/api/food/log?')) return RECENT_GROUPS;
+                return null;
+            });
+            fromToday();
+            await settle();
+            document.querySelector('#food-add-also-row [data-log="med"]').click();
+            document.querySelector('#food-add-med-list .wg-row[data-med-id="1"] .wg-btn').click();
+            await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Ibuprofen taken', 'success', expect.any(Object)));
+            const opts = window.safeToast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2];
+            expect(opts.detail).toMatch(/^Logged \d\d:\d\d$/);
+            expect(window.safeToast.mock.calls.some(([, type]) => type === 'error')).toBe(false);
+        });
+
+        it('LS2 row tap → the log_past sheet for another time', async () => {
+            const { window, document } = env;
+            window.logMedicationPast = vi.fn();
+            fromToday();
+            await settle();
+            document.querySelector('#food-add-also-row [data-log="med"]').click();
+            document.querySelector('#food-add-med-list .wg-row[data-med-id="2"] .wg-row__title').click();
+            expect(sheet().classList.contains('hidden')).toBe(true);
+            expect(window.logMedicationPast).toHaveBeenCalledWith(2, 'Paracetamol');
+            expect(apiCall.mock.calls.some(([, m]) => m === 'POST')).toBe(false);
+        });
+
+        it('Food off with Med the one kind: the Med pane is the sheet, no Back', async () => {
+            fromToday({ food: false, kinds: [{ id: 'med', icon: 'pill', label: 'Med' }], view: 'med' });
+            await settle();
+            expect(title()).toBe('Log a med');
+            expect(hidden('food-add-back-btn')).toBe(true);
+            expect(env.document.querySelectorAll('#food-add-med-list .wg-row')).toHaveLength(2);
+        });
+    });
 });

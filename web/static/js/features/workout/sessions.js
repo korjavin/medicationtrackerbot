@@ -2111,22 +2111,25 @@ function _adjustSessionSet(logIndex, row, field, delta) {
 
 // Cell tap: a ghost cell accepts its value (and the row becomes active); a
 // cell on another row activates that row; a concrete cell on the active row
-// (or a done row) opens a numeric prompt for a typed value.
+// (or a done row) opens a numeric prompt for a typed value. A blank ghost
+// ("—": a default with no value) has nothing to accept, so it activates its
+// row and opens the prompt in the same tap (kit WR4).
 async function _onSetCellTap(logIndex, row, field) {
     const log = window.WorkoutSessionsState.logs[logIndex];
     if (!log) return;
     const ui = _sessionUi();
     const v = _setRowValues(log, row);
     const ghost = !v.done && (field === 'weight_kg' ? v.ghostW : v.ghostR);
-    if (ghost) { _setSessionSetField(logIndex, row, field, String(v[field])); return; }
+    const blank = ghost && v.fromDefault && !Number(v[field]);
+    if (ghost && !blank) { _setSessionSetField(logIndex, row, field, String(v[field])); return; }
     if (!v.done && _activeSetRow(logIndex, log) !== row) {
         ui.active = { li: logIndex, row };
         _rerenderSessionLogs();
-        return;
+        if (!blank) return;
     }
     const typed = await safePrompt('', {
         title: field === 'weight_kg' ? `Set ${row + 1} — weight (kg)` : `Set ${row + 1} — reps`,
-        value: _fmtSetNumber(v[field]),
+        value: blank ? '' : _fmtSetNumber(v[field]),
         inputMode: field === 'weight_kg' ? 'decimal' : 'numeric',
         maxLength: 6,
         confirmLabel: 'Set',

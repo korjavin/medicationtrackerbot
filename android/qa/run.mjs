@@ -9,11 +9,11 @@ import { join } from 'node:path';
 // smoke last: it claims the run's one invite (bd med-nt9p.25). local-smoke (bd med-nt9p.32.6) is the
 // passkey-free full-app run; local-visual (one shot per scene) and the other local-* run on their own
 // (local-to-cloud, local-to-cloud-seamless and move-ops claim the invite too: dispatch them alone).
-// core-local is invite-free before smoke; offline-account and eu-register claim one invite, dispatch-only/no retry.
+// meds-focus and core-local are invite-free before smoke (each starts with pm clear); offline-account and eu-register claim one invite, dispatch-only/no retry.
 // file-backup and local-lock follow core-local without an invite/retry; local-lock verifies PIN cleanup before smoke.
 // reminders-offline (bd med-nt9p.55) follows smoke and reopens its account (alone, it claims the invite).
 // It must stay LAST: its final step reboots the emulator, which ends the UiAutomator driver (bd med-nt9p.57).
-const SCENARIOS = ['firstrun', 'native-dark', 'native-lock','native-fontscale', 'back-exit', 'back-stack', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'invite-link', 'local-smoke', 'core-local', 'file-backup', 'local-lock', 'smoke', 'reminders-offline'];
+const SCENARIOS = ['firstrun', 'native-dark', 'native-lock','native-fontscale', 'back-exit', 'back-stack', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'invite-link', 'local-smoke', 'meds-focus', 'core-local', 'file-backup', 'local-lock', 'smoke', 'reminders-offline'];
 const LOCAL_ORIGIN = 'https://appassets.androidplatform.net';
 const [want = 'all', out = 'out'] = process.argv.slice(2);
 const pkg = process.env.QA_PKG || 'com.example.medtracker';
@@ -56,6 +56,7 @@ const ctx = {
   out,
   LOCAL_ORIGIN,
   claimUrl: process.env.QA_CLAIM_URL,
+  expiredClaimUrl: process.env.QA_EXPIRED_CLAIM_URL, // smoke/all only: a second invite, backdated in the DB
   results,
   applyInputs,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -247,9 +248,12 @@ const ctx = {
   /**
    * Cold start → F1 → the run's invite → the WebView page on /unlock with the signup wizard.
    * kit: append &kit=1 (sync turned on from Settings), so the ceremony ends on the kit offer.
+   * url: another claim link than the run's invite; until: the selector /unlock must show (the
+   * already-claimed screen's #unlock-instead, bd med-88x0.10).
    */
   async openClaim(opts = {}) {
-    if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
+    const url = opts.url || ctx.claimUrl;
+    if (!url) throw new Error('QA_CLAIM_URL unset (no local cloud)');
     // bd med-nt9p.64: run 40242381050 lost the app (home screen) right after launch()'s page was
     // ready, so openLink's first locator threw "has been closed". One relaunch, as localPage does;
     // the invite is only claimed later, on /unlock, so a second F1 pass is safe. One recovery in all:
@@ -259,7 +263,7 @@ const ctx = {
       for (let attempt = 1; ; attempt++) {
         try {
           await ctx.launch(opts);
-          await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
+          await ctx.openLink(opts.kit ? `${url}&kit=1` : url);
           break;
         } catch (e) {
           if (attempt > 1 || (results.recoveries || []).length > before || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
@@ -272,7 +276,7 @@ const ctx = {
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
     await page.waitForURL(/\/unlock/, { timeout: 30_000 });
-    await page.locator('#create-passkey').waitFor({ timeout: 30_000 });
+    await page.locator(opts.until || '#create-passkey').waitFor({ timeout: 30_000 });
     // The software-GPU emulator paints seconds behind the DOM; without this the device shot still
     // shows "Checking your invite…" or a blank page.
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
