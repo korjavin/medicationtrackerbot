@@ -14,5 +14,5 @@ invariants:
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js
   android: android/qa/scenarios/meds-focus.mjs
-  ios: manual  # data/logic only: web/static/js/tests/meds.timeline.test.js; the card is web-rendered in every shell
+  ios: ios/UITests/FlowQACoreLocalTests.swift#testMedsFocusWholeSlot
 source: [Zulip 20470, Zulip 20475, Zulip 20478, Zulip 20479, bd med-ry7b.8]
