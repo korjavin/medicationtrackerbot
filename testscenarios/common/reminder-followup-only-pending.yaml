@@ -20,4 +20,4 @@ covered_by:
   web: web/static/js/tests/cloud.shim-contract.meds-history.test.js
   android: manual  # partial: web/static/js/tests/cloud.shim-contract.meds-history.test.js (pending/text logic); no delivered device follow-up, snooze/end-of-chain across channels or cross-device taken-state run
   ios: manual  # the device-notification half; the Telegram text is built on web
-source: [med-lmd6, med-4j49, med-kbpf]
+source: [med-lmd6, med-4j49, med-kbpf, med-88x0.7]
