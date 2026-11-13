@@ -1,0 +1,23 @@
+id: today-workout-row
+title: Today's workout row starts or resumes today's session; a blank set cell opens the number pad in one tap
+platforms: [web, android, ios]
+preconditions:
+  - Local or cloud user with a workout plan scheduled today (and one scheduled on a later day)
+steps:
+  - Open Today; tap the workout row in Next up (not its buttons), read the dialog, confirm
+  - Minimise the session, go back to Today and tap the row again
+  - Finish the workout; with only a later day's session left, tap its row
+  - In a running session, add an exercise with no default weight (its weight cells read "—") and tap a "—" cell on a pending set that is not the active one
+  - Tap a ghost cell that shows a value ("60 last" or "8 default")
+invariants:
+  - 'Today''s pending session: the row tap does what Start does, the "Start this workout now?" confirm included; confirming opens the takeover, cancelling starts nothing'
+  - "Today's in-progress session: the row tap resumes it, as Resume does"
+  - A later day's session, or a finished/skipped one, keeps the row tap = View (the plan's day page); a later day is never started from the row, only from its Start button
+  - View, Start and Resume buttons keep their own actions; a button tap never also fires the row
+  - 'A "—" cell makes its row the active one and opens the number pad in the same tap; the typed value fills it'
+  - A ghost cell with a value is accepted in one tap with no number pad; a done or typed cell opens the pad as before
+covered_by:
+  web: web/static/js/tests/today.render.test.js  # blank cell: workout.session-detail.test.js
+  android: manual
+  ios: manual
+source: [med-aa18.6]

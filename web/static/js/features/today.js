@@ -757,14 +757,20 @@
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
             }
-            // Tapping the row itself (not its buttons) does what View does:
-            // the planned Day's exercises in the Plan → Day pages.
+            // Tapping the row itself (not its buttons) starts or resumes TODAY's
+            // session (kit WR1; Start keeps its confirm, WR2); a later day or a
+            // finished/skipped session opens the plan's Day page, as View does.
             row.classList.add('wg-today-next__tap');
             row.setAttribute('role', 'button');
             row.setAttribute('tabindex', '0');
-            row.setAttribute('data-action', 'open-workout-plan');
-            row.setAttribute('aria-label', `${v.group_name || 'Workout'} — view planned exercises`);
-            const open = () => h.onViewWorkout(v);
+            const name = v.group_name || 'Workout';
+            const open = kind === 'start' ? () => h.onStartWorkout(v.id)
+                : kind === 'resume' ? () => h.onResumeWorkout(v.id)
+                : () => h.onViewWorkout(v);
+            row.setAttribute('data-action', kind === 'start' ? 'start-workout'
+                : kind === 'resume' ? 'resume-workout' : 'open-workout-plan');
+            row.setAttribute('aria-label', kind === 'start' ? `Start ${name}`
+                : kind === 'resume' ? `Resume ${name}` : `${name} — view planned exercises`);
             row.addEventListener('click', (e) => {
                 if (e.target.closest && e.target.closest('.wg-btn')) return;
                 open();

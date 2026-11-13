@@ -137,12 +137,12 @@ describe('Today v2 — Next up', () => {
         const only = primaries(root);
         expect(only).toHaveLength(1);
         expect(only[0].getAttribute('data-action')).toBe('tz-plan-apply');
-        expect(root.querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(false);
+        expect(root.querySelector('.wg-btn[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(false);
 
         awaiting = false;
         env.render(s, root, { now: NOW });
         expect(primaries(root)).toHaveLength(1);
-        expect(root.querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(true);
+        expect(root.querySelector('.wg-btn[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(true);
     });
 
     it('missed dose, then the due workout, then later meds — with exactly one sun action', () => {
@@ -187,7 +187,7 @@ describe('Today v2 — Next up', () => {
         env.render(busyState(), root, { now: NOW });
         root.querySelector('[data-action="log-missed"]').click();
         root.querySelector('[data-action="take"]').click();
-        root.querySelector('[data-action="start-workout"]').click();
+        root.querySelector('.wg-btn[data-action="start-workout"]').click();
         expect(env.window.showMedicationConfirmModal.mock.calls).toEqual([
             [[3], ['Allopurinol'], MISSED.scheduledAt, 'confirm', ['i-31']],
             [[4, 5, 6], LATER.names, LATER.scheduledAt, 'confirm', []]
@@ -197,7 +197,7 @@ describe('Today v2 — Next up', () => {
         const s = busyState();
         s.nextWorkout.value.status = 'in_progress';
         env.render(s, root, { now: NOW });
-        root.querySelector('[data-action="resume-workout"]').click();
+        root.querySelector('.wg-btn[data-action="resume-workout"]').click();
         expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
     });
 
@@ -231,40 +231,78 @@ describe('Today v2 — Next up', () => {
         expect(ids(trailOf({ ...WORKOUT_TODAY, status: 'completed' }))).toEqual(['view-workout']);
     });
 
-    it('tapping the workout row does what View does; its buttons keep their own actions', () => {
+    it('tapping today\'s workout row starts or resumes it (kit WR1); its buttons keep their own actions', () => {
         env.window.WorkoutNextCard = { openEdit: vi.fn() };
         env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
         const onDeeplink = vi.fn();
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, group_id: 3, variant_id: 11 };
         env.render(s, root, { now: NOW, onDeeplink });
-        const row = root.querySelector('[data-next="workout"]');
-        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        let row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('start-workout');
+        expect(row.getAttribute('aria-label')).toBe('Start Daily split');
         expect(row.getAttribute('role')).toBe('button');
 
-        row.querySelector('[data-action="start-workout"]').click();
+        // Pending today: the row tap is Start (WorkoutSessions.start keeps its confirm, WR2).
+        row.querySelector('.wg-row__title').click();
         expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
         expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
+        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(2);
 
-        row.querySelector('.wg-row__title').click();
+        // Buttons are not double-fired by the row handler.
+        row.querySelector('.wg-btn[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(3);
+        row.querySelector('[data-action="view-workout"]').click();
         expect(onDeeplink).toHaveBeenCalledWith('workouts');
         expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledWith(11, 3);
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(3);
 
-        // View is not double-fired by the row handler.
-        row.querySelector('[data-action="view-workout"]').click();
+        // In progress today: the row tap is Resume.
+        s.nextWorkout.value = { ...s.nextWorkout.value, status: 'in_progress' };
+        env.render(s, root, { now: NOW, onDeeplink });
+        row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('resume-workout');
+        expect(row.getAttribute('aria-label')).toBe('Resume Daily split');
+        row.querySelector('.wg-row__title').click();
+        expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
+        row.querySelector('.wg-btn[data-action="resume-workout"]').click();
+        expect(env.window.WorkoutSessions.open).toHaveBeenCalledTimes(2);
+
+        // Finished today: the row tap opens the plan day, as View does.
+        s.nextWorkout.value = { ...s.nextWorkout.value, status: 'completed' };
+        env.render(s, root, { now: NOW, onDeeplink });
+        row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        row.querySelector('.wg-row__title').click();
         expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(2);
-
-        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(3);
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledTimes(3);
     });
 
-    it('an ad-hoc session row (no plan) taps through to Workouts without opening a plan', () => {
+    it('a later day\'s workout row tap opens the plan day and never starts it (med-gmyf early start stays on the button)', () => {
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
+        const onDeeplink = vi.fn();
+        const s = busyState();
+        s.nextWorkout.value = { ...WORKOUT_TODAY, is_today: false, scheduled_date: '2026-04-22', group_id: 3, variant_id: 11 };
+        env.render(s, root, { now: NOW, onDeeplink });
+        const row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        row.querySelector('.wg-row__title').click();
+        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(2);
+        expect(env.window.WorkoutSessions.start).not.toHaveBeenCalled();
+        row.querySelector('.wg-btn[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
+    });
+
+    it('an ad-hoc session row (no plan): View goes to Workouts without opening a plan', () => {
         env.window.WorkoutNextCard = { openEdit: vi.fn() };
         const onDeeplink = vi.fn();
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, status: 'in_progress', group_id: -1, variant_id: -1 };
         env.render(s, root, { now: NOW, onDeeplink });
-        root.querySelector('[data-next="workout"] .wg-row__title').click();
+        root.querySelector('[data-next="workout"] [data-action="view-workout"]').click();
         expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
         expect(onDeeplink).toHaveBeenCalledWith('workouts');
     });
