@@ -1,7 +1,8 @@
 // The agent's default (bd med-nt9p.25): claim the run's invite with the debug-only soft
 // authenticator → wizard → Today / Meds / Vitals / Food / Settings → the add-BP sheet with the
 // keyboard up (rotated too) → Back closes the sheet → Back on Today leaves the app → cold
-// relaunch unlocks from the warm cache. One invite per run, so this claims it: run it last.
+// relaunch unlocks from the warm cache → an expired invite says so → the claimed invite reopened shows
+// the already-claimed screen. One invite per run, so this claims it: run it last.
 // Back steps are findings, not stoppers: they record PASS/FAIL and the scenario goes on.
 
 // ponytail: no retry — the passkey consumes the run's one invite; mint one per attempt if flakes bite.
@@ -118,6 +119,23 @@ export default async function smoke(ctx) {
     }
   });
   await ctx.shot('relaunch-today');
+
+  // bd med-88x0.10 (testscenarios invite-claim): the link states the run can reach. Expired first: the
+  // claimed link goes last, so the shell is left on smoke's account for reminders-offline.
+  await ctx.step('expired link: the sign-in screen says it may be expired', async () => {
+    if (!ctx.expiredClaimUrl) throw new Error('QA_EXPIRED_CLAIM_URL unset');
+    page = await ctx.openClaim({ softAuthn: true, url: ctx.expiredClaimUrl });
+    const err = await page.locator('.wizard-error').textContent({ timeout: 10_000 });
+    if (!/may be expired/.test(err)) throw new Error(`error copy: ${JSON.stringify(err)}`);
+  });
+  await ctx.shot('expired-link');
+  await ctx.step('the claimed link again: already-claimed screen, no passkey button', async () => {
+    page = await ctx.openClaim({ softAuthn: true, until: '#unlock-instead' });
+    const text = await page.locator('#app').innerText();
+    if (!/already been claimed/.test(text)) throw new Error(`no already-claimed copy: ${JSON.stringify(text.slice(0, 200))}`);
+    if (await page.locator('#create-passkey').count()) throw new Error('passkey button shown on a claimed link');
+  });
+  await ctx.shot('claimed-link');
 }
 
 // bd med-nvd4: Settings → Backup & import → encrypted "Export backup" must end in the shell's

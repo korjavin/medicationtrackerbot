@@ -56,6 +56,7 @@ const ctx = {
   out,
   LOCAL_ORIGIN,
   claimUrl: process.env.QA_CLAIM_URL,
+  expiredClaimUrl: process.env.QA_EXPIRED_CLAIM_URL, // smoke/all only: a second invite, backdated in the DB
   results,
   applyInputs,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -247,9 +248,12 @@ const ctx = {
   /**
    * Cold start → F1 → the run's invite → the WebView page on /unlock with the signup wizard.
    * kit: append &kit=1 (sync turned on from Settings), so the ceremony ends on the kit offer.
+   * url: another claim link than the run's invite; until: the selector /unlock must show (the
+   * already-claimed screen's #unlock-instead, bd med-88x0.10).
    */
   async openClaim(opts = {}) {
-    if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
+    const url = opts.url || ctx.claimUrl;
+    if (!url) throw new Error('QA_CLAIM_URL unset (no local cloud)');
     // bd med-nt9p.64: run 40242381050 lost the app (home screen) right after launch()'s page was
     // ready, so openLink's first locator threw "has been closed". One relaunch, as localPage does;
     // the invite is only claimed later, on /unlock, so a second F1 pass is safe. One recovery in all:
@@ -259,7 +263,7 @@ const ctx = {
       for (let attempt = 1; ; attempt++) {
         try {
           await ctx.launch(opts);
-          await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
+          await ctx.openLink(opts.kit ? `${url}&kit=1` : url);
           break;
         } catch (e) {
           if (attempt > 1 || (results.recoveries || []).length > before || !(await ctx.pageLost(e, 'openClaim', 'relaunch'))) throw e;
@@ -272,7 +276,7 @@ const ctx = {
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
     await page.waitForURL(/\/unlock/, { timeout: 30_000 });
-    await page.locator('#create-passkey').waitFor({ timeout: 30_000 });
+    await page.locator(opts.until || '#create-passkey').waitFor({ timeout: 30_000 });
     // The software-GPU emulator paints seconds behind the DOM; without this the device shot still
     // shows "Checking your invite…" or a blank page.
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));

@@ -31,10 +31,10 @@ Values to carry to section 3: the `.p8` file content, Key ID, Team ID, Bundle ID
 
 ## 2. Google (Android)
 
-The Android app id is `ai.myhealthbot.app` (the repo variable `ANDROID_PACKAGE`). Do not use `com.example.medtracker`: that is only the Kotlin namespace, not the app id.
+The Android app id is the value of the repo variable `ANDROID_PACKAGE` (GitHub → Settings → Secrets and variables → Actions → Variables). Do not use `com.example.medtracker`: that is only the Kotlin namespace, not the app id.
 
 1. Open console.firebase.google.com, sign in with the Google account that should own push. **Create a project** (Google Analytics may stay off: the app uses no analytics and no google-services plugin).
-2. Project overview → **Add app** → Android icon. Package name: `ai.myhealthbot.app`. App nickname optional. **SHA-1 is not needed** for push. Register app.
+2. Project overview → **Add app** → Android icon. Package name: the `ANDROID_PACKAGE` value. App nickname optional. **SHA-1 is not needed** for push. Register app.
 3. Download `google-services.json` (or open Project settings → General → Your apps → the Android app → Download). **Do not commit it** and do not add it to the repo: the build reads four values instead (`android/app/build.gradle.kts`, "Native push" block). You only copy the values, then delete the file.
 4. GitHub repo → Settings → Secrets and variables → Actions → **Variables** (a secret of the same name also works) → New repository variable, four times:
 
