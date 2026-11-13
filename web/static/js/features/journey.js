@@ -57,12 +57,11 @@
         content.replaceChildren(el('p', 'wg-journey-empty wg-muted', message));
     }
 
-    // Goal Line detail (med-8tur.2 card, expanded by med-8tur.9): the same
-    // Goal Line read-model the Today hero shows, so a tap through from Today
-    // lands on the goal — progress, coverage, the marker count and the
-    // reached-milestone timeline. HP / levels / the Health Score are hidden
-    // outright (owner decision 2026-10-02; UI-only — the read-models keep
-    // computing them).
+    // Goal Line read-model: the week scorecard, weekly review and plan read
+    // it. The "Your goal" card it once fed is gone (med-ge9q: the weight goal
+    // lives on Health → Weight only). HP / levels / the Health Score are
+    // hidden outright (owner decision 2026-10-02; UI-only — the read-models
+    // keep computing them).
     const GOAL_LINE_CACHE_KEY = 'gamification_goal_line';
     const GOAL_LINE_URL = '/api/gamification/goal-line';
     const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'];
@@ -78,144 +77,9 @@
         return `${d.value} ${d.unit}`;
     }
 
-    // Reached goal milestones ride the keystones payload (kind 'goal_milestone',
-    // getKeystones) — rendered here as the goal's timeline instead of in the
-    // Keystones card, so nothing is fetched or shown twice.
-    function isGoalMilestone(k) { return !!k && k.kind === 'goal_milestone'; }
-
-    function goalMilestones(j) {
-        const ks = j && j.keystones;
-        if (!ks || ks.enabled === false || !Array.isArray(ks.keystones)) return [];
-        return ks.keystones.filter(isGoalMilestone);
-    }
-
-    // null/undefined stay unknown — Number(null) would read as 0.
-    function num(x) {
-        if (x === null || x === undefined || x === '') return null;
-        const n = Number(x);
-        return Number.isFinite(n) ? n : null;
-    }
-
     function pct(ratio) {
         const n = Number(ratio);
         return `${(Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0)) * 100).toFixed(1)}%`;
-    }
-
-    function iconEl(name, className) {
-        const i = el('i', 'wg-ico' + (className ? ' ' + className : ''));
-        i.dataset.icon = name;
-        return i;
-    }
-
-    function stat(value, unit, label) {
-        const cell = el('div', 'wg-stat');
-        const v = el('span', 'wg-stat__value wg-stat__value--md', value);
-        if (unit) v.appendChild(el('small', null, unit));
-        cell.append(v, el('span', 'wg-meta', label));
-        return cell;
-    }
-
-    // Kit J1: the goal as current → target, a marker track (--p progress, --n
-    // markers, a pin on the next marker) and three numbers. The safety line
-    // keeps its wording and never praises pace (docs/gamification.md §0).
-    function goalTrack(g) {
-        const nm = g.next_milestone;
-        const track = el('span', 'wg-track wg-journey-goal__track');
-        track.style.setProperty('--p', pct(g.progress.fraction));
-        if (nm && Number(nm.count) > 0) track.style.setProperty('--n', String(Number(nm.count)));
-        track.appendChild(el('span', 'wg-track__fill'));
-        const start = num(g.start_ref);
-        const target = num(g.target);
-        const span = start !== null && target !== null ? Math.abs(start - target) : 0;
-        const showPin = !!nm && !nm.is_goal && num(nm.weight) !== null && span > 0;
-        if (showPin) {
-            const pin = el('span', 'wg-track__pin');
-            pin.style.setProperty('--p', pct(Math.abs(start - num(nm.weight)) / span));
-            track.appendChild(pin);
-        }
-        const ends = el('span', 'wg-track__ends');
-        ends.appendChild(el('span', null, start !== null ? `start ${weightParts(start).value}` : 'start'));
-        if (showPin) ends.appendChild(el('span', null, `next marker ${weightParts(nm.weight).value}`));
-        ends.appendChild(el('span', null, 'goal'));
-        return [track, ends];
-    }
-
-    function renderGoalContext(j) {
-        const gl = j && j.goal_line;
-        if (!gl || gl.enabled === false || !gl.goal) return null;
-        const g = gl.goal;
-        const card = el('section', 'wg-card wg-vstack wg-journey-goal');
-        card.id = 'journey-goal-card';
-        card.appendChild(el('span', 'wg-eyebrow wg-eyebrow--dot', 'Your goal'));
-        if (g.status === 'no_goal') {
-            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
-            if (window.featureSettings && window.featureSettings.weight === false) return null;
-            const set = el('button', 'wg-btn', 'Set a weight goal');
-            set.type = 'button';
-            set.addEventListener('click', () => { if (typeof window.switchTab === 'function') window.switchTab('weight'); });
-            card.appendChild(set);
-            return card;
-        }
-        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
-            : (g.latest_reading ? g.latest_reading.weight : null);
-        if (Number.isFinite(current) && num(g.target) !== null) {
-            const value = el('span', 'wg-hstack wg-journey-goal__value');
-            const to = el('span', 'wg-stat__value wg-stat__value--hero wg-sun', weightParts(g.target).value);
-            to.appendChild(el('small', null, weightParts(g.target).unit));
-            value.append(el('span', 'wg-stat__value wg-stat__value--hero', weightParts(current).value),
-                iconEl('chev-r', 'wg-muted'), to);
-            card.appendChild(value);
-        }
-        if (g.status === 'preliminary') card.appendChild(el('p', 'wg-journey-goal__line wg-hint', 'Latest reading — your trend forms after a few more weigh-ins.'));
-        else if (g.status === 'maintaining') card.appendChild(el('p', 'wg-journey-goal__line wg-hint', 'Maintaining your goal.'));
-        else if (g.status === 'at_goal') card.appendChild(el('p', 'wg-journey-goal__line wg-hint', 'At your goal.'));
-        else if (g.progress) {
-            // goal.progress: the same episode progress Today + the Weight tab render.
-            card.append(...goalTrack(g));
-            const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
-            card.appendChild(el('p', 'wg-journey-goal__line wg-hint',
-                `${goalWeight(g.progress.done_kg)} of ${goalWeight(g.progress.total_kg)} ${since}`));
-        }
-        const stats = el('div', 'wg-grid3 wg-journey-goal__stats');
-        if ((g.status === 'ok' || g.status === 'preliminary') && num(g.distance_to_goal) !== null) {
-            const d = weightParts(Math.abs(num(g.distance_to_goal)));
-            stats.appendChild(stat(d.value, null, `${d.unit} to go`));
-        }
-        const nm = g.next_milestone;
-        if (g.status === 'ok' && nm && Number(nm.count) > 0) {
-            const passed = Math.max(0, (Number(nm.ordinal) || 1) - 1);
-            stats.appendChild(stat(String(passed), `/${Number(nm.count)}`, 'markers'));
-        }
-        if (g.coverage) {
-            stats.appendChild(stat(String(Number(g.coverage.weigh_in_days_28d) || 0), null, 'weigh-ins / 28d'));
-        }
-        if (stats.childNodes.length) card.appendChild(stats);
-        if (g.too_fast) {
-            card.appendChild(el('p', 'wg-journey-goal__line', 'Faster than 1% a week — worth checking with your doctor.'));
-        }
-        // Together (med-8tur.10, §0.3.6): the joint weight/BP observation — the
-        // first vs last full weeks of this goal, shown whichever way it points.
-        const jt = gl.joint;
-        if (jt && Array.isArray(jt.periods) && jt.periods.length === 2 && jt.bp_target) {
-            const [a, b] = jt.periods;
-            const t = jt.bp_target;
-            card.appendChild(el('span', 'wg-eyebrow wg-journey-goal__timeline-label', 'Together'));
-            card.appendChild(el('p', 'wg-journey-goal__line',
-                `First vs last ${jt.weeks_per_period} full weeks of this goal: weight trend changed ${signedGoalWeight(jt.weight_change_kg)}; `
-                + `daily-weighted BP averaged ${a.bp.systolic}/${a.bp.diastolic} → ${b.bp.systolic}/${b.bp.diastolic} `
-                + `over ${a.bp.days}/${b.bp.days} measurement days (target ${t.systolic}/${t.diastolic}).`));
-            card.appendChild(el('p', 'wg-journey-goal__line wg-hint',
-                `${a.weigh_in_days}/${b.weigh_in_days} weigh-in days · concurrent changes don’t identify a cause.`));
-        }
-        const reached = goalMilestones(j);
-        if (reached.length > 0) {
-            card.appendChild(el('span', 'wg-eyebrow wg-journey-goal__timeline-label', 'Milestones'));
-            const list = el('div', 'wg-journey-keystones__list');
-            reached.forEach((k) => list.appendChild(keystoneRow(k)));
-            card.appendChild(list);
-        }
-        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(card);
-        return card;
     }
 
     // "This week" scorecard (kit J1, med-xso6.15): the live week Mon–Sun as day
@@ -765,10 +629,10 @@
     // warm Atlas cache is the routine case), so only a line whose destination
     // exists becomes a button — a role="button" that scrolls nowhere is a
     // worse control than a plain line.
-    // A goal-milestone line targets the goal card's timeline; when that
-    // timeline didn't render (no goal, goal-line fetch failed) the milestone
-    // sits in the Keystones card instead, so the line follows it there.
-    function renderWhatsNew(j, builtIds, timelineShown) {
+    // A goal-milestone line targets 'journey-goal-card' (domain whatsNew); that
+    // card is gone (med-ge9q) and the milestone sits in the Keystones card, so
+    // the line follows it there.
+    function renderWhatsNew(j, builtIds) {
         const atlas = j && j.atlas;
         const items = (atlas && Array.isArray(atlas.whats_new)) ? atlas.whats_new : [];
         if (items.length === 0) return null;
@@ -783,7 +647,7 @@
 
         const list = el('div', 'wg-journey-whatsnew__list');
         items.forEach((it) => {
-            const want = (it.target === 'journey-goal-card' && !timelineShown) ? 'journey-keystones-card' : it.target;
+            const want = it.target === 'journey-goal-card' ? 'journey-keystones-card' : it.target;
             const target = (want && builtIds && builtIds.has(want)) ? want : null;
             const row = el('p', 'wg-journey-whatsnew__item'
                 + (target ? ' wg-journey-whatsnew__item--tappable' : ''), it.text);
@@ -1102,13 +966,11 @@
         return row;
     }
 
-    // Goal milestones move to the goal card's timeline whenever that timeline
-    // renders; without it (goal-line fetch failed, no_goal) they stay here.
-    function renderKeystones(j, timelineShown) {
+    // Reached goal milestones (kind 'goal_milestone') are ordinary entries.
+    function renderKeystones(j) {
         const ks = j && j.keystones;
         if (!ks || ks.enabled === false) return null;
-        const entries = (Array.isArray(ks.keystones) ? ks.keystones : [])
-            .filter((k) => !(timelineShown && isGoalMilestone(k)));
+        const entries = Array.isArray(ks.keystones) ? ks.keystones : [];
         if (entries.length === 0) return null;
 
         const card = el('section', 'wg-card wg-journey-keystones');
@@ -1254,7 +1116,7 @@
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // Goal-first (med-8tur.9): Goal Line detail → this week's scorecard →
+        // This week's scorecard (the goal card went in med-ge9q) →
         // last week + the plan pick → discoveries
         // (the "since you last looked" strip + Atlas) → gauges →
         // experiment/chapter/traits/keystones behind a disclosure → AI story.
@@ -1265,19 +1127,16 @@
         const substrate = !!journey && journey.enabled !== false;
         let cards = [];
         if (journey) {
-            const goalCard = renderGoalContext(journey);
             const atlasCard = renderAtlas(journey);
             const traitsCard = renderTraits(journey);
             const experimentCard = renderExperiment(journey);
             const chapterCard = renderChapter(journey);
-            const timelineShown = !!(goalCard && goalCard.querySelector('.wg-journey-goal__timeline-label'));
-            const keystonesCard = renderKeystones(journey, timelineShown);
+            const keystonesCard = renderKeystones(journey);
             // The strip is built LAST: it can only link to a card this pass produced.
-            const builtIds = new Set([goalCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
+            const builtIds = new Set([atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
                 .filter(Boolean).map((c) => c.id));
-            const whatsNewCard = renderWhatsNew(journey, builtIds, timelineShown);
+            const whatsNewCard = renderWhatsNew(journey, builtIds);
             cards = [
-                goalCard,
                 renderWeekScorecard(journey),
                 substrate ? renderWeeklyReview(journey) : null,
                 whatsNewCard,
