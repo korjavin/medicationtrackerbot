@@ -798,7 +798,7 @@ stays the acceptance device.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, reminders-offline, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
-# Also: core-local (in all); offline-account, degraded-boot, update-banner, update-resume, eu-register (standalone, one invite, no retry).
+# Also: core-local and meds-focus (testscenarios meds-focus-whole-slot) (in all); offline-account, degraded-boot, update-banner, update-resume, eu-register (standalone, one invite, no retry).
 # B3: file-backup and local-lock (invite-free, in all); file-backup-age is standalone and adds encrypted export/restore. health-connect stays standalone.
 # food-photo is standalone: it clears the app and checks the Food Photo and Gallery paths.
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
