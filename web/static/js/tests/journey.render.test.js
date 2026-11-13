@@ -105,60 +105,33 @@ describe('Journey render', () => {
         expect(content.textContent).not.toMatch(/Lvl|\bHP\b|Health Score/);
     });
 
-    // med-8tur.2: the goal-context card (same Goal Line read-model as the
-    // Today hero) leads Journey, so a tap through from Today lands on the goal.
-    it('the goal-context card leads, ahead of the strip and the Atlas', () => {
-        env.window.Gamification.render(journey({
-            goal_line: {
-                enabled: true,
-                goal: {
-                    status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
-                    trend_weight: 82.4, distance_to_goal: 4.4, too_fast: false,
-                    progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
-                    next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false }
-                }
+    // med-ge9q: the weight goal lives on Health → Weight only — no "Your
+    // goal" card on Journey in any goal state (nor its joint BP/weight
+    // paragraph, its "Set a weight goal" button or its too-fast line).
+    it.each([
+        ['ok + too_fast + joint', {
+            enabled: true,
+            goal: {
+                status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
+                trend_weight: 82.4, distance_to_goal: 4.4, too_fast: true,
+                progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
+                next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false },
             },
-            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New.', target: 'journey-atlas-card' }] },
+            joint: { weeks_per_period: 4, weight_change_kg: -1.6, bp_target: { systolic: 130, diastolic: 85 }, periods: [
+                { weigh_in_days: 20, bp: { systolic: 140, diastolic: 90, days: 9 } },
+                { weigh_in_days: 24, bp: { systolic: 128, diastolic: 82, days: 11 } },
+            ] },
+        }],
+        ['no_goal', { enabled: true, goal: { status: 'no_goal' } }],
+    ])('%s → no goal card', (_name, goalLine) => {
+        env.window.Gamification.render(journey({
+            goal_line: goalLine,
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
         }));
-        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
-        expect(cards[0].id).toBe('journey-goal-card');
-        // Kit J1: current → target as hero numbers, then the marker track.
-        expect([...cards[0].querySelectorAll('.wg-journey-goal__value .wg-stat__value')].map((v) => v.textContent))
-            .toEqual(['82.4', '78.0kg']);
-        const track = cards[0].querySelector('.wg-track');
-        expect(track.style.getPropertyValue('--p')).toBe('45.0%');
-        expect(track.style.getPropertyValue('--n')).toBe('8');
-        expect(track.querySelector('.wg-track__fill')).not.toBeNull();
-        // The pin sits on the next marker: (86 − 82) / (86 − 78).
-        expect(track.querySelector('.wg-track__pin').style.getPropertyValue('--p')).toBe('50.0%');
-        expect([...cards[0].querySelectorAll('.wg-track__ends > span')].map((e) => e.textContent))
-            .toEqual(['start 86.0', 'next marker 82.0', 'goal']);
-        expect(cards[0].querySelector('.wg-journey-bar__fill')).toBeNull();
-    });
-
-    it('no goal-context card for no_goal when the Weight feature is off (no dead link)', () => {
-        env.window.featureSettings = { weight: false };
-        env.window.Gamification.render({
-            enabled: false,
-            goal_line: { enabled: true, goal: { status: 'no_goal' } },
-            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
-        });
+        const content = env.document.getElementById('journey-content');
         expect(env.document.getElementById('journey-goal-card')).toBeNull();
-    });
-
-    it('the goal-context card leads even when the HP substrate is disabled, and offers to set a goal', () => {
-        const switchTab = vi.fn();
-        env.window.switchTab = switchTab;
-        env.window.Gamification.render({
-            enabled: false,
-            goal_line: { enabled: true, goal: { status: 'no_goal' } },
-            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
-        });
-        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
-        expect(cards[0].id).toBe('journey-goal-card');
-        expect(cards[0].querySelector('button').className).toBe('wg-btn');
-        cards[0].querySelector('button').click();
-        expect(switchTab).toHaveBeenCalledWith('weight');
+        expect(content.querySelector('.wg-journey-goal')).toBeNull();
+        expect(content.textContent).not.toMatch(/Your goal|Set a weight goal|1% a week|Together|identify a cause/);
     });
 
     // The why-lines were static forever and rendered on every visit.
@@ -176,7 +149,7 @@ describe('Journey render', () => {
         expect(document.querySelector('.wg-journey-keystones__why')).toBeNull();
     });
 
-    // med-8tur.9 — goal-first order: Goal Line detail → your week →
+    // med-8tur.9 order (goal card dropped in med-ge9q): your week →
     // discoveries (strip + Atlas) → gauges → the "More" disclosure holding
     // experiment / chapter / traits / keystones → AI story.
     function fullJourney(extra) {
@@ -210,11 +183,10 @@ describe('Journey render', () => {
         return [...document.querySelectorAll('#journey-content > *')].map((c) => c.className.split(' ').pop());
     }
 
-    it('renders goal-first: goal → week → discoveries → gauges → More disclosure → AI story', () => {
+    it('renders week → discoveries → gauges → More disclosure → AI story', () => {
         env.window.Gamification.render(fullJourney());
         const { document } = env;
         expect(topLevelOrder(document)).toEqual([
-            'wg-journey-goal',
             'wg-journey-weekly',
             'wg-journey-atlas',
             'wg-journey-gauges',
@@ -262,12 +234,12 @@ describe('Journey render', () => {
         expect(document.querySelectorAll('#journey-more .wg-journey-more__cards > *')).toHaveLength(0);
     });
 
-    it('the strip sits with the discoveries, after the goal and the week', () => {
+    it('the strip sits with the discoveries, after the week', () => {
         env.window.Gamification.render(fullJourney({
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New trait.', target: 'journey-traits-card' }] },
         }));
-        expect(topLevelOrder(env.document).slice(0, 4)).toEqual([
-            'wg-journey-goal', 'wg-journey-weekly', 'wg-journey-whatsnew', 'wg-journey-atlas',
+        expect(topLevelOrder(env.document).slice(0, 3)).toEqual([
+            'wg-journey-weekly', 'wg-journey-whatsnew', 'wg-journey-atlas',
         ]);
     });
 
@@ -310,12 +282,12 @@ describe('Journey render', () => {
         { day: '2026-06-21', weigh_in: 'future', workout: 'future', bp: null },
     ];
 
-    it('the This week scorecard renders hit/miss/rest/future dots with a ring on today, after the goal', () => {
+    it('the This week scorecard renders hit/miss/rest/future dots with a ring on today, first', () => {
         env.window.Gamification.render(fullJourney({
             goal_line: { ...fullJourney().goal_line, day: '2026-06-17', week_days: WEEK_DAYS },
         }));
         const { document } = env;
-        expect(topLevelOrder(document).slice(0, 3)).toEqual(['wg-journey-goal', 'wg-journey-week', 'wg-journey-weekly']);
+        expect(topLevelOrder(document).slice(0, 2)).toEqual(['wg-journey-week', 'wg-journey-weekly']);
         const card = document.getElementById('journey-week-card');
         expect(card.querySelector('.wg-card__head .wg-meta').textContent).toBe('Mon 15 – Sun 21');
         const rows = [...card.querySelectorAll('.wg-score[data-lever]')];
@@ -330,16 +302,6 @@ describe('Journey render', () => {
         expect(rows.map((r) => r.querySelector('.wg-score__val').textContent)).toEqual(['1', '2']);
         expect(rows[0].querySelector('.wg-dots').getAttribute('aria-label')).toBe(
             'Weigh-in: Mon rest, Tue hit, Wed today, Thu future, Fri future, Sat future, Sun future');
-    });
-
-    it('a goal with no reading yet shows no distance — never a "0.0 kg to go"', () => {
-        env.window.Gamification.render(fullJourney({
-            goal_line: { enabled: true, goal: { status: 'preliminary', target: 78, start_ref: null, distance_to_goal: null, trend_weight: null, latest_reading: null,
-                coverage: { weigh_in_days_28d: 0 } } },
-        }));
-        const goal = env.document.getElementById('journey-goal-card');
-        expect([...goal.querySelectorAll('.wg-stat .wg-meta')].map((m) => m.textContent)).toEqual(['weigh-ins / 28d']);
-        expect(goal.textContent).not.toMatch(/to go/);
     });
 
     it('no scorecard without week_days (older payload) or with the Goal Line off (ED-safe)', () => {
@@ -363,102 +325,32 @@ describe('Journey render', () => {
         expect(buttons.filter((b) => !b.matches('.wg-btn, .wg-choice, .wg-row, .wg-back, .wg-seg__opt')).map((b) => b.outerHTML)).toEqual([]);
     });
 
-    // med-8tur.10 (§0.3.6): the joint weight/BP observation — both components,
-    // coverage, the frozen target and the no-cause line, favorable or not.
-    it('goal detail: the joint weight/BP line renders for favorable AND unfavorable periods', () => {
-        const goalLine = (joint) => ({ ...fullJourney().goal_line, joint });
-        const period = (start, sys, dia, bpDays, weighIns) => ({
-            start_day: start, end_day: start, weigh_in_days: weighIns, bp: { systolic: sys, diastolic: dia, days: bpDays },
-        });
-        const target = { systolic: 130, diastolic: 85 };
-        const jointLines = () => [...env.document.querySelectorAll('#journey-goal-card .wg-journey-goal__line')]
-            .map((l) => l.textContent).slice(-2);
-
-        env.window.Gamification.render(fullJourney({ goal_line: goalLine({
-            weeks_per_period: 4, weight_change_kg: -1.6, bp_target: target,
-            periods: [period('2026-04-13', 140, 90, 9, 20), period('2026-05-18', 128, 82, 11, 24)],
-        }) }));
-        expect(jointLines()).toEqual([
-            'First vs last 4 full weeks of this goal: weight trend changed −1.6 kg; daily-weighted BP averaged 140/90 → 128/82 over 9/11 measurement days (target 130/85).',
-            '20/24 weigh-in days · concurrent changes don’t identify a cause.',
-        ]);
-
-        env.window.Gamification.render(fullJourney({ goal_line: goalLine({
-            weeks_per_period: 2, weight_change_kg: 1.2, bp_target: target,
-            periods: [period('2026-04-13', 126, 80, 6, 7), period('2026-05-18', 139, 88, 5, 8)],
-        }) }));
-        expect(jointLines()[0]).toBe('First vs last 2 full weeks of this goal: weight trend changed +1.2 kg; daily-weighted BP averaged 126/80 → 139/88 over 6/5 measurement days (target 130/85).');
-        expect(jointLines()[1]).toMatch(/don’t identify a cause/);
-
-        env.window.Gamification.render(fullJourney({ goal_line: goalLine(null) }));
-        expect(env.document.getElementById('journey-goal-card').textContent).not.toMatch(/Together|identify a cause/);
-    });
-
-    it('goal detail: progress, markers, coverage and the milestone timeline (moved out of Keystones)', () => {
-        env.window.Gamification.render(fullJourney());
-        const { document } = env;
-        const goal = document.getElementById('journey-goal-card');
-        const lines = [...goal.querySelectorAll('.wg-journey-goal__line')].map((l) => l.textContent);
-        expect(lines).toEqual(['3.6 kg of 8.0 kg since you set the goal']);
-        // The three numbers (kit J1): distance, markers passed, weigh-in coverage.
-        const stats = [...goal.querySelectorAll('.wg-journey-goal__stats .wg-stat')];
-        expect(stats.map((st) => st.querySelector('.wg-stat__value').textContent)).toEqual(['4.4', '3/8', '12']);
-        expect(stats.map((st) => st.querySelector('.wg-meta').textContent)).toEqual(['kg to go', 'markers', 'weigh-ins / 28d']);
-        expect([...goal.querySelectorAll('.wg-journey-keystone__title')].map((t) => t.textContent))
-            .toEqual(['Weight goal milestone 1 of 8']);
-        // Shown once: the Keystones card keeps only the non-goal entries.
-        expect([...document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
-            .toEqual(['K']);
-    });
-
-    it('goal milestones stay in Keystones when the goal card is absent', () => {
-        env.window.Gamification.render(fullJourney({ goal_line: null }));
-        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
-            .toEqual(['K', 'Weight goal milestone 1 of 8']);
-    });
-
-    it('goal milestones stay in Keystones when there is no goal (no timeline to hold them)', () => {
-        env.window.Gamification.render(fullJourney({ goal_line: { enabled: true, goal: { status: 'no_goal' } } }));
-        expect(env.document.getElementById('journey-goal-card')).not.toBeNull();
-        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
-            .toEqual(['K', 'Weight goal milestone 1 of 8']);
-    });
-
-    it('a milestone news line scrolls to the goal card that holds the timeline', () => {
+    // med-ge9q: reached goal milestones are ordinary Keystones entries, and a
+    // milestone news line (domain target 'journey-goal-card') follows them there.
+    it('a reached goal milestone is listed in Keystones; its news line opens that card', () => {
         env.window.Gamification.render(fullJourney({
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
         }));
         const { document } = env;
+        expect([...document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K', 'Weight goal milestone 1 of 8']);
         const scrollIntoView = vi.fn();
-        document.getElementById('journey-goal-card').scrollIntoView = scrollIntoView;
+        document.getElementById('journey-keystones-card').scrollIntoView = scrollIntoView;
         const row = document.querySelector('.wg-journey-whatsnew__item');
         expect(row.getAttribute('role')).toBe('button');
         row.click();
         expect(scrollIntoView).toHaveBeenCalled();
-    });
-
-    it('without a goal timeline, a milestone news line falls back to the Keystones card', () => {
-        env.window.Gamification.render(fullJourney({
-            goal_line: { enabled: true, goal: { status: 'no_goal' } },
-            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
-        }));
-        const { document } = env;
-        const scrollIntoView = vi.fn();
-        document.getElementById('journey-keystones-card').scrollIntoView = scrollIntoView;
-        document.querySelector('.wg-journey-whatsnew__item').click();
-        expect(scrollIntoView).toHaveBeenCalled();
         expect(document.querySelector('.wg-page #journey-keystones-card')).not.toBeNull();
     });
 
-    it('a disabled substrate still renders the goal + narrative layer, without the week or gauges', () => {
+    it('a disabled substrate still renders the narrative layer, without the week or gauges', () => {
         env.window.Gamification.render(fullJourney({ enabled: false }));
         expect(topLevelOrder(env.document)).toEqual([
-            'wg-journey-goal', 'wg-journey-atlas', 'wg-journey-more', 'wg-journey-narrator',
+            'wg-journey-atlas', 'wg-journey-more', 'wg-journey-narrator',
         ]);
     });
 
-    // Every read model is fetched exactly once per load() — the goal card's
-    // milestone timeline reuses the keystones payload, no extra request.
+    // Every read model is fetched exactly once per load().
     it('load() fetches each read model once', async () => {
         const { window } = env;
         const urls = [];

@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, invite-link, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, load-error, external-link, authn-probe, smoke, reminders-offline, local-smoke, local-visual, local-spike, local-app, local-backup, local-to-cloud, local-to-cloud-seamless, move-ops, push-wake, delete-account, health-connect, pull-refresh, eu-register, core-local, meds-focus,offline-account, degraded-boot, update-banner, update-resume, local-lock, file-backup, file-backup-age, food-photo]
+        options: [all, firstrun, invite-link, native-screens, native-dark, native-lock, native-fontscale, back-exit, back-stack, claim-page, not-found, load-error, external-link, authn-probe, smoke, reminders-offline, local-smoke, local-visual, local-spike, local-app, local-backup, local-to-cloud, local-to-cloud-seamless, move-ops, push-wake, delete-account, health-connect, pull-refresh, eu-register, core-local, meds-focus,offline-account, degraded-boot, update-banner, update-resume, local-lock, file-backup, file-backup-age, food-photo, notifications-no-ask]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -147,6 +147,15 @@ jobs:
           for i in $(seq 1 30); do [ -s "$RUNNER_TEMP/ca.pem" ] && break; sleep 1; done
           curl -sS --fail -o /dev/null --cacert "$RUNNER_TEMP/ca.pem" --resolve "$host:443:127.0.0.1" "https://$host/unlock"
           echo "QA_CLAIM_URL=$claim" >> "$GITHUB_ENV"
+          if [[ "$QA_SCENARIO" = smoke || "$QA_SCENARIO" = all ]]; then
+            # smoke's expired-link step (bd med-88x0.10): a second invite, its expiry backdated in the
+            # DB so the server's own check refuses it. Nothing provisions after this, so no sweep drops it.
+            exp="$(grep -oE 'https://[^[:space:]/]+/i/[a-z0-9-]+#[a-f0-9]+' <<<"$("$RUNNER_TEMP/cloud" admin invite)" | head -1)"
+            [ -n "$exp" ] || { echo "no claim URL from the second admin invite"; exit 1; }
+            erest="${exp#https://}"; esub="${erest#*/i/}"; esub="${esub%%#*}"
+            [ "$(sqlite3 "$CLOUD_DB_PATH" "UPDATE accounts SET claim_expires_unix = 1 WHERE subdomain = '$esub'; SELECT changes();")" = 1 ] || { echo "backdating $esub matched no row"; exit 1; }
+            echo "QA_EXPIRED_CLAIM_URL=https://$esub.${erest%%/*}/#claim=${exp##*#}" >> "$GITHUB_ENV"
+          fi
           echo "QA_CA=$RUNNER_TEMP/ca.pem" >> "$GITHUB_ENV"
           echo "QA_RECEIPTS=$RUNNER_TEMP/tlsfront-receipts.jsonl" >> "$GITHUB_ENV"
 
