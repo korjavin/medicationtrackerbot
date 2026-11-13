@@ -13,15 +13,20 @@
     try { text = decodeURIComponent(text); } catch (_) { /* inspect raw */ }
     if (/candecor/i.test(text)) state.nameEgress++;
     if (/rxnav\.nlm\.nih\.gov|\/api\/rxnav\//i.test(url)) state.rxnav++;
-    if (/\/api\/sync\//.test(url)) note((args[1]?.method || 'GET') + ' ' + url.replace(/^https?:\/\/[^/]+/, '') + (blockPull && String(args[0]).startsWith('/api/sync/ops?') ? ' BLOCKED' : ''));
-    if (String(args[0]).startsWith('/api/sync/ops?')) {
+    const pull = String(args[0]).startsWith('/api/sync/ops?');
+    if (/\/api\/sync\//.test(url)) note((args[1]?.method || 'GET') + ' ' + url.replace(/^https?:\/\/[^/]+/, '') + (blockPull && pull ? ' BLOCKED' : ''));
+    if (pull) {
       if (blockPull) { state.blocked++; return Promise.resolve(new Response('', { status: 503 })); }
       state.pulls++;
+      // A pull that started before the block can still answer after the peer
+      // write and deliver it ahead of the gesture (med-6x9f): peer() waits these out.
+      pullsInFlight++;
+      return rawFetch(...args).then(r => { note('<- ' + r.status + ' ' + url); return r; }).finally(() => { pullsInFlight--; });
     }
-    if (/\/api\/sync\//.test(url)) return rawFetch(...args).then(r => { note('<- ' + r.status + ' ' + url.replace(/^https?:\/\/[^/]+/, '')); return r; });
     return rawFetch(...args);
   };
-  // QA diagnostics (bd med-6x9f): sync fetches and probe events, ms since peer.
+  let pullsInFlight = 0;
+  // The sync fetches and probe events, ms since the peer step's block (med-6x9f).
   let t0 = performance.now();
   state.log = [];
   const note = s => { if (state.log.length < 40) state.log.push(Math.round(performance.now() - t0) + ' ' + s); };
@@ -88,11 +93,15 @@
     const ctx = window.MedTrackerCloud.ctx;
     if (!await sync.flushConfirmed(ctx)) throw new Error('US setting not synced');
     const port = sync.recordsPort(ctx);
+    // Block first, then let any pull already on the wire (the US flush's own
+    // sync-ready echo wakes one) answer before the peer write exists: such a
+    // pull racing the POST delivered the peer op ahead of the gesture (med-6x9f).
+    blockPull = true; state.pulls = 0; state.blocked = 0; t0 = performance.now(); state.log = []; note('block');
+    await wait(() => pullsInFlight === 0, 'pulls in flight');
     const current = (await port.list('settings')).find(x => x.recordId === 'settings');
     if (current?.med_register !== 'us') throw new Error('US setting not established');
     const { seq, pending } = await port.horizonBasis();
     if (pending || !Number.isInteger(seq)) throw new Error('not at synced horizon');
-    blockPull = true; state.pulls = 0; state.blocked = 0; t0 = performance.now(); state.log = []; note('block');
     const { recordType, ...body } = current;
     const next = { ...body, med_register: 'eu', clientTs: Math.max(Date.now(), body.clientTs + 1) };
     const enc = await c.encryptRecord({ kData: ctx.kData, accountId: ctx.accountId, recordType: 'settings', recordId: 'settings', seq: seq + 1,
@@ -102,10 +111,14 @@
     if (!response.ok || (await response.json()).assigned?.[0] !== seq + 1) throw new Error('peer write failed or raced');
     note('peer posted');
     state.beforePull = (await port.list('settings')).find(x => x.recordId === 'settings')?.med_register;
-    const poll = setInterval(async () => {
-      if ((await port.list('settings')).find(x => x.recordId === 'settings')?.med_register === 'eu') { note('eu local'); clearInterval(poll); }
-    }, 100);
     if (state.beforePull !== 'us') throw new Error('peer applied before pull');
+    // Until the gesture, the peer op must stay off this device: observe fails otherwise.
+    state.appliedBeforeTouch = false;
+    const poll = setInterval(async () => {
+      if ((await port.list('settings')).find(x => x.recordId === 'settings')?.med_register !== 'eu') return;
+      clearInterval(poll); note('eu local');
+      if (blockPull) state.appliedBeforeTouch = true;
+    }, 100);
     window.switchTab('today'); window.scrollTo(0, 0);
     state.sawPull = false; state.trustedTouchEnd = false;
     let busy = false;
@@ -124,6 +137,7 @@
     const port = sync.recordsPort(window.MedTrackerCloud.ctx);
     await wait(async () => (await port.list('settings')).find(x => x.recordId === 'settings')?.med_register === 'eu', 'peer setting');
     state.afterPull = 'eu'; note('observe saw eu');
+    if (state.appliedBeforeTouch) throw new Error('peer applied before the pull-to-refresh');
     window.switchTab('settings');
     await wait(() => window.SettingsView.openSettingsPage('features'), 'features');
     await wait(() => document.querySelector('#med-register-value')?.textContent.trim() === 'EU register', 'EU setting');
