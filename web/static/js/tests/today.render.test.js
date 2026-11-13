@@ -489,37 +489,90 @@ describe('Today v2 — Next up', () => {
     });
 });
 
-describe('Today v2 — Log sheet', () => {
+// One Log sheet (kit LS1–LS4, med-aa18.4): Today's Log opens the food Add
+// sheet with the other kinds; the sheet itself is covered by
+// food.add-sheet.test.js ("One Log sheet").
+describe('Today v2 — Log', () => {
     let env;
     let root;
     beforeEach(() => { env = loadRenderEnv(); root = env.document.getElementById('today-content'); });
     afterEach(() => { env.cleanup(); });
 
-    const sheet = () => env.document.getElementById('today-log-sheet');
-    const tiles = () => Array.from(sheet().querySelectorAll('[data-log]')).map((t) => t.getAttribute('data-log'));
     const open = () => root.querySelector('[data-action="open-log"]').click();
+    const ASNEEDED = [{ id: 9, name: 'Ibuprofen' }];
+    const handlers = (extra) => ({ now: NOW, onLogFood: vi.fn(), onAddBp: vi.fn(), onAddWeight: vi.fn(), onAddNote: vi.fn(), asNeededMeds: () => [], ...extra });
+    const medsOn = (s) => { s.nextMed = { value: null, deeplink: 'meds', status: 'missing' }; return s; };
+    const sent = (h) => h.onLogFood.mock.calls[0][0];
+    const ids = (o) => o.kinds.map((k) => k.id);
 
-    it('opens a kit sheet: food fast paths first, then BP / Weight / Note', () => {
-        env.render(baseState(), root, { now: NOW });
+    it('opens the food Add sheet from Today with BP · Weight · Note, each running its own opener', () => {
+        const h = handlers();
+        env.render(baseState(), root, h);
         open();
-        const s = sheet();
-        expect(s.classList.contains('wg-sheet')).toBe(true);
-        expect(s.classList.contains('hidden')).toBe(false);
-        expect(s.querySelector('.wg-sheethead__title').textContent).toBe('Log');
-        expect(tiles()).toEqual(['food-search', 'food-photo', 'food-library', 'food-scan', 'food-describe', 'bp', 'weight', 'note']);
-        const eyebrows = Array.from(s.querySelectorAll('.wg-sheet__body > .wg-eyebrow')).map((n) => n.textContent);
-        expect(eyebrows).toEqual(['Food', 'Measurements & notes']);
-        expect(s.querySelector('.wg-actions--3 [data-log="bp"]')).not.toBeNull();
+        expect(h.onLogFood).toHaveBeenCalledTimes(1);
+        const o = sent(h);
+        expect(o).toEqual(expect.objectContaining({ from: 'today', food: true, view: 'home' }));
+        expect(ids(o)).toEqual(['bp', 'weight', 'note']);
+        o.kinds.forEach((k) => k.run());
+        expect(h.onAddBp).toHaveBeenCalledTimes(1);
+        expect(h.onAddWeight).toHaveBeenCalledTimes(1);
+        expect(h.onAddNote).toHaveBeenCalledTimes(1);
+        // No sheet of Today's own any more.
+        expect(env.document.getElementById('today-log-sheet')).toBeNull();
     });
 
-    it('disabled features drop out of the grid', () => {
+    it('Med shows only with Meds on and a When needed med, between Weight and Note', () => {
+        let h = handlers({ asNeededMeds: () => ASNEEDED });
+        env.render(medsOn(baseState()), root, h);
+        open();
+        expect(ids(sent(h))).toEqual(['bp', 'weight', 'med', 'note']);
+
+        h = handlers();
+        env.render(medsOn(baseState()), root, h);
+        open();
+        expect(ids(sent(h))).not.toContain('med');
+
+        const off = baseState();
+        off.nextMed = { value: null, deeplink: 'meds', status: 'disabled' };
+        h = handlers({ asNeededMeds: () => ASNEEDED });
+        env.render(off, root, h);
+        open();
+        expect(ids(sent(h))).not.toContain('med');
+    });
+
+    it('a kind whose feature is off drops out', () => {
+        const s = baseState();
+        s.weightLatest = { value: null, deeplink: 'weight', status: 'disabled' };
+        s.sleepLastNight = { value: null, deeplink: 'health', status: 'disabled' };
+        const h = handlers();
+        env.render(s, root, h);
+        open();
+        expect(ids(sent(h))).toEqual(['bp']);
+    });
+
+    it('Food off: the kinds become the sheet; exactly one kind opens its form directly', () => {
         const s = baseState();
         s.caloriesToday = { value: null, deeplink: 'food', status: 'disabled' };
-        s.weightLatest = { value: null, deeplink: 'weight', status: 'disabled' };
-        env.render(s, root, { now: NOW });
+        let h = handlers();
+        env.render(s, root, h);
         open();
-        expect(tiles()).toEqual(['bp', 'note']);
-        expect(sheet().querySelector('.wg-sheet__body').textContent).not.toContain('Food');
+        expect(sent(h)).toEqual(expect.objectContaining({ from: 'today', food: false, view: 'home' }));
+        expect(ids(sent(h))).toEqual(['bp', 'weight', 'note']);
+
+        const one = disabledState();
+        one.bpLatest = baseState().bpLatest;
+        h = handlers();
+        env.render(one, root, h);
+        open();
+        expect(h.onAddBp).toHaveBeenCalledTimes(1);
+        expect(h.onLogFood).not.toHaveBeenCalled();
+
+        // Med the one kind: the sheet's Med pane is that form.
+        const med = medsOn(disabledState());
+        h = handlers({ asNeededMeds: () => ASNEEDED });
+        env.render(med, root, h);
+        open();
+        expect(sent(h)).toEqual(expect.objectContaining({ food: false, view: 'med' }));
     });
 
     it('every feature that can log is off → no Log button', () => {
@@ -527,82 +580,34 @@ describe('Today v2 — Log sheet', () => {
         expect(root.querySelector('[data-action="open-log"]')).toBeNull();
     });
 
-    it('each tile closes the sheet and runs the same opener as before', () => {
-        const h = {
-            onLogFood: vi.fn(), onPhotoMeal: vi.fn(), onLibraryMeal: vi.fn(), onScanFood: vi.fn(), onDescribeFood: vi.fn(),
-            onAddBp: vi.fn(), onAddWeight: vi.fn(), onAddNote: vi.fn()
-        };
-        env.render(baseState(), root, { now: NOW, ...h });
-        const expected = {
-            'food-search': h.onLogFood, 'food-photo': h.onPhotoMeal, 'food-library': h.onLibraryMeal, 'food-scan': h.onScanFood,
-            'food-describe': h.onDescribeFood, bp: h.onAddBp, weight: h.onAddWeight, note: h.onAddNote
-        };
-        for (const [id, fn] of Object.entries(expected)) {
-            open();
-            sheet().querySelector(`[data-log="${id}"]`).click();
-            expect(sheet().classList.contains('hidden')).toBe(true);
-            expect(fn).toHaveBeenCalledTimes(1);
-        }
-    });
-
-    it('opens and closes through ModalManager so Back / Esc reach it', () => {
-        const mm = {
-            register: vi.fn(),
-            open: vi.fn((id) => env.document.getElementById(id).classList.remove('hidden')),
-            close: vi.fn((id) => env.document.getElementById(id).classList.add('hidden'))
-        };
-        env.window.ModalManager = mm;
-        env.render(baseState(), root, { now: NOW });
-        open();
-        expect(mm.register).toHaveBeenCalledWith('today-log-sheet', expect.any(Function));
-        expect(mm.open).toHaveBeenCalledWith('today-log-sheet');
-        sheet().querySelector('[data-action="close"]').click();
-        expect(mm.close).toHaveBeenCalledWith('today-log-sheet');
-        expect(sheet().classList.contains('hidden')).toBe(true);
-        // Re-opening reuses the one sheet node.
-        open();
-        expect(env.document.querySelectorAll('#today-log-sheet').length).toBe(1);
-    });
-
-    it('default openers: the food Add sheet, its scanner and photo picker, AI describe, BP / weight forms, the notes composer', () => {
+    it('default openers: showAddFoodModal gets the Today options; BP / weight forms; the notes composer', () => {
         const w = env.window;
         w.showAddFoodModal = vi.fn();
-        w.FoodLog = { openAdd: vi.fn(), addSheet: { openDescribe: vi.fn() } };
-        w.FoodScanner = { openFoodScannerModal: vi.fn() };
-        w.FoodActions = { triggerPhotoPicker: vi.fn() };
         w.showBPRecordModal = vi.fn();
         w.showWeightModal = vi.fn();
         w.switchTab = vi.fn();
+        w.asNeededMeds = () => ASNEEDED;
         const notesTab = env.document.createElement('button');
         notesTab.className = 'health-tab';
         notesTab.setAttribute('data-tab', 'notes');
         notesTab.addEventListener('click', w.notesClicked = vi.fn());
         env.document.body.appendChild(notesTab);
 
-        env.render(baseState(), root, { now: NOW });
-        const tap = (id) => { open(); sheet().querySelector(`[data-log="${id}"]`).click(); };
-        tap('food-search');
+        env.render(medsOn(baseState()), root, { now: NOW });
+        open();
         expect(w.showAddFoodModal).toHaveBeenCalledTimes(1);
-        tap('food-scan');
-        expect(w.FoodLog.openAdd).toHaveBeenCalledTimes(1);
-        expect(w.FoodScanner.openFoodScannerModal).toHaveBeenCalledTimes(1);
-        tap('food-photo');
-        expect(w.FoodActions.triggerPhotoPicker).toHaveBeenCalledTimes(1);
-        tap('food-library');
-        expect(w.FoodActions.triggerPhotoPicker).toHaveBeenLastCalledWith({ gallery: true });
-        tap('food-describe');
-        expect(w.FoodLog.addSheet.openDescribe).toHaveBeenCalledTimes(1);
-        expect(w.showAddFoodModal).toHaveBeenCalledTimes(1);
-        tap('bp');
+        const o = w.showAddFoodModal.mock.calls[0][0];
+        expect(o.from).toBe('today');
+        expect(ids(o)).toEqual(['bp', 'weight', 'med', 'note']);
+        const run = (id) => o.kinds.find((k) => k.id === id).run();
+        run('bp');
         expect(w.showBPRecordModal).toHaveBeenCalledTimes(1);
-        tap('weight');
+        run('weight');
         expect(w.showWeightModal).toHaveBeenCalledTimes(1);
-        tap('note');
+        run('note');
         expect(w.switchTab).toHaveBeenCalledWith('health');
         expect(w.notesClicked).toHaveBeenCalledTimes(1);
-        // None of these is a bare tab switch to the feature tab.
         expect(w.switchTab).not.toHaveBeenCalledWith('food');
-        expect(w.switchTab).not.toHaveBeenCalledWith('bp');
     });
 });
 
