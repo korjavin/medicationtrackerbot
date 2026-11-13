@@ -1,0 +1,26 @@
+id: today-log-sheet
+title: "Today's Log opens the food sheet with an Also log row; an as-needed med is taken from Today in three taps"
+platforms: [web, android, ios]
+preconditions:
+  - Food, BP, Weight, Meds and Health on
+  - One active as-needed med with tracked stock (e.g. Ibuprofen, 12 left) and one scheduled med
+steps:
+  - On Today tap Log
+  - Look at the sheet, then tap Med
+  - Tap Take on the as-needed med
+  - Tap Log again, Med, then tap the med's row instead of Take
+  - Close it; on the Food tab tap + (Add)
+  - Turn Food off in Settings and tap Log on Today
+invariants:
+  - "Log on Today opens the food sheet titled Log: search, Scan / Photo / Gallery / Describe, then an Also log row BP · Weight · Med · Note, then Recent"
+  - Med lists only the as-needed med (the When needed group of My meds), not the scheduled one
+  - Take closes the sheet and shows "<Name> taken" with "Logged HH:MM · N left", N one lower than before; the toast has no Undo, and the dose appears on the Meds timeline
+  - Tapping the med's row opens the existing log sheet with a time field to log another time
+  - Food's + opens the same sheet titled Log food, with no Also log row
+  - With Food off, Log shows BP · Weight · Med · Note as tiles with no search; with only one kind left, Log opens that kind's form directly
+  - A kind whose feature is off is not offered; Med is not offered without an active as-needed med
+source: [med-aa18.4]
+covered_by:
+  web: web/static/js/tests/food.add-sheet.test.js  # Today side (kinds, flags, one-kind direct): web/static/js/tests/today.render.test.js
+  android: manual
+  ios: manual

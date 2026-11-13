@@ -257,6 +257,26 @@ describe('features/weight.js — target-weight goal dialog', () => {
         const texts = [...document.querySelectorAll('.wg-weight-goal-card__delta')].map((n) => n.textContent);
         expect(texts).toEqual(['At goal', 'Current 77.0 kg']);
         expect(document.querySelector('.wg-weight-goal-card__fill').style.getPropertyValue('--fill-pct')).toBe('100%');
+        expect(document.querySelector('[data-fact="too-fast"]')).toBeNull();
+    });
+
+    // med-ge9q: Today's and Journey's goal cards are gone; the Goal Line's
+    // too_fast safety line keeps its one surface here, same text.
+    it('too_fast → the goal card carries one calm safety line, never praise', () => {
+        const { window, document } = env;
+        window.weightUnitPreference = 'kg';
+        window.renderWeightGoalCard([{ measured_at: new Date().toISOString(), weight: 82 }], { goal: 78 }, {
+            enabled: true,
+            goal: {
+                status: 'ok', distance_to_goal: 4.4, trend_weight: 82.4, start_ref_source: 'trend_at_set', too_fast: true,
+                progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
+            },
+        });
+        const card = document.getElementById('weight-goal-card');
+        const lines = [...card.querySelectorAll('[data-fact="too-fast"]')];
+        expect(lines.map((n) => n.textContent)).toEqual(['Faster than 1% a week — worth checking with your doctor.']);
+        expect(lines[0].classList.contains('wg-hint')).toBe(true);
+        expect(card.textContent).not.toMatch(/great|nice|well done|on pace|ahead/i);
     });
 
     it('cancelling the dialog leaves the goal untouched', async () => {

@@ -1013,60 +1013,75 @@ async function confirmLogPast() {
 
     const btn = document.getElementById('med-confirm-action-btn');
     await withSubmit(btn, async () => {
-        // Optimistic: a synthesised taken row joins the timeline so the user
-        // sees the new entry before /log-past resolves.
-        const handles = [await _applyOptimisticTimeline((rows) => [...rows, _tlManualRow(medId, takenAt)])];
-
-        let res;
-        try {
-            res = await apiCall('/api/medications/log-past', 'POST', {
-                medication_id: medId,
-                taken_at: takenAt
-            });
-        } catch (e) {
-            await _rollbackOptimistic(handles);
-            throw e;
-        }
-
-        if (!res) {
-            await _rollbackOptimistic(handles);
-            closeMedicationConfirmModal();
-            return;
-        }
-        await _commitOptimistic(handles);
-
-        if (res) {
-            safeToast("Intake logged!", 'info');
-            if (window.DataStore) {
-                await window.DataStore.invalidateByTag('history');
-                await window.DataStore.invalidateByTag('medications');
-                await window.DataStore.invalidateByTag('gamification');
-            }
-            await loadMeds();
-            const timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
-            const newId = res && typeof res.id !== 'undefined' ? res.id : null;
-            // Only run the visibility check when the timeline read actually
-            // returned rows. If it failed (null), the user is offline/degraded —
-            // the POST already succeeded, so don't shout "did not refresh".
-            // The timeline reads a window (bd med-ry7b): a log older than its
-            // first day is not in it by design.
-            const inWindow = typeof _medsTimelineState === 'undefined'
-                || Date.parse(takenAt) >= Date.now() - (_medsTimelineState.back + MEDS_TIMELINE_PAGE_DAYS) * 86400000;
-            if (newId !== null && Array.isArray(timelineRows) && inWindow) {
-                const found = timelineRows.some((r) => r && String(r.occId) === String(newId));
-                if (!found) {
-                    if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
-                        window.SyncDebug.warn('log-past: new intake not visible in the timeline after reload', { id: newId });
-                    }
-                    if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
-                        window.SyncManager.showToast('Saved, but the timeline did not refresh — pull to refresh', 'error');
-                    }
-                }
-            }
-        }
-
+        await logPastIntake(medId, takenAt, () => safeToast("Intake logged!", 'info'));
         closeMedicationConfirmModal();
     });
+}
+
+// The one log_past write (the log_past sheet above, and Today's Log → Med →
+// Take, kit LS2): one TAKEN intake at takenAt via POST /log-past, an
+// optimistic timeline row first, then meds + timeline re-read. onLogged runs
+// once the write landed, before the re-reads. Returns the response, or null
+// when nothing was written; a thrown write rolls back and rethrows (a failed
+// re-read after a landed write does not throw).
+async function logPastIntake(medId, takenAt, onLogged) {
+    // Optimistic: a synthesised taken row joins the timeline so the user
+    // sees the new entry before /log-past resolves.
+    const handles = [await _applyOptimisticTimeline((rows) => [...rows, _tlManualRow(medId, takenAt)])];
+
+    let res;
+    try {
+        res = await apiCall('/api/medications/log-past', 'POST', {
+            medication_id: medId,
+            taken_at: takenAt
+        });
+    } catch (e) {
+        await _rollbackOptimistic(handles);
+        throw e;
+    }
+
+    if (!res) {
+        await _rollbackOptimistic(handles);
+        return null;
+    }
+    await _commitOptimistic(handles);
+
+    if (typeof onLogged === 'function') onLogged(res);
+    // The dose is written: a failed refresh must not read as a failed write
+    // (a retry would log a second dose).
+    let timelineRows = null;
+    try {
+        if (window.DataStore) {
+            await window.DataStore.invalidateByTag('history');
+            await window.DataStore.invalidateByTag('medications');
+            await window.DataStore.invalidateByTag('gamification');
+        }
+        await loadMeds();
+        timelineRows = typeof loadTimeline === 'function' ? await loadTimeline() : null;
+    } catch (e) {
+        console.warn('log-past: refresh after the write failed', e);
+        return res;
+    }
+    const newId = res && typeof res.id !== 'undefined' ? res.id : null;
+    // Only run the visibility check when the timeline read actually
+    // returned rows. If it failed (null), the user is offline/degraded —
+    // the POST already succeeded, so don't shout "did not refresh".
+    // The timeline reads a window (bd med-ry7b): a log older than its
+    // first day is not in it by design.
+    const inWindow = typeof _medsTimelineState === 'undefined'
+        || Date.parse(takenAt) >= Date.now() - (_medsTimelineState.back + MEDS_TIMELINE_PAGE_DAYS) * 86400000;
+    if (newId !== null && Array.isArray(timelineRows) && inWindow) {
+        const found = timelineRows.some((r) => r && String(r.occId) === String(newId));
+        if (!found) {
+            if (window.SyncDebug && typeof window.SyncDebug.warn === 'function') {
+                window.SyncDebug.warn('log-past: new intake not visible in the timeline after reload', { id: newId });
+            }
+            if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+                window.SyncManager.showToast('Saved, but the timeline did not refresh — pull to refresh', 'error');
+            }
+        }
+    }
+    return res;
 }
 
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their
@@ -1135,5 +1150,6 @@ window.MedsHistory = {
     skipSelectedMedications,
     updateIntakeHistory,
     confirmLogPast,
+    logPastIntake,
     snoozeMedicationConfirm
 };

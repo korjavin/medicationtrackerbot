@@ -128,6 +128,13 @@ net (§6.1). Rows are feature-gated.
 **0.3.2 The Today card** (replaces the rings tile and the mounted forecast as the
 gamification headline):
 
+> **Removed in bd med-ge9q (UI-only):** Today and Journey no longer render a
+> goal card; the weight goal lives on Health → Weight only (its goal card also
+> carries the `too_fast` line), Today keeps only the adherence alert as a plain
+> card whenever active, and reached goal milestones are ordinary Journey
+> Keystones entries. The read model below is unchanged; the history that
+> follows describes the removed cards.
+
 ```
  GOAL LINE                          82.4 → 78.0 kg   trend · 12 weigh-ins/28d
  ████████░░░░░░   3.6 of 8.0 kg since you set the goal · next marker 80 kg

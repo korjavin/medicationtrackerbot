@@ -457,7 +457,7 @@
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
             stepsLatest: stepsLatestCell(caches, healthEnabled),
-            goalLine: goalLineCell(goalLinePayload, gamificationEnabled, weightEnabled),
+            goalLine: goalLineCell(goalLinePayload, gamificationEnabled),
             // GET /api/trackers as cached (no feature flag: no trackers, no card).
             trackers: Array.isArray(caches.trackers) ? caches.trackers : null
         };
@@ -469,11 +469,12 @@
     // renderToday(state, root, handlers) fills `root` top to bottom:
     //   call row (Call agent · Log · Doctor brief) → pending tz-plan card
     //   (Apply / Cancel) → Next up list → vitals strip (BP · Weight · Fuel) →
-    //   Trackers card → Goal Line track → macros card → sleep / steps tiles →
-    //   in-progress tz-transition card.
+    //   Trackers card → adherence alert (when active) → macros card →
+    //   sleep / steps tiles → in-progress tz-transition card. No weight-goal
+    //   card (med-ge9q: Health → Weight owns the goal).
     //
-    // Kit rules: one sun-filled control (.wg-btn--primary) per view — the
-    // soonest Next-up action, else the goal card's "Set goal" — except while a
+    // Kit rules: at most one sun-filled control (.wg-btn--primary) per view —
+    // the soonest Next-up action (or Start here) — except while a
     // tz plan awaits Apply/Cancel, when that Apply is the one; status only via
     // WGChip states; no inline style except the --p / --n custom properties
     // the track and meters read; icons are <i class="wg-ico" data-icon>
@@ -481,7 +482,6 @@
     // ------------------------------------------------------------------------
 
     const DAY_IN_MS = 24 * 60 * 60 * 1000;
-    const LOG_SHEET_ID = 'today-log-sheet';
 
     function doc() {
         return (typeof document !== 'undefined') ? document : null;
@@ -615,11 +615,6 @@
             ? formatWeight(kg, unit)
             : { value: Math.round(Number(kg) * 10) / 10, label: unit };
         return { text: Number(display.value).toFixed(1), unit: display.label };
-    }
-
-    function weightText(kg) {
-        const f = weightFmt(kg);
-        return `${f.text} ${f.unit}`;
     }
 
     function signedWeightText(kg) {
@@ -761,14 +756,20 @@
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
             }
-            // Tapping the row itself (not its buttons) does what View does:
-            // the planned Day's exercises in the Plan → Day pages.
+            // Tapping the row itself (not its buttons) starts or resumes TODAY's
+            // session (kit WR1; Start keeps its confirm, WR2); a later day or a
+            // finished/skipped session opens the plan's Day page, as View does.
             row.classList.add('wg-today-next__tap');
             row.setAttribute('role', 'button');
             row.setAttribute('tabindex', '0');
-            row.setAttribute('data-action', 'open-workout-plan');
-            row.setAttribute('aria-label', `${v.group_name || 'Workout'} — view planned exercises`);
-            const open = () => h.onViewWorkout(v);
+            const name = v.group_name || 'Workout';
+            const open = kind === 'start' ? () => h.onStartWorkout(v.id)
+                : kind === 'resume' ? () => h.onResumeWorkout(v.id)
+                : () => h.onViewWorkout(v);
+            row.setAttribute('data-action', kind === 'start' ? 'start-workout'
+                : kind === 'resume' ? 'resume-workout' : 'open-workout-plan');
+            row.setAttribute('aria-label', kind === 'start' ? `Start ${name}`
+                : kind === 'resume' ? `Resume ${name}` : `${name} — view planned exercises`);
             row.addEventListener('click', (e) => {
                 if (e.target.closest && e.target.closest('.wg-btn')) return;
                 open();
@@ -1017,7 +1018,7 @@
 
     // ---- Trackers card (screens-trackers.html TR1/TR1b, med-1vy5.2) --------
     //
-    // One tile per active tracker, between the vitals strip and the Goal Line.
+    // One tile per active tracker, below the vitals strip.
     // Tap = +step (count) or toggle today (check); the toast undoes exactly
     // that log. The ⋯ button or a long press (contextmenu) opens the log sheet:
     // a custom amount plus today's logs with delete. Every write patches the
@@ -2857,27 +2858,17 @@
         return page;
     }
 
-    // ---- Goal Line (docs/gamification.md §0.3.2) ----------------------------
+    // ---- Adherence alert (rides the Goal Line payload) ----------------------
     //
-    // The gamification headline, as a kit track: current → target, a marker
-    // track (--n markers, --p progress, a pin on the next marker) and three
-    // numbers — the same anatomy as the Journey goal card (journey.js
-    // goalTrack). Facts only: no pace grade, no projected date, no HP / level /
-    // rings. The card taps through to Journey; inline actions stop propagation.
+    // Today renders no weight-goal card (med-ge9q: the goal lives on Health →
+    // Weight only). The Goal Line payload's medication alert is a safety
+    // signal, so it keeps a plain card whenever active — ED-safe or not. No
+    // other field of the payload is read here.
 
-    function goalLineCell(payload, enabled, weightEnabled) {
+    function goalLineCell(payload, enabled) {
         if (!enabled) return cell(null, 'journey', 'disabled');
-        // ED-safe (med-8tur.12): no Goal Line, but the medication alert it
-        // carries is a safety signal — kept, rendered on its own.
-        if (payload && payload.ed_safe) {
-            const aa = payload.adherence_alert;
-            return aa && aa.active ? cell({ ed_safe: true, adherence_alert: aa }, 'journey', 'ok') : cell(null, 'journey', 'disabled');
-        }
-        if (payload && payload.enabled === false) return cell(null, 'journey', 'disabled');
-        if (!payload || !payload.goal) return cell(null, 'journey', 'missing');
-        const c = cell(payload, 'journey', 'ok');
-        c.weightOn = weightEnabled !== false;
-        return c;
+        const aa = payload && payload.adherence_alert;
+        return aa && aa.active ? cell({ adherence_alert: aa }, 'journey', 'ok') : cell(null, 'journey', 'disabled');
     }
 
     function goalAdherenceNudge(aa, h) {
@@ -2892,278 +2883,41 @@
         return link;
     }
 
-    function goalPlanLine(plan) {
-        if (!plan) return null;
-        let text = null;
-        if (plan.paused) text = 'Paused this week';
-        else {
-            const c = plan.cadence || {};
-            const parts = [];
-            if (plan.intention && plan.intention.text) parts.push(plan.intention.text);
-            if (c.weigh_in === 'daily') parts.push('weigh-in daily');
-            if (Number.isInteger(c.bp_days) && c.bp_days > 0) parts.push(`BP ${c.bp_days} day${c.bp_days === 1 ? '' : 's'}`);
-            if (parts.length) text = `This week · ${parts.join(' · ')}`;
-        }
-        if (!text) return null;
-        const line = el('span', 'wg-meta', text);
-        line.setAttribute('data-fact', 'plan');
-        return line;
+    // Medication safety net: a plain card, invisible unless the trailing PDC
+    // has slipped. Links to meds; no tap-through to Journey.
+    function renderAdherenceAlert(c, h) {
+        if (!c || c.status !== 'ok' || !c.value) return null;
+        const card = el('div', 'wg-card');
+        card.setAttribute('data-section', 'adherence-alert');
+        card.appendChild(goalAdherenceNudge(c.value.adherence_alert, h));
+        return card;
     }
 
-    function goalTrack(g) {
-        const nm = g.next_milestone;
-        const track = el('span', 'wg-track');
-        track.style.setProperty('--p', pct(g.progress.fraction));
-        if (nm && Number(nm.count) > 0) track.style.setProperty('--n', String(Number(nm.count)));
-        track.appendChild(el('span', 'wg-track__fill'));
-        const start = Number.isFinite(g.start_ref) ? g.start_ref : null;
-        const span = start !== null && Number.isFinite(g.target) ? Math.abs(start - g.target) : 0;
-        const showPin = !!nm && !nm.is_goal && Number.isFinite(nm.weight) && span > 0;
-        if (showPin) {
-            const pin = el('span', 'wg-track__pin');
-            pin.style.setProperty('--p', pct(Math.abs(start - nm.weight) / span));
-            track.appendChild(pin);
-        }
-        const ends = el('span', 'wg-track__ends');
-        ends.appendChild(el('span', null, start !== null ? `start ${weightFmt(start).text}` : 'start'));
-        if (showPin) ends.appendChild(el('span', null, `next ${weightFmt(nm.weight).text}`));
-        ends.appendChild(el('span', null, nm && Number(nm.count) > 0
-            ? `${Math.max(0, (Number(nm.ordinal) || 1) - 1)} / ${Number(nm.count)}`
-            : 'goal'));
-        return [track, ends];
-    }
-
-    // Returns { node, primary } — primary is true when the card carries the
-    // view's sun control ("Set goal", only when Next up has none).
-    function renderGoalCard(c, h, allowPrimary, offline) {
-        if (!c || c.status === 'disabled' || c.status === 'missing' || !c.value) return { node: null, primary: false };
-        const v = c.value;
-        if (v.ed_safe) {
-            // ED-safe: just the medication alert, in a plain card — no goal,
-            // no weight, no tap-through to Journey.
-            const alertCard = el('div', 'wg-card');
-            alertCard.setAttribute('data-section', 'adherence-alert');
-            alertCard.appendChild(goalAdherenceNudge(v.adherence_alert, h));
-            return { node: alertCard, primary: false };
-        }
-        const g = v.goal;
-
-        if (g.status === 'no_goal') {
-            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
-            if (c.weightOn === false) return { node: null, primary: false };
-            const card = el('div', 'wg-card wg-card--accent wg-vstack wg-today-goal');
-            card.setAttribute('data-section', 'goal-line');
-            card.setAttribute('data-status', g.status);
-            card.appendChild(el('span', 'wg-eyebrow', 'Goal line'));
-            card.appendChild(el('p', 'wg-card__title', 'Set a weight goal'));
-            card.appendChild(el('p', 'wg-hint', 'The goal is the spine of your journey. Workouts, BP and food are the levers that move it.'));
-            const foot = el('div', 'wg-card__foot');
-            foot.appendChild(btn('Set goal', { primary: allowPrimary, action: 'set-goal', onClick: () => h.onDeeplink('weight') }));
-            card.appendChild(foot);
-            const nudge = goalAdherenceNudge(v.adherence_alert, h);
-            if (nudge) card.appendChild(nudge);
-            return { node: card, primary: allowPrimary };
-        }
-
-        const card = el('div', 'wg-card wg-vstack wg-today-goal');
-        card.setAttribute('data-section', 'goal-line');
-        card.setAttribute('data-deeplink', c.deeplink || 'journey');
-        card.setAttribute('data-status', g.status);
-        card.setAttribute('role', 'button');
-        card.setAttribute('tabindex', '0');
-        card.setAttribute('aria-label', 'Goal line — open Journey');
-        const go = () => h.onDeeplink(c.deeplink || 'journey');
-        card.addEventListener('click', go);
-        card.addEventListener('keydown', (e) => {
-            if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(); }
-        });
-
-        const head = el('span', 'wg-hstack');
-        head.appendChild(el('span', 'wg-eyebrow', 'Goal line'));
-        head.appendChild(el('span', 'wg-spacer'));
-        if (offline) head.appendChild(chip('cached', 'stale', 'clock'));
-        else if (Number.isFinite(g.change_7d)) {
-            // Moving away from the target this week → warn; otherwise neutral.
-            // Never praise: toward the goal is just the number.
-            const away = Number.isFinite(g.direction) && g.direction !== 0 && g.change_7d * g.direction < -0.05
-                && g.status !== 'at_goal' && g.status !== 'maintaining';
-            head.appendChild(chip(`${signedWeightText(g.change_7d)} · 7d`, away ? 'warn' : undefined));
-        }
-        card.appendChild(head);
-
-        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
-            : (g.latest_reading && Number.isFinite(g.latest_reading.weight) ? g.latest_reading.weight : null);
-        if (current !== null && Number.isFinite(g.target)) {
-            const nums = el('span', 'wg-hstack');
-            nums.appendChild(el('span', 'wg-stat__value', weightFmt(current).text));
-            const chev = ico('chev-r');
-            chev.classList.add('wg-muted');
-            nums.appendChild(chev);
-            const tf = weightFmt(g.target);
-            const target = el('span', 'wg-stat__value wg-sun', tf.text);
-            target.appendChild(el('small', null, tf.unit));
-            nums.appendChild(target);
-            card.appendChild(nums);
-        }
-
-        if (g.status === 'preliminary') {
-            const cov = g.coverage || {};
-            const needed = Math.max(1, (Number(cov.min_weigh_in_days) || 0) - (Number(cov.weigh_in_days_28d) || 0));
-            card.appendChild(el('p', 'wg-hint', g.latest_reading && Number.isFinite(g.latest_reading.weight)
-                ? `Latest ${weightText(g.latest_reading.weight)} · trend forms after ${needed} more weigh-in${needed === 1 ? '' : 's'}`
-                : 'Log a weigh-in to start your goal line'));
-        } else if (g.status === 'at_goal' || g.status === 'maintaining') {
-            card.appendChild(el('p', 'wg-hint', g.status === 'maintaining'
-                ? `Maintaining your goal — trend holding at ${weightText(g.target)}`
-                : `At your goal — trend has reached ${weightText(g.target)}`));
-        } else if (g.progress) {
-            // goal.progress is the episode progress the Weight tab and Journey
-            // render too — never recomputed here, so the screens agree.
-            goalTrack(g).forEach((n) => card.appendChild(n));
-        }
-
-        // The only pace judgment on the card: a calm safety line, never praise.
-        if (g.too_fast) {
-            card.appendChild(el('p', 'wg-hint', 'Faster than 1% a week — worth checking with your doctor.'));
-        }
-
-        // A reached milestone (med-8tur.5): shown once, until acknowledged.
-        const ms = v.milestone;
-        if (ms && ms.id && typeof h.onAckMilestone === 'function') {
-            const row = el('span', 'wg-hstack');
-            row.setAttribute('data-milestone-id', ms.id);
-            row.appendChild(el('span', 'wg-meta', ms.title || 'Goal milestone reached'));
-            row.appendChild(el('span', 'wg-spacer'));
-            row.appendChild(btn('Got it', { sm: true, action: 'ack-milestone', onClick: () => h.onAckMilestone(ms.id) }));
-            card.appendChild(row);
-        }
-
-        const plan = goalPlanLine(v.plan);
-        if (plan) card.appendChild(plan);
-
-        // Medication safety net: invisible unless the trailing PDC has slipped.
-        const nudge = goalAdherenceNudge(v.adherence_alert, h);
-        if (nudge) card.appendChild(nudge);
-
-        // Weigh in stays a plain button; the session CTA moved to Next up.
-        if (v.cta === 'weigh_in' && typeof h.onAddWeight === 'function') {
-            const foot = el('div', 'wg-card__foot');
-            foot.appendChild(btn('Weigh in', { sm: true, icon: 'scale', action: 'weigh-in', onClick: h.onAddWeight }));
-            card.appendChild(foot);
-        }
-        return { node: card, primary: false };
-    }
-
-    // Default milestone ack (med-8tur.5): optimistic `milestone: null` on the
-    // cached Goal Line, then the user write; rolled back when it fails.
-    async function ackMilestoneDefault(id) {
-        const ds = typeof window !== 'undefined' ? window.DataStore : null;
-        const handle = (ds && typeof ds.applyOptimistic === 'function')
-            ? await ds.applyOptimistic('gamification_goal_line',
-                (prev) => (prev && typeof prev === 'object' ? { ...prev, milestone: null } : prev), ['gamification'])
-            : null;
-        const call = typeof window !== 'undefined' ? (window.offlineAwareApiCall || window.apiCallDirect) : null;
-        let res = null;
-        try {
-            if (typeof call === 'function') res = await call(`/api/gamification/milestones/${encodeURIComponent(id)}/ack`, 'POST');
-        } catch (_) { res = null; }
-        if (!handle) return;
-        try {
-            if (res && res.ok) await handle.commit(null);
-            else await handle.rollback();
-        } catch (_) { /* best-effort */ }
-    }
-
-    // ---- Log sheet (T3) -----------------------------------------------------
+    // ---- Log (kit LS1–LS4, One Log sheet) -----------------------------------
     //
-    // The Today "Log" button opens a kit bottom sheet of .wg-action tiles:
-    // food fast paths first, then measurements & notes. Disabled features
-    // drop out. Each tile closes the sheet and runs the same opener the old
-    // shortcut tiles ran. The sheet is a dynamic <mt-modal> on <body>, opened
-    // through ModalManager so Back / Esc close it.
+    // Today's "Log" opens the food Add sheet (#food-add-sheet,
+    // features/food/add-sheet.js) titled "Log", with the other kinds in one
+    // "Also log" row — or, with Food off, as its tiles (LS3). logKinds is the
+    // one place that decides which kinds are on; each follows its feature flag,
+    // and Med needs Meds on plus a When needed med (the sheet's Med pane, LS2,
+    // has no opener of its own here).
 
-    function logSheetGroups(state, h) {
-        const food = on(state && state.caloriesToday) ? [
-            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', row: true, run: h.onLogFood },
-            { id: 'food-photo', icon: 'camera', label: 'Photo meal', sub: 'AI estimates it', run: h.onPhotoMeal },
-            { id: 'food-library', icon: 'image', label: 'From library', sub: 'Existing photo', run: h.onLibraryMeal },
-            { id: 'food-scan', icon: 'barcode', label: 'Scan barcode', run: h.onScanFood },
-            { id: 'food-describe', icon: 'sparkle', label: 'Describe', sub: '"200 g chicken, rice"', run: h.onDescribeFood },
-        ] : [];
-        const measure = [];
-        if (on(state && state.bpLatest)) measure.push({ id: 'bp', icon: 'activity', label: 'BP', run: h.onAddBp });
-        if (on(state && state.weightLatest)) measure.push({ id: 'weight', icon: 'scale', label: 'Weight', run: h.onAddWeight });
-        if (on(state && state.sleepLastNight)) measure.push({ id: 'note', icon: 'note', label: 'Note', run: h.onAddNote });
-        return { food, measure };
+    function logKinds(state, h) {
+        const kinds = [];
+        if (on(state && state.bpLatest)) kinds.push({ id: 'bp', icon: 'activity', label: 'BP', run: h.onAddBp });
+        if (on(state && state.weightLatest)) kinds.push({ id: 'weight', icon: 'scale', label: 'Weight', run: h.onAddWeight });
+        if (on(state && state.nextMed) && h.asNeededMeds().length) kinds.push({ id: 'med', icon: 'pill', label: 'Med' });
+        if (on(state && state.sleepLastNight)) kinds.push({ id: 'note', icon: 'note', label: 'Note', run: h.onAddNote });
+        return kinds;
     }
 
-    function closeLogSheet() {
-        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
-        if (mm && typeof mm.close === 'function') { mm.close(LOG_SHEET_ID); return; }
-        const sheet = doc().getElementById(LOG_SHEET_ID);
-        if (sheet) sheet.classList.add('hidden');
-    }
-
-    function openLogSheet(groups, nowMs) {
-        const d = doc();
-        let sheet = d.getElementById(LOG_SHEET_ID);
-        if (!sheet) {
-            sheet = d.createElement('mt-modal');
-            sheet.id = LOG_SHEET_ID;
-            sheet.className = 'hidden wg-modal wg-sheet wg-today-log-sheet';
-            sheet.setAttribute('aria-label', 'Log');
-            d.body.appendChild(sheet);
-        }
-        sheet.replaceChildren();
-        sheet.appendChild(el('div', 'wg-sheet__grab'));
-        const head = el('header', 'wg-sheethead');
-        const titles = el('div', 'wg-sheethead__titles');
-        titles.appendChild(el('div', 'wg-eyebrow', `Now · ${fmtTimeHM(new Date(nowMs).toISOString())}`));
-        titles.appendChild(el('div', 'wg-sheethead__title', 'Log'));
-        const acts = el('div', 'wg-sheethead__acts');
-        acts.appendChild(btn(null, { ghost: true, iconOnly: true, icon: 'x', aria: 'Close', action: 'close', onClick: closeLogSheet }));
-        head.append(titles, acts);
-        sheet.appendChild(head);
-
-        const body = el('div', 'wg-sheet__body');
-        const group = (title, tiles, cls) => {
-            if (!tiles.length) return;
-            body.appendChild(el('span', 'wg-eyebrow', title));
-            const grid = el('div', cls);
-            const rows = [];
-            for (const t of tiles) {
-                const tile = el('button', t.row ? 'wg-action wg-action--row' : 'wg-action');
-                tile.type = 'button';
-                tile.setAttribute('data-log', t.id);
-                const iconWrap = el('span', 'wg-action__icon');
-                iconWrap.appendChild(ico(t.icon));
-                const label = el('span', 'wg-action__label', t.label);
-                if (t.sub) label.appendChild(el('span', 'wg-action__sub', t.sub));
-                tile.append(iconWrap, label);
-                tile.addEventListener('click', () => {
-                    closeLogSheet();
-                    if (typeof t.run === 'function') t.run();
-                });
-                if (t.row) rows.push(tile); else grid.appendChild(tile);
-            }
-            for (const r of rows) body.appendChild(r);
-            if (grid.children.length) body.appendChild(grid);
-        };
-        group('Food', groups.food, 'wg-actions');
-        group('Measurements & notes', groups.measure, 'wg-actions wg-actions--3');
-        sheet.appendChild(body);
-        hydrateIcons(sheet);
-
-        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
-        if (mm && typeof mm.open === 'function') {
-            if (typeof mm.register === 'function') mm.register(LOG_SHEET_ID, closeLogSheet);
-            mm.open(LOG_SHEET_ID);
-        } else if (typeof sheet.open === 'function') {
-            sheet.open();
-        } else {
-            sheet.classList.remove('hidden');
-        }
-        return sheet;
+    // Food off with exactly one kind left: that kind's form directly (LS3).
+    function openLog(state, h) {
+        const food = on(state && state.caloriesToday);
+        const kinds = logKinds(state, h);
+        const only = !food && kinds.length === 1 ? kinds[0] : null;
+        if (only && only.run) { only.run(); return; }
+        h.onLogFood({ from: 'today', food, kinds, view: only ? 'med' : 'home' });
     }
 
     // ---- Default openers ----------------------------------------------------
@@ -3193,38 +2947,18 @@
         const onDeeplink = opts.onDeeplink || ((target) => {
             if (target && typeof win.switchTab === 'function') win.switchTab(target);
         });
-        const onLogFood = opts.onLogFood || defaultHandler('showAddFoodModal', 'food');
         return {
             onDeeplink,
-            onLogFood,
+            // The food Add sheet; Today's Log passes { from: 'today', … } (LS1).
+            onLogFood: opts.onLogFood || ((o) => {
+                if (typeof win.showAddFoodModal === 'function') win.showAddFoodModal(o);
+                else if (typeof win.switchTab === 'function') win.switchTab('food');
+            }),
+            // My meds' When needed group (features/meds.js).
+            asNeededMeds: opts.asNeededMeds || (() => (typeof win.asNeededMeds === 'function' ? win.asNeededMeds() : [])),
             slotLabel: opts.slotLabel || (typeof win.pendingSlotLabel === 'function' ? win.pendingSlotLabel : null),
             onAddBp: opts.onAddBp || defaultHandler('showBPRecordModal', 'bp'),
             onAddWeight: opts.onAddWeight || defaultHandler('showWeightModal', 'weight'),
-            onPhotoMeal: opts.onPhotoMeal || (() => {
-                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
-                    win.FoodActions.triggerPhotoPicker();
-                }
-            }),
-            onLibraryMeal: opts.onLibraryMeal || (() => {
-                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
-                    win.FoodActions.triggerPhotoPicker({ gallery: true });
-                }
-            }),
-            onScanFood: opts.onScanFood || (() => {
-                if (win.FoodLog && typeof win.FoodLog.openAdd === 'function') win.FoodLog.openAdd();
-                if (win.FoodScanner && typeof win.FoodScanner.openFoodScannerModal === 'function') {
-                    win.FoodScanner.openFoodScannerModal();
-                } else if (win.ModalManager && win.ModalManager.foodScanner
-                    && typeof win.ModalManager.foodScanner.open === 'function') {
-                    win.ModalManager.foodScanner.open();
-                }
-            }),
-            // The food Add sheet's Describe view (features/food/add-sheet.js).
-            onDescribeFood: opts.onDescribeFood || (() => {
-                const addSheet = win.FoodLog && win.FoodLog.addSheet;
-                if (addSheet && typeof addSheet.openDescribe === 'function') addSheet.openDescribe();
-                else onLogFood();
-            }),
             // There is no new-note modal: the Notes sub-tab composer is the
             // one create path.
             onAddNote: opts.onAddNote || (() => {
@@ -3277,7 +3011,6 @@
                 if (typeof win.loadToday === 'function') win.loadToday();
                 else if (win.TodayLoader && typeof win.TodayLoader.loadToday === 'function') win.TodayLoader.loadToday();
             }),
-            onAckMilestone: opts.onAckMilestone || ackMilestoneDefault,
         };
     }
 
@@ -3331,8 +3064,7 @@
         // controls and repaints live call state onto the fresh row, so a
         // re-render mid-call keeps End call; mid-call it docks the row above
         // the tab bar (Log and Doctor brief hide while live).
-        const groups = logSheetGroups(state, h);
-        const anyLog = groups.food.length + groups.measure.length > 0;
+        const anyLog = on(state && state.caloriesToday) || logKinds(state, h).length > 0;
         const anyFeature = anyLog || on(state && state.nextMed) || on(state && state.nextWorkout);
         const callRow = el('div', 'wg-callbar wg-today-callbar');
         callRow.setAttribute('data-section', 'callbar');
@@ -3342,7 +3074,7 @@
         if (anyLog) {
             callRow.appendChild(btn('Log', {
                 icon: 'plus', action: 'open-log',
-                onClick: () => openLogSheet(logSheetGroups(state, h), Date.now()),
+                onClick: () => openLog(state, h),
             }));
         }
         if (typeof h.onDoctorBrief === 'function' && anyFeature) {
@@ -3361,7 +3093,7 @@
         const tzBanner = typeof window !== 'undefined' && window.TZPlanBanner
             && typeof window.TZPlanBanner.mountCard === 'function' ? window.TZPlanBanner : null;
         // While it awaits a decision its Apply is the view's one sun (bd
-        // med-tugv): Next up, Start here and the goal card all go secondary.
+        // med-tugv): Next up and Start here go secondary.
         const tzSun = !!(tzBanner && tzBanner.mountCard(root, 'top'));
 
         const startKeys = startHereKeys(state && state.startHere);
@@ -3399,8 +3131,8 @@
         if (trackersCard) { root.appendChild(trackersCard); }
         syncTrackerSheet(state && state.trackers, nowMs);
 
-        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary && !startSun && !tzSun, offline);
-        if (goal.node) { root.appendChild(goal.node); }
+        const alertCard = renderAdherenceAlert(state && state.goalLine, h);
+        if (alertCard) { root.appendChild(alertCard); }
 
         const macros = renderMacrosCard(state, h);
         if (macros) { root.appendChild(macros); }
@@ -3420,7 +3152,7 @@
         if (tzBanner) { tzBanner.mountCard(root, 'bottom'); }
 
         // Nothing tracked (only the call bar, if any) → every feature is off.
-        if (!anyFeature && !goal.node && !(trackersCard && trackersCard.querySelector('.wg-trk'))) {
+        if (!anyFeature && !alertCard &&!(trackersCard && trackersCard.querySelector('.wg-trk'))) {
             const empty = typeof createEmptyState === 'function'
                 ? createEmptyState({
                     icon: 'gear',
