@@ -483,7 +483,6 @@
     // ------------------------------------------------------------------------
 
     const DAY_IN_MS = 24 * 60 * 60 * 1000;
-    const LOG_SHEET_ID = 'today-log-sheet';
 
     function doc() {
         return (typeof document !== 'undefined') ? document : null;
@@ -2946,96 +2945,31 @@
         return card;
     }
 
-    // ---- Log sheet (T3) -----------------------------------------------------
+    // ---- Log (kit LS1–LS4, One Log sheet) -----------------------------------
     //
-    // The Today "Log" button opens a kit bottom sheet of .wg-action tiles:
-    // food fast paths first, then measurements & notes. Disabled features
-    // drop out. Each tile closes the sheet and runs the same opener the old
-    // shortcut tiles ran. The sheet is a dynamic <mt-modal> on <body>, opened
-    // through ModalManager so Back / Esc close it.
+    // Today's "Log" opens the food Add sheet (#food-add-sheet,
+    // features/food/add-sheet.js) titled "Log", with the other kinds in one
+    // "Also log" row — or, with Food off, as its tiles (LS3). logKinds is the
+    // one place that decides which kinds are on; each follows its feature flag,
+    // and Med needs Meds on plus a When needed med (the sheet's Med pane, LS2,
+    // has no opener of its own here).
 
-    function logSheetGroups(state, h) {
-        const food = on(state && state.caloriesToday) ? [
-            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', row: true, run: h.onLogFood },
-            { id: 'food-photo', icon: 'camera', label: 'Photo meal', sub: 'AI estimates it', run: h.onPhotoMeal },
-            { id: 'food-library', icon: 'image', label: 'From library', sub: 'Existing photo', run: h.onLibraryMeal },
-            { id: 'food-scan', icon: 'barcode', label: 'Scan barcode', run: h.onScanFood },
-            { id: 'food-describe', icon: 'sparkle', label: 'Describe', sub: '"200 g chicken, rice"', run: h.onDescribeFood },
-        ] : [];
-        const measure = [];
-        if (on(state && state.bpLatest)) measure.push({ id: 'bp', icon: 'activity', label: 'BP', run: h.onAddBp });
-        if (on(state && state.weightLatest)) measure.push({ id: 'weight', icon: 'scale', label: 'Weight', run: h.onAddWeight });
-        if (on(state && state.sleepLastNight)) measure.push({ id: 'note', icon: 'note', label: 'Note', run: h.onAddNote });
-        return { food, measure };
+    function logKinds(state, h) {
+        const kinds = [];
+        if (on(state && state.bpLatest)) kinds.push({ id: 'bp', icon: 'activity', label: 'BP', run: h.onAddBp });
+        if (on(state && state.weightLatest)) kinds.push({ id: 'weight', icon: 'scale', label: 'Weight', run: h.onAddWeight });
+        if (on(state && state.nextMed) && h.asNeededMeds().length) kinds.push({ id: 'med', icon: 'pill', label: 'Med' });
+        if (on(state && state.sleepLastNight)) kinds.push({ id: 'note', icon: 'note', label: 'Note', run: h.onAddNote });
+        return kinds;
     }
 
-    function closeLogSheet() {
-        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
-        if (mm && typeof mm.close === 'function') { mm.close(LOG_SHEET_ID); return; }
-        const sheet = doc().getElementById(LOG_SHEET_ID);
-        if (sheet) sheet.classList.add('hidden');
-    }
-
-    function openLogSheet(groups, nowMs) {
-        const d = doc();
-        let sheet = d.getElementById(LOG_SHEET_ID);
-        if (!sheet) {
-            sheet = d.createElement('mt-modal');
-            sheet.id = LOG_SHEET_ID;
-            sheet.className = 'hidden wg-modal wg-sheet wg-today-log-sheet';
-            sheet.setAttribute('aria-label', 'Log');
-            d.body.appendChild(sheet);
-        }
-        sheet.replaceChildren();
-        sheet.appendChild(el('div', 'wg-sheet__grab'));
-        const head = el('header', 'wg-sheethead');
-        const titles = el('div', 'wg-sheethead__titles');
-        titles.appendChild(el('div', 'wg-eyebrow', `Now · ${fmtTimeHM(new Date(nowMs).toISOString())}`));
-        titles.appendChild(el('div', 'wg-sheethead__title', 'Log'));
-        const acts = el('div', 'wg-sheethead__acts');
-        acts.appendChild(btn(null, { ghost: true, iconOnly: true, icon: 'x', aria: 'Close', action: 'close', onClick: closeLogSheet }));
-        head.append(titles, acts);
-        sheet.appendChild(head);
-
-        const body = el('div', 'wg-sheet__body');
-        const group = (title, tiles, cls) => {
-            if (!tiles.length) return;
-            body.appendChild(el('span', 'wg-eyebrow', title));
-            const grid = el('div', cls);
-            const rows = [];
-            for (const t of tiles) {
-                const tile = el('button', t.row ? 'wg-action wg-action--row' : 'wg-action');
-                tile.type = 'button';
-                tile.setAttribute('data-log', t.id);
-                const iconWrap = el('span', 'wg-action__icon');
-                iconWrap.appendChild(ico(t.icon));
-                const label = el('span', 'wg-action__label', t.label);
-                if (t.sub) label.appendChild(el('span', 'wg-action__sub', t.sub));
-                tile.append(iconWrap, label);
-                tile.addEventListener('click', () => {
-                    closeLogSheet();
-                    if (typeof t.run === 'function') t.run();
-                });
-                if (t.row) rows.push(tile); else grid.appendChild(tile);
-            }
-            for (const r of rows) body.appendChild(r);
-            if (grid.children.length) body.appendChild(grid);
-        };
-        group('Food', groups.food, 'wg-actions');
-        group('Measurements & notes', groups.measure, 'wg-actions wg-actions--3');
-        sheet.appendChild(body);
-        hydrateIcons(sheet);
-
-        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
-        if (mm && typeof mm.open === 'function') {
-            if (typeof mm.register === 'function') mm.register(LOG_SHEET_ID, closeLogSheet);
-            mm.open(LOG_SHEET_ID);
-        } else if (typeof sheet.open === 'function') {
-            sheet.open();
-        } else {
-            sheet.classList.remove('hidden');
-        }
-        return sheet;
+    // Food off with exactly one kind left: that kind's form directly (LS3).
+    function openLog(state, h) {
+        const food = on(state && state.caloriesToday);
+        const kinds = logKinds(state, h);
+        const only = !food && kinds.length === 1 ? kinds[0] : null;
+        if (only && only.run) { only.run(); return; }
+        h.onLogFood({ from: 'today', food, kinds, view: only ? 'med' : 'home' });
     }
 
     // ---- Default openers ----------------------------------------------------
@@ -3065,7 +2999,6 @@
         const onDeeplink = opts.onDeeplink || ((target) => {
             if (target && typeof win.switchTab === 'function') win.switchTab(target);
         });
-        const onLogFood = opts.onLogFood || defaultHandler('showAddFoodModal', 'food');
         const onTakeMed = opts.onTakeMed || ((v) => {
             const ids = Array.isArray(v && v.ids) ? v.ids : [];
             if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
@@ -3076,35 +3009,16 @@
         });
         return {
             onDeeplink,
-            onLogFood,
+            // The food Add sheet; Today's Log passes { from: 'today', … } (LS1).
+            onLogFood: opts.onLogFood || ((o) => {
+                if (typeof win.showAddFoodModal === 'function') win.showAddFoodModal(o);
+                else if (typeof win.switchTab === 'function') win.switchTab('food');
+            }),
+            // My meds' When needed group (features/meds.js).
+            asNeededMeds: opts.asNeededMeds || (() => (typeof win.asNeededMeds === 'function' ? win.asNeededMeds() : [])),
             slotLabel: opts.slotLabel || (typeof win.pendingSlotLabel === 'function' ? win.pendingSlotLabel : null),
             onAddBp: opts.onAddBp || defaultHandler('showBPRecordModal', 'bp'),
             onAddWeight: opts.onAddWeight || defaultHandler('showWeightModal', 'weight'),
-            onPhotoMeal: opts.onPhotoMeal || (() => {
-                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
-                    win.FoodActions.triggerPhotoPicker();
-                }
-            }),
-            onLibraryMeal: opts.onLibraryMeal || (() => {
-                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
-                    win.FoodActions.triggerPhotoPicker({ gallery: true });
-                }
-            }),
-            onScanFood: opts.onScanFood || (() => {
-                if (win.FoodLog && typeof win.FoodLog.openAdd === 'function') win.FoodLog.openAdd();
-                if (win.FoodScanner && typeof win.FoodScanner.openFoodScannerModal === 'function') {
-                    win.FoodScanner.openFoodScannerModal();
-                } else if (win.ModalManager && win.ModalManager.foodScanner
-                    && typeof win.ModalManager.foodScanner.open === 'function') {
-                    win.ModalManager.foodScanner.open();
-                }
-            }),
-            // The food Add sheet's Describe view (features/food/add-sheet.js).
-            onDescribeFood: opts.onDescribeFood || (() => {
-                const addSheet = win.FoodLog && win.FoodLog.addSheet;
-                if (addSheet && typeof addSheet.openDescribe === 'function') addSheet.openDescribe();
-                else onLogFood();
-            }),
             // There is no new-note modal: the Notes sub-tab composer is the
             // one create path.
             onAddNote: opts.onAddNote || (() => {
@@ -3246,8 +3160,7 @@
         // controls and repaints live call state onto the fresh row, so a
         // re-render mid-call keeps End call; mid-call it docks the row above
         // the tab bar (Log and Doctor brief hide while live).
-        const groups = logSheetGroups(state, h);
-        const anyLog = groups.food.length + groups.measure.length > 0;
+        const anyLog = on(state && state.caloriesToday) || logKinds(state, h).length > 0;
         const anyFeature = anyLog || on(state && state.nextMed) || on(state && state.nextWorkout);
         const callRow = el('div', 'wg-callbar wg-today-callbar');
         callRow.setAttribute('data-section', 'callbar');
@@ -3257,7 +3170,7 @@
         if (anyLog) {
             callRow.appendChild(btn('Log', {
                 icon: 'plus', action: 'open-log',
-                onClick: () => openLogSheet(logSheetGroups(state, h), Date.now()),
+                onClick: () => openLog(state, h),
             }));
         }
         if (typeof h.onDoctorBrief === 'function' && anyFeature) {

@@ -17,6 +17,15 @@
 // Entry points (window.FoodLog.addSheet): open({view, eatenAt}),
 // startPhotoReview(file, eatenAt) — photo.js, and onScan(rawText, numeric)
 // — scanner.js when the manual form is not the one scanning.
+//
+// One Log sheet (kit LS1–LS4): Today's Log opens it with
+// open({ from: 'today', food, kinds, view }) — titled "Log", the other kinds
+// (today.js logKinds: BP · Weight · Med · Note) in an "Also log" row under the
+// food paths, or as the home tiles when Food is off (LS3). Med opens the med
+// pane (LS2): My meds' When needed group; Take logs a dose now through the
+// log_past write (meds-history.js logPastIntake), a row tap opens the
+// log_past sheet for another time. Opened any other way it is "Log food" with
+// no row (LS4).
 
 (function () {
     const MEAL_HOURS = { Breakfast: 8, Lunch: 13, Dinner: 19, Snack: 22 };
@@ -39,6 +48,11 @@
         review: null,
         reviewSource: 'photo',
         reviewSeq: 0,
+        // One Log sheet: 'today' when Today's Log opened it; food false =
+        // the food feature is off (LS3); kinds = today.js logKinds.
+        from: null,
+        food: true,
+        kinds: [],
     };
 
     const $ = (id) => document.getElementById(id);
@@ -105,22 +119,35 @@
 
     // ---- view + chrome ----------------------------------------------------
 
+    // The med pane is the whole sheet when Food is off and Med is the one kind.
+    function medOnly() {
+        return !st.food && st.kinds.length === 1;
+    }
+
     function renderHead() {
         const eyebrow = $('food-add-eyebrow');
         const back = $('food-add-back-btn');
         const n = st.review ? st.review.length : 0;
         if (eyebrow) {
             eyebrow.textContent = {
-                home: mealFor(when()),
+                home: st.food ? mealFor(when()) : `Now · ${hhmm(new Date())}`,
                 describe: 'Describe · AI',
                 review: st.review ? `Review · ${n} item${n === 1 ? '' : 's'}` : 'Estimating…',
+                med: 'When needed',
             }[st.view];
         }
+        const title = $('food-add-title');
+        if (title) title.textContent = st.view === 'med' ? 'Log a med' : st.from ? 'Log' : 'Log food';
         if (back) {
-            back.classList.toggle('hidden', st.view === 'home');
+            back.classList.toggle('hidden', st.view === 'home' || (st.view === 'med' && medOnly()));
             const label = $('food-add-back-label');
-            if (label) label.textContent = st.view === 'review' && st.reviewSource === 'description' ? 'Edit' : 'Back';
+            if (label) {
+                label.textContent = st.view === 'med' ? 'Log'
+                    : st.view === 'review' && st.reviewSource === 'description' ? 'Edit' : 'Back';
+            }
         }
+        const timeBtn = $('food-add-time-btn');
+        if (timeBtn) timeBtn.classList.toggle('hidden', !st.food || st.view === 'med');
         const time = $('food-add-time-label');
         if (time) time.textContent = timeLabel();
         document.querySelectorAll('#food-add-meal-picks .wg-pick').forEach((b) => {
@@ -158,7 +185,8 @@
             pane.classList.toggle('hidden', pane.dataset.pane !== view);
         });
         const bar = $('food-add-search-bar');
-        if (bar) bar.classList.toggle('hidden', view !== 'home');
+        if (bar) bar.classList.toggle('hidden', view !== 'home' || !st.food);
+        if (view === 'med') renderMedList();
         renderHead();
         renderFoot();
     }
@@ -170,6 +198,9 @@
 
     function open(opts) {
         const o = opts || {};
+        st.from = o.from === 'today' ? 'today' : null;
+        st.food = !st.from || o.food !== false;
+        st.kinds = st.from && Array.isArray(o.kinds) ? o.kinds : [];
         st.eatenAt = validDate(o.eatenAt);
         st.picked = null;
         st.offer = null;
@@ -185,9 +216,10 @@
         renderResults();
         setSearchStatus('');
         resetFoodTimeInput($('food-add-datetime'));
+        renderKinds();
         window.ModalManager.foodAdd.open();
         setView(o.view || 'home');
-        loadRecent();
+        if (st.food) loadRecent();
         if (st.view === 'describe' && text) text.focus();
         if (o.focusSearch && search) search.focus();
     }
@@ -404,8 +436,117 @@
         list.classList.toggle('hidden', !list.children.length);
         // Typing reclaims the tiles' height for results; clearing brings them back.
         const tiles = $('food-add-tiles');
-        if (tiles) tiles.classList.toggle('hidden', searching);
-        if (recent) recent.classList.toggle('hidden', searching || !(($('food-add-recent') || {}).children || []).length);
+        if (tiles) tiles.classList.toggle('hidden', searching || !st.food);
+        const also = $('food-add-also');
+        if (also) also.classList.toggle('hidden', searching || !st.food || !st.kinds.length);
+        if (recent) recent.classList.toggle('hidden', searching || !st.food || !(($('food-add-recent') || {}).children || []).length);
+    }
+
+    // ---- One Log sheet: the other kinds + the med pane (LS1–LS3) ----------
+
+    function kindButton(k, tile) {
+        let b;
+        if (tile) {
+            b = el('button', 'wg-action');
+            const wrap = el('span', 'wg-action__icon');
+            wrap.appendChild(icon(k.icon));
+            b.append(wrap, el('span', 'wg-action__label', k.label));
+        } else {
+            b = el('button', 'wg-btn wg-btn--sm wg-spacer');
+            b.append(icon(k.icon, 14), k.label);
+        }
+        b.type = 'button';
+        b.dataset.log = k.id;
+        b.addEventListener('click', () => {
+            if (k.id === 'med') { setView('med'); return; }
+            close();
+            if (typeof k.run === 'function') k.run();
+        });
+        return b;
+    }
+
+    // Food on: the "Also log" row; Food off: the same kinds as the tiles.
+    function renderKinds() {
+        const row = $('food-add-also-row');
+        const tiles = $('food-add-kinds');
+        if (row) row.replaceChildren(...(st.food ? st.kinds.map((k) => kindButton(k, false)) : []));
+        if (tiles) {
+            const n = st.food ? 0 : st.kinds.length;
+            tiles.replaceChildren(...(n ? st.kinds.map((k) => kindButton(k, true)) : []));
+            tiles.className = `wg-actions${n >= 4 ? ' wg-actions--4' : n === 3 ? ' wg-actions--3' : ''}${n ? '' : ' hidden'}`;
+        }
+        const manual = $('food-add-manual-btn');
+        if (manual) manual.classList.toggle('hidden', !st.food);
+    }
+
+    // "last 21:10" today, "last Tue 21:10" this week, else "last 02.11".
+    function lastTaken(iso, now) {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        const days = (new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000;
+        if (days < 1) return `last ${hhmm(d)}`;
+        if (days < 7) return `last ${d.toLocaleDateString('en-GB', { weekday: 'short' })} ${hhmm(d)}`;
+        return `last ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function stockLeft(med) {
+        return med && med.inventory_count !== null && med.inventory_count !== undefined ? _myMedsLeft(med) : '';
+    }
+
+    function medRow(med, now) {
+        const row = el('div', 'wg-row wg-food-add__med');
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.dataset.medId = String(med.id);
+        const lead = el('span', 'wg-row__lead');
+        lead.appendChild(icon('pill'));
+        const body = el('span', 'wg-row__body');
+        body.appendChild(el('span', 'wg-row__title', [med.name, med.dosage].filter(Boolean).join(' · ')));
+        const meta = [stockLeft(med), med.last_taken_at && lastTaken(med.last_taken_at, now)].filter(Boolean).join(' · ');
+        if (meta) body.appendChild(el('span', 'wg-row__meta', meta));
+        const trail = el('span', 'wg-row__trail');
+        const take = el('button', 'wg-btn wg-btn--sm', 'Take');
+        take.type = 'button';
+        take.setAttribute('aria-label', `Take ${med.name} now`);
+        take.addEventListener('click', (e) => { e.stopPropagation(); takeMed(med); });
+        trail.appendChild(take);
+        row.append(lead, body, trail);
+        // Another time: the existing log_past sheet.
+        const another = () => { close(); logMedicationPast(med.id, med.name); };
+        row.addEventListener('click', another);
+        row.addEventListener('keydown', (e) => {
+            if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); another(); }
+        });
+        return row;
+    }
+
+    function renderMedList() {
+        const list = $('food-add-med-list');
+        if (!list) return;
+        const now = new Date();
+        list.replaceChildren(...asNeededMeds().map((m) => medRow(m, now)));
+    }
+
+    // Take = the log_past write at now. The sheet closes first; the toast
+    // reads the count from the medications cache once the write re-read it,
+    // and leaves it out when that re-read did not land.
+    async function takeMed(med) {
+        close();
+        const takenAt = new Date();
+        let res = null;
+        try {
+            res = await logPastIntake(med.id, takenAt.toISOString());
+        } catch (e) {
+            console.error('Log dose failed:', e);
+            safeToast(`Failed to log ${med.name}: ${e && e.message ? e.message : e}`, 'error');
+            return;
+        }
+        if (!res) return;
+        // Only a count the post-write read returned: its last dose is this one.
+        const fresh = (Array.isArray(medications) ? medications : []).find((m) => String(m.id) === String(med.id));
+        const confirmed = fresh && Date.parse(fresh.last_taken_at) >= takenAt.getTime();
+        const left = confirmed ? stockLeft(fresh) : '';
+        safeToast(`${med.name} taken`, 'success', { detail: `Logged ${hhmm(takenAt)}${left ? ` · ${left}` : ''}` });
     }
 
     // FC1: "Your food" / "New food" in place of the picked row; the portions

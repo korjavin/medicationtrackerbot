@@ -2051,7 +2051,7 @@
             <button type="button" id="food-add-back-btn" class="wg-back hidden"><i class="wg-ico" data-icon="chev-l"></i><span id="food-add-back-label">Back</span></button>
             <div class="wg-sheethead__titles">
                 <div class="wg-eyebrow" id="food-add-eyebrow">Log food</div>
-                <div class="wg-sheethead__title">Log food</div>
+                <div class="wg-sheethead__title" id="food-add-title">Log food</div>
             </div>
             <div class="wg-sheethead__acts">
                 <button type="button" id="food-add-time-btn" class="wg-btn wg-btn--sm" aria-label="When did you eat this?"><i class="wg-ico wg-ico--sm" data-icon="clock"></i><span id="food-add-time-label">Now</span></button>
@@ -2075,6 +2075,14 @@
                     <button type="button" id="food-add-gallery-btn" class="wg-action" aria-label="Pick food photo from gallery" title="Pick food photo from gallery"><span class="wg-action__icon"><i class="wg-ico" data-icon="image"></i></span><span class="wg-action__label">Gallery</span></button>
                     <button type="button" id="food-add-describe-btn" class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe</span></button>
                 </div>
+                <!-- One Log sheet (kit LS1/LS3): opened from Today's Log, the
+                     other kinds — a row under the food paths, or the tiles
+                     when Food is off. add-sheet.js fills them. -->
+                <section id="food-add-also" class="wg-section hidden">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Also log</span></div>
+                    <div id="food-add-also-row" class="wg-hstack"></div>
+                </section>
+                <div id="food-add-kinds" class="wg-actions hidden"></div>
                 <p id="food-add-search-status" class="wg-hint hidden" aria-live="polite"></p>
                 <div id="food-add-results" class="wg-list hidden"></div>
                 <!-- FC1 (med-5jq.7): a scanned staple you already have — two
@@ -2105,6 +2113,10 @@
                 <div id="food-add-review-list" class="wg-list"></div>
                 <div class="wg-card wg-card--tight wg-food-add__total"><span class="wg-macros__label">Total</span><span id="food-add-review-total" class="wg-macros__val">0 kcal</span></div>
                 <p class="wg-hint">Tap an item to adjust its name or grams; swipe to remove it.</p>
+            </div>
+            <div class="wg-food-add__pane hidden" data-pane="med">
+                <div id="food-add-med-list" class="wg-list"></div>
+                <p class="wg-hint">Take logs it now. Tap a row for another time.</p>
             </div>
         </div>
         <div class="wg-sheet__foot hidden" id="food-add-foot">

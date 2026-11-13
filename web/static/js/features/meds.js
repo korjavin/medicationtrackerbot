@@ -278,6 +278,14 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     });
 }
 
+// My meds' When needed group, in its order: what Today's Log → Med (kit LS2)
+// lists, and whether that kind shows at all.
+function asNeededMeds() {
+    return window.MedicationUtils.groupMyMeds(medications, {
+        stockState: (m) => formatStock(m.inventory_count, m).state,
+    }).asNeeded;
+}
+
 // My meds (kit MY1, MY1 · end; bd med-5uwb.1): one row per med in exactly one
 // group (MedicationUtils.groupMyMeds) — Needs a refill, Scheduled, When
 // needed, Not in use, the Archived fold — then a neutral Add medication.
