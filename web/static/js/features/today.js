@@ -817,9 +817,13 @@
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
             }
-            // Tapping the row itself (not its buttons) does what View does:
-            // the planned Day's exercises in the Plan → Day pages.
-            tappable(`${v.group_name || 'Workout'} — view planned exercises`, 'open-workout-plan', () => h.onViewWorkout(v));
+            // Tapping the row itself (not its buttons) starts or resumes TODAY's
+            // session (kit WR1; Start keeps its confirm, WR2); a later day or a
+            // finished/skipped session opens the plan's Day page, as View does.
+            const name = v.group_name || 'Workout';
+            if (kind === 'start') tappable(`Start ${name}`, 'start-workout', () => h.onStartWorkout(v.id));
+            else if (kind === 'resume') tappable(`Resume ${name}`, 'resume-workout', () => h.onResumeWorkout(v.id));
+            else tappable(`${name} — view planned exercises`, 'open-workout-plan', () => h.onViewWorkout(v));
         }
         body.appendChild(meta);
         if (action) trail.appendChild(action);

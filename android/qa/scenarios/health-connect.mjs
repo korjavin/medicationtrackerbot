@@ -12,7 +12,7 @@
 // Steps / Heart Rate / SpO2 cards must be populated (screenshot vitals-cards).
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
-import { healthRecordId } from '../../../web/domain/healthsource.js';
+import { healthRecordId, sleepDayOf, sleepDayOfRow } from '../../../web/domain/healthsource.js';
 
 export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
 const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION', 'EXERCISE'];
@@ -353,6 +353,161 @@ export default async function healthConnect(ctx) {
         manualSleepBoundary: 'hand-authored non-Health day row at an unused canonical day ID; no Sleep editor claimed', dedupe: true,
       });
     });
+
+    // testscenarios/common/health-deleted-in-health.yaml (bd med-88x0.12). QaHealthWrite as
+    // "another app" deletes by Health Connect id (ordinary DeletionChanges, no Health Connect UI):
+    // a fresh BP, weight and workout, plus B3's night and B3's weight after an in-app edit. After a
+    // force-stop and relaunch the import tombstones the four, while the app-edited weight, the
+    // hand-entered readings and the untouched B3 BP stay and the import count does not move. A
+    // Health night on a day with a seeded Mi Band session, deleted too, keeps its day row (the ledger guard).
+    // A second, older night stays in Health Connect: the night reconcile needs a read reaching back
+    // before the deleted night (an empty read proves nothing).
+    async function deletedInHealth() {
+      const writer = async (request, extras) => {
+        await shell(`am start -W -n ${pkg}/com.example.medtracker.QaHealthWrite --es request ${request} ${extras}`);
+        for (const until = Date.now() + 20_000; Date.now() < until;) {
+          const log = (await shell('logcat -d -s qa-health-write:*')).split('\n');
+          const line = log.findLast((l) => l.includes(`"request":"${request}"`));
+          if (line) return JSON.parse(line.slice(line.indexOf('{"request":')));
+          await sleep(500);
+        }
+        throw new Error(`writer ${request}: ${(await shell('logcat -d -s qa-health-write:*')).split('\n').slice(-3).join(' | ')}`);
+      };
+      const vault = () => ctx.page.evaluate(async () => {
+        const { localRecordsPort } = await import('/js/sync.js');
+        const port = localRecordsPort();
+        const out = { last: JSON.parse(localStorage.getItem('wg.health.last') || '{}') };
+        for (const t of ['bp', 'weight', 'miband', 'sleep']) out[t] = await port.listRaw(t);
+        return out;
+      });
+      const call = (path, method, body) => ctx.page.evaluate(([p, m, b]) => window.apiCall(p, m, b), [path, method, body]);
+      const row = (v, type, id) => v[type].find((x) => x.recordId === id);
+      const live = (v, type, id) => { const x = row(v, type, id); return !!x && !x.deleted; };
+      const d = (r.deleted = {});
+      // A workout slot clear of every workout row, so the import cannot skip it as an overlap.
+      const workoutStart = await ctx.page.evaluate(async () => {
+        const { localRecordsPort } = await import('/js/sync.js');
+        const taken = (await localRecordsPort().list('miband')).map((w) => [Number(w.source_start_ms), Number(w.source_end_ms)]);
+        for (let k = 3; k < 48; k++) {
+          const s = Date.now() - k * 1800_000;
+          if (!taken.some(([a, b]) => s < b && a < s + 600_000)) return s;
+        }
+        return null;
+      });
+      if (!workoutStart) throw new Error('no free workout slot in the last day');
+      const kg = 150 + Math.floor(Math.random() * 200) / 10;
+      const inserted = await writer(`hd-${Date.now()}`, `--ei sys ${SECOND[0] + 3} --ei dia 102 --ei grams ${Math.round(kg * 1000)} --ei sleepDays 10 --ez workout true --el workoutStart ${workoutStart}`);
+      const rec = (type) => inserted.records.find((x) => x.type === type);
+      const fresh = { bp: rec('BloodPressureRecord'), weight: rec('WeightRecord'), workout: rec('ExerciseSessionRecord'), keeper: rec('SleepSessionRecord') };
+      const b3 = Object.fromEntries(['BloodPressureRecord', 'WeightRecord', 'SleepSessionRecord'].map((t) => [t, r.b3.inserted.records.find((x) => x.type === t)]));
+      if (Object.values(fresh).some((x) => !x?.id) || fresh.keeper.start >= b3.SleepSessionRecord.start) throw new Error(`writer fixture: ${JSON.stringify(inserted)}`);
+      const id = {
+        bp: healthRecordId('bp', fresh.bp.id), weight: healthRecordId('weight', fresh.weight.id),
+        workout: healthRecordId('miband', fresh.workout.id.toLowerCase()), night: healthRecordId('sleep', r.b3.day),
+        b3Weight: healthRecordId('weight', b3.WeightRecord.id), b3Bp: healthRecordId('bp', b3.BloodPressureRecord.id),
+      };
+      // A Health night on a day the fixture's Mi Band ledger already holds: deleting it in
+      // Health must leave the day row live and the day unchanged (the reconcile's ledger guard).
+      // The writer's night ends 06:00 UTC sleepDays ago; days 2..9 are settled and after the
+      // keeper night, so the reconcile read reaches back before it.
+      // The fixture's Mi Band nights sit on unsettled days, so the step seeds its own ledger
+      // session (a non -hk- row, the shape a Mi Band import leaves) on a free day.
+      const sleepRows = (await vault()).sleep;
+      const today = new Date(Number((await shell('date +%s')).trim()) * 1000).toISOString().slice(0, 10);
+      const nightEnd = (n) => Date.parse(`${today}T06:00:00Z`) - n * 86400_000;
+      const used = new Set(sleepRows.map(sleepDayOfRow)); // tombstones too: a deleted day stays deleted
+      const mbDays = [2, 3, 4, 5, 6, 7, 8, 9].find((n) => !used.has(sleepDayOf(nightEnd(n), 0)));
+      if (!mbDays) throw new Error(`no free sleep day in days 2..9: ${JSON.stringify([...used])}`);
+      id.mbDay = sleepDayOf(nightEnd(mbDays), 0);
+      await ctx.page.evaluate(async ({ day, end }) => {
+        await (await import('/js/sync.js')).localRecordsPort().put('sleep', {
+          recordId: `sleep-mbqa-${day}`, clientTs: Date.now(), deleted: false, day,
+          start_time: new Date(end - 5 * 3600_000).toISOString(), end_time: new Date(end).toISOString(),
+          timezone_offset: 0, total_minutes: 300, source: 'miband', notes: 'health-deleted Mi Band ledger QA',
+        });
+      }, { day: id.mbDay, end: nightEnd(mbDays) });
+      const mbNight = (await writer(`hmb-${Date.now()}`, `--ei sys ${SECOND[0] + 4} --ei dia 103 --ei sleepDays ${mbDays}`)).records.find((x) => x.type === 'SleepSessionRecord');
+      id.mbNight = healthRecordId('sleep', id.mbDay);
+      d.inserted = inserted;
+      d.ids = id;
+
+      // Import them (switch-on rescan): the anchors then sit on changes tokens, so the deletions
+      // below arrive as DeletionChanges on the next open, not as an absence in a scan.
+      await ctx.page.evaluate(() => window.switchTab('settings'));
+      await ctx.page.locator('#health-import-toggle').waitFor({ state: 'attached', timeout: 15_000 });
+      const t0 = await ctx.page.evaluate(() => Date.now());
+      await toggle(); await sleep(1000); await toggle();
+      const imported = (v) => ({ bp: live(v, 'bp', id.bp), weight: live(v, 'weight', id.weight), workout: live(v, 'miband', id.workout),
+        night: live(v, 'sleep', id.night), mbNight: live(v, 'sleep', id.mbNight), b3Bp: live(v, 'bp', id.b3Bp), b3Weight: live(v, 'weight', id.b3Weight), run: v.last.checkedAt >= t0 });
+      let before;
+      for (const until = Date.now() + 45_000; Date.now() < until; await sleep(1000)) {
+        before = await vault();
+        if (Object.values(imported(before)).every(Boolean)) break;
+      }
+      d.importedBefore = imported(before);
+      if (!Object.values(d.importedBefore).every(Boolean)) throw new Error(`fixture not imported: ${JSON.stringify(d.importedBefore)}`);
+
+      // Edit B3's imported weight in the app the way the Weight form does: the replacement first
+      // (an edit stays "from Health" but drops source_id), then the original goes.
+      const b3WeightRow = row(before, 'weight', id.b3Weight);
+      const edited = await call(`/api/weight?replaces=${encodeURIComponent(id.b3Weight)}`, 'POST',
+        { weight: b3WeightRow.weight + 1, measured_at: b3WeightRow.measured_at, notes: 'edited in app QA' });
+      await call(`/api/weight/${encodeURIComponent(id.b3Weight)}`, 'DELETE');
+      id.edited = edited.id;
+      const manual = { bp: r.b3.identities.manualBp, weight: r.b3.identities.manualWeight };
+      const after0 = await vault();
+      if (!live(after0, 'weight', id.edited) || !live(after0, 'bp', manual.bp) || !live(after0, 'weight', manual.weight)) throw new Error('edited/manual rows missing before the deletes');
+      d.totalBefore = after0.last.total;
+      const mbDayStat = async () => {
+        const s = (await ctx.page.evaluate(() => window.apiCall('/api/health/overview'))).sleep_stats_7d.find((x) => x.date === id.mbDay);
+        return s ? { sources: s.sources, total_mins: s.total_mins } : null;
+      };
+      d.mbDayStatBefore = await mbDayStat();
+
+      d.writerDelete = await writer(`hdel-${Date.now()}`, `--es delete bp:${fresh.bp.id},weight:${fresh.weight.id},workout:${fresh.workout.id},sleep:${b3.SleepSessionRecord.id},weight:${b3.WeightRecord.id},sleep:${mbNight.id}`);
+      if (d.writerDelete.deleted?.length !== 6) throw new Error(`writer delete: ${JSON.stringify(d.writerDelete)}`);
+      // Still there in this (attached, never hidden) process: the removal below is the next open's.
+      d.beforeRelaunch = imported(await vault());
+      if (!['bp', 'weight', 'workout', 'night', 'mbNight'].every((k) => d.beforeRelaunch[k])) throw new Error(`removed before the relaunch: ${JSON.stringify(d.beforeRelaunch)}`);
+
+      // The next open: a process Playwright starts fresh, whose boot import reads the changes.
+      ctx.page = undefined;
+      await shell(`am force-stop ${pkg}`);
+      await sleep(2000);
+      await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
+      if (!(await ctx.attachPage())) throw new Error('re-attach after the Health deletes failed');
+      await ctx.waitLocalReady(ctx.page);
+      const gone = (v) => ({ bp: !live(v, 'bp', id.bp), weight: !live(v, 'weight', id.weight), workout: !live(v, 'miband', id.workout), night: !live(v, 'sleep', id.night) });
+      let after;
+      for (const until = Date.now() + 60_000; Date.now() < until; await sleep(1000)) {
+        after = await vault();
+        if (Object.values(gone(after)).every(Boolean) && after.last.checkedAt > before.last.checkedAt) break;
+      }
+      d.gone = gone(after);
+      d.stays = { edited: live(after, 'weight', id.edited), manualBp: live(after, 'bp', manual.bp), manualWeight: live(after, 'weight', manual.weight), b3Bp: live(after, 'bp', id.b3Bp),
+        mbNight: live(after, 'sleep', id.mbNight) };
+      // The Mi Band day shows exactly what it showed before the delete (the overview's sources).
+      d.mbDayStat = await mbDayStat();
+      if (JSON.stringify(d.mbDayStat) !== JSON.stringify(d.mbDayStatBefore)) throw new Error(`Mi Band-day night changed: ${JSON.stringify([d.mbDayStatBefore, d.mbDayStat])}`);
+      d.last = after.last;
+      d.diag = (await healthDiag()).slice(-12);
+      d.state = await state();
+      if (!Object.values(d.gone).every(Boolean)) throw new Error(`not removed on the next open: ${JSON.stringify(d.gone)}`);
+      // Tombstones, not floor rows: a user-grade delete, so every synced device follows.
+      if (![['bp', id.bp], ['weight', id.weight], ['miband', id.workout], ['sleep', id.night]].every(([t, x]) => row(after, t, x)?.deleted === true && row(after, t, x).clientTs > 0)) throw new Error('deleted rows are not tombstones');
+      if (!Object.values(d.stays).every(Boolean)) throw new Error(`a row that must stay went: ${JSON.stringify(d.stays)}`);
+      if (after.last.total !== d.totalBefore) throw new Error(`import count moved: ${d.totalBefore} → ${after.last.total}`);
+
+      await ctx.page.evaluate(() => window.switchTab('bp'));
+      await ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${manual.bp}"]`).waitFor();
+      if (await ctx.page.locator(`.wg-bp-reading-row[data-reading-id="${id.bp}"]`).count()) throw new Error('deleted BP still rendered');
+      await ctx.stableShot('health-deleted-bp');
+      await ctx.page.evaluate(() => window.switchTab('weight'));
+      await ctx.page.locator(`.wg-weight-history-row[data-weight-id="${id.edited}"]`).waitFor();
+      if (await ctx.page.locator(`.wg-weight-history-row[data-weight-id="${id.weight}"]`).count()) throw new Error('deleted weight still rendered');
+      await ctx.stableShot('health-deleted-weight');
+    }
+    await ctx.step('health-deleted-in-health: BP, weight, workout and a night deleted in Health Connect are gone on the next open', deletedInHealth);
 
     await ctx.step('another app saves #2 while in the background → back in the foreground → #2 arrives', async () => {
       // A process Playwright never attached to: force-stop, start on the persisted local-mode pref
