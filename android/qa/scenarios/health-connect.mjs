@@ -12,7 +12,7 @@
 // Steps / Heart Rate / SpO2 cards must be populated (screenshot vitals-cards).
 // results.health: every wait's outcome, the page's visibility events, the wg.health.*
 // localStorage and the shell's "health …" diag lines.
-import { healthRecordId } from '../../../web/domain/healthsource.js';
+import { healthRecordId, sleepDayOf, sleepDayOfRow } from '../../../web/domain/healthsource.js';
 
 export const READS = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'EXERCISE', 'HEART_RATE', 'TOTAL_CALORIES_BURNED', 'DISTANCE', 'STEPS', 'OXYGEN_SATURATION', 'HEALTH_DATA_HISTORY'];
 const WRITES = ['BLOOD_PRESSURE', 'WEIGHT', 'SLEEP', 'STEPS', 'HEART_RATE', 'OXYGEN_SATURATION', 'EXERCISE'];
@@ -358,7 +358,8 @@ export default async function healthConnect(ctx) {
     // "another app" deletes by Health Connect id (ordinary DeletionChanges, no Health Connect UI):
     // a fresh BP, weight and workout, plus B3's night and B3's weight after an in-app edit. After a
     // force-stop and relaunch the import tombstones the four, while the app-edited weight, the
-    // hand-entered readings and the untouched B3 BP stay and the import count does not move.
+    // hand-entered readings and the untouched B3 BP stay and the import count does not move. A
+    // Health night on a fixture Mi Band day, deleted too, keeps its day row (the ledger guard).
     // A second, older night stays in Health Connect: the night reconcile needs a read reaching back
     // before the deleted night (an empty read proves nothing).
     async function deletedInHealth() {
@@ -405,6 +406,21 @@ export default async function healthConnect(ctx) {
         workout: healthRecordId('miband', fresh.workout.id.toLowerCase()), night: healthRecordId('sleep', r.b3.day),
         b3Weight: healthRecordId('weight', b3.WeightRecord.id), b3Bp: healthRecordId('bp', b3.BloodPressureRecord.id),
       };
+      // A Health night on a day the fixture's Mi Band ledger already holds: deleting it in
+      // Health must leave the day row live and the day unchanged (the reconcile's ledger guard).
+      // The writer's night ends 06:00 UTC sleepDays ago; days 2..9 are settled and after the
+      // keeper night, so the reconcile read reaches back before it.
+      const sleepRows = (await vault()).sleep;
+      const ledger = new Set(sleepRows.filter((x) => !x.deleted && !String(x.recordId).includes('-hk-')).map(sleepDayOfRow));
+      const today = new Date(Number((await shell('date +%s')).trim()) * 1000).toISOString().slice(0, 10);
+      const mbDays = [2, 3, 4, 5, 6, 7, 8, 9].find((n) => {
+        const day = sleepDayOf(Date.parse(`${today}T06:00:00Z`) - n * 86400_000, 0);
+        return ledger.has(day) && !sleepRows.some((x) => x.recordId === healthRecordId('sleep', day));
+      });
+      if (!mbDays) throw new Error(`no fixture Mi Band day without a Health row in days 2..9: ${JSON.stringify([...ledger])}`);
+      id.mbDay = sleepDayOf(Date.parse(`${today}T06:00:00Z`) - mbDays * 86400_000, 0);
+      const mbNight = (await writer(`hmb-${Date.now()}`, `--ei sys ${SECOND[0] + 4} --ei dia 103 --ei sleepDays ${mbDays}`)).records.find((x) => x.type === 'SleepSessionRecord');
+      id.mbNight = healthRecordId('sleep', id.mbDay);
       d.inserted = inserted;
       d.ids = id;
 
@@ -415,7 +431,7 @@ export default async function healthConnect(ctx) {
       const t0 = await ctx.page.evaluate(() => Date.now());
       await toggle(); await sleep(1000); await toggle();
       const imported = (v) => ({ bp: live(v, 'bp', id.bp), weight: live(v, 'weight', id.weight), workout: live(v, 'miband', id.workout),
-        night: live(v, 'sleep', id.night), b3Bp: live(v, 'bp', id.b3Bp), b3Weight: live(v, 'weight', id.b3Weight), run: v.last.checkedAt >= t0 });
+        night: live(v, 'sleep', id.night), mbNight: live(v, 'sleep', id.mbNight), b3Bp: live(v, 'bp', id.b3Bp), b3Weight: live(v, 'weight', id.b3Weight), run: v.last.checkedAt >= t0 });
       let before;
       for (const until = Date.now() + 45_000; Date.now() < until; await sleep(1000)) {
         before = await vault();
@@ -435,9 +451,17 @@ export default async function healthConnect(ctx) {
       const after0 = await vault();
       if (!live(after0, 'weight', id.edited) || !live(after0, 'bp', manual.bp) || !live(after0, 'weight', manual.weight)) throw new Error('edited/manual rows missing before the deletes');
       d.totalBefore = after0.last.total;
+      const mbDayStat = async () => {
+        const s = (await ctx.page.evaluate(() => window.apiCall('/api/health/overview'))).sleep_stats_7d.find((x) => x.date === id.mbDay);
+        return s ? { sources: s.sources, total_mins: s.total_mins } : null;
+      };
+      d.mbDayStatBefore = await mbDayStat();
 
-      d.writerDelete = await writer(`hdel-${Date.now()}`, `--es delete bp:${fresh.bp.id},weight:${fresh.weight.id},workout:${fresh.workout.id},sleep:${b3.SleepSessionRecord.id},weight:${b3.WeightRecord.id}`);
-      if (d.writerDelete.deleted?.length !== 5) throw new Error(`writer delete: ${JSON.stringify(d.writerDelete)}`);
+      d.writerDelete = await writer(`hdel-${Date.now()}`, `--es delete bp:${fresh.bp.id},weight:${fresh.weight.id},workout:${fresh.workout.id},sleep:${b3.SleepSessionRecord.id},weight:${b3.WeightRecord.id},sleep:${mbNight.id}`);
+      if (d.writerDelete.deleted?.length !== 6) throw new Error(`writer delete: ${JSON.stringify(d.writerDelete)}`);
+      // Still there in this (attached, never hidden) process: the removal below is the next open's.
+      d.beforeRelaunch = imported(await vault());
+      if (!['bp', 'weight', 'workout', 'night', 'mbNight'].every((k) => d.beforeRelaunch[k])) throw new Error(`removed before the relaunch: ${JSON.stringify(d.beforeRelaunch)}`);
 
       // The next open: a process Playwright starts fresh, whose boot import reads the changes.
       ctx.page = undefined;
@@ -453,7 +477,11 @@ export default async function healthConnect(ctx) {
         if (Object.values(gone(after)).every(Boolean) && after.last.checkedAt > before.last.checkedAt) break;
       }
       d.gone = gone(after);
-      d.stays = { edited: live(after, 'weight', id.edited), manualBp: live(after, 'bp', manual.bp), manualWeight: live(after, 'weight', manual.weight), b3Bp: live(after, 'bp', id.b3Bp) };
+      d.stays = { edited: live(after, 'weight', id.edited), manualBp: live(after, 'bp', manual.bp), manualWeight: live(after, 'weight', manual.weight), b3Bp: live(after, 'bp', id.b3Bp),
+        mbNight: live(after, 'sleep', id.mbNight) };
+      // The Mi Band day shows exactly what it showed before the delete (the overview's sources).
+      d.mbDayStat = await mbDayStat();
+      if (JSON.stringify(d.mbDayStat) !== JSON.stringify(d.mbDayStatBefore)) throw new Error(`Mi Band-day night changed: ${JSON.stringify([d.mbDayStatBefore, d.mbDayStat])}`);
       d.last = after.last;
       d.diag = (await healthDiag()).slice(-12);
       d.state = await state();
