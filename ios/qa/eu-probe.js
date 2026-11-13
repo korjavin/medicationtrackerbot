@@ -125,10 +125,15 @@
     new MutationObserver(() => {
       const now = !!document.querySelector('.wg-ptr--busy');
       if (now !== busy) { busy = now; note(now ? 'ptr busy' : 'ptr done'); }
-      if (now) state.sawPull = true;
+      // Unblock on the busy pill: AppRefresh paints it before run(), and this
+      // microtask lands before the drain's first fetch. A touchend whose target
+      // Today detached mid-drag never reaches document (med-nh65), so it alone
+      // could leave the gesture's own pull blocked (med-6x9f).
+      if (now) { state.sawPull = true; blockPull = false; }
     })
       .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
-    // Unblock before the real pull-to-refresh touch ends; all earlier automatic pulls fail.
+    // Unblock when the real pull-to-refresh touch ends (or its busy pill shows,
+    // above); all earlier automatic pulls fail.
     document.addEventListener('touchend', event => { state.trustedTouchEnd = event.isTrusted; blockPull = false; note('touchend'); }, { capture: true, once: true });
     state.peerSeq = seq + 1;
   }
