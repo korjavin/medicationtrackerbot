@@ -74,7 +74,7 @@ env:
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
      "move": ["FlowQAMoveAccountTests"],
-     "health": ["FlowQAHealthImportTests"],
+     "health": ["FlowQAHealthImportTests", "FlowQAHealthDeletedTests"],
      "health-denied": ["FlowQAHealthDeniedTests"],
      "held": ["FlowQAHeldRefreshTests"],
      "reminders": ["FlowQARemindersTests"],

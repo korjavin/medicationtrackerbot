@@ -583,6 +583,8 @@
       "targets": { "sys": "#bp-modal #bp-systolic", "dia": "#bp-modal #bp-diastolic", "save": "#bp-modal-save-btn" } },
     { "name": "health-qa-weight", "platform": "ios", "localOnly": true, "flowOnly": true, "flow": true,
       "steps": [{ "tab": "weight" }], "ready": ["#weight-list"] },
+    { "name": "health-qa-bp", "platform": "ios", "localOnly": true, "flowOnly": true, "flow": true,
+      "steps": [{ "tab": "bp" }], "ready": ["#bp-list"] },
     { "name": "health-kit-import", "platform": "ios", "localOnly": true, "requiresNativeHealth": true,
       "steps": [{ "healthNative": true }, { "tab": "health" }],
       "rendered": [

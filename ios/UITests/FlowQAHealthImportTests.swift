@@ -45,18 +45,18 @@ private enum HealthSheet {
     }
 }
 
-/// A single union authorization grants the diagnostic seed and every kind
-/// requested by Settings. The separate denial part observes Settings' first ask.
+/// The local-mode health flow steps both import flows share.
 @MainActor
-final class FlowQAHealthImportTests: XCTestCase {
-    func testHealthImport() throws {
-        continueAfterFailure = false
-        QA.reset()
-        let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
-        XCTAssertEqual(seed["weightSeeded"] as? Bool, true, "simulator did not grant weight seeding: \(QA.json(seed))")
-        XCTAssertEqual(seed["bpSeeded"] as? Bool, true, "simulator did not grant BP seeding: \(QA.json(seed))")
-
-        let app = XCUIApplication()
+private enum HealthFlow {
+    static func launch(_ app: XCUIApplication, _ scene: String) {
+        if app.state != .notRunning { app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30)) }
+        app.launchArguments = ["-wgLocalMode", "YES", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQAScene", scene]
+        app.launch()
+        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 120), "\(scene) did not start")
+        XCTAssertEqual(QA.report(app)?["ok"] as? Bool, true, "\(scene): \(QA.json(QA.report(app)))")
+    }
+    /// Settings → Import from Health on, after the seed's union sheet: no second sheet.
+    static func turnOn(_ app: XCUIApplication, in test: XCTestCase) throws {
         launch(app, "health-qa-settings")
         let target = try XCTUnwrap(QA.target(QA.flow(app), "health"), "Health import switch absent")
         QA.coordinate(app, target).tap()
@@ -72,8 +72,100 @@ final class FlowQAHealthImportTests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        if !finished { HealthSheet.screenshot("health-import-pending", in: self) }
+        if !finished { HealthSheet.screenshot("health-import-pending", in: test) }
         XCTAssertTrue(finished, "Health authorization did not finish; bridge: \(QA.json(QA.flow(app)?["memo"]))")
+    }
+    static func type(_ app: XCUIApplication, _ name: String, _ value: String) {
+        let (ok, state) = QA.tapTarget(app, name, until: { _ in app.keyboards.firstMatch.exists })
+        XCTAssertTrue(ok, "no keyboard for \(name): \(QA.json(state))")
+        QA.dismissKeyboardTip(app); app.typeText(value)
+        let (typed, result) = QA.waitFlow(app, timeout: 5) { (QA.target($0, name) != nil) && (($0["targets"] as? [String: [String: Any]])?[name]?["value"] as? String == value) }
+        XCTAssertTrue(typed, "typing \(name): \(QA.json(result))")
+    }
+    static func rows(_ flow: [String: Any], _ key: String) -> [String] {
+        (flow[key] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
+    }
+    static func webText(_ app: XCUIApplication, _ text: String) -> XCUIElement {
+        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND NOT (label BEGINSWITH '{')", text)).firstMatch
+    }
+    static func shot(_ name: String, in test: XCTestCase) {
+        let image = XCTAttachment(screenshot: QA.stableScreenshot().0)
+        image.name = name + ".png"; image.lifetime = .keepAlways; test.add(image)
+    }
+}
+
+/// testscenarios/common/health-deleted-in-health.yaml (bd med-88x0.6): a
+/// weight and a BP seeded in Health and imported, a typed weight, both seeded
+/// samples deleted in Health; the relaunch's anchored query carries their
+/// uuids. Runs after or before testHealthImport on the same Simulator: the
+/// first seed's sheet grants both, every later ask resolves without one.
+@MainActor
+final class FlowQAHealthDeletedTests: XCTestCase {
+    func testHealthDeletedInHealth() throws {
+        continueAfterFailure = false
+        QA.reset()
+        let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
+        let uuids = try ["weightUUID", "bpUUID"].map { try XCTUnwrap(seed[$0] as? String, "seed wrote no \($0): \(QA.json(seed))") }
+
+        let app = XCUIApplication()
+        try HealthFlow.turnOn(app, in: self)
+        HealthFlow.launch(app, "health-qa-weight")
+        var (ok, f) = QA.waitFlow(app, timeout: 30) { Self.imported($0, "weight", "73.4") }
+        XCTAssertTrue(ok, "imported weight absent: \(QA.json(f))")
+        HealthFlow.launch(app, "health-qa-bp")
+        (ok, f) = QA.waitFlow(app, timeout: 30) { Self.imported($0, "bp", "123/79") }
+        XCTAssertTrue(ok, "imported BP absent: \(QA.json(f))")
+
+        HealthFlow.launch(app, "core-local-weight")
+        HealthFlow.type(app, "value", "77.7")
+        (ok, f) = QA.tapTarget(app, "save", until: { Self.typed($0) })
+        XCTAssertTrue(ok, "typed weight did not save: \(QA.json(f))")
+        let before = try count(app)
+
+        let gone = try HealthDiagnosticTests.run("-wgQAHealthDelete", args: ["-wgQAHealthDeleteUUIDs", uuids.joined(separator: ",")], in: self)
+        XCTAssertEqual(gone["deleted"] as? Int, 2, QA.json(gone))
+
+        // The relaunch: a new anchored query, its reply carries the deleted uuids.
+        HealthFlow.launch(app, "health-qa-weight")
+        (ok, f) = QA.waitFlow(app, timeout: 30) { Self.typed($0) && !Self.imported($0, "weight", "73.4") }
+        XCTAssertTrue(ok, "imported weight not removed, or the typed one went with it: \(QA.json(f))")
+        HealthFlow.shot("health-deleted-weight", in: self)
+        HealthFlow.launch(app, "health-qa-bp")
+        (ok, f) = QA.waitFlow(app, timeout: 30) { !HealthFlow.rows($0, "bp").isEmpty && !Self.imported($0, "bp", "123/79") }
+        XCTAssertTrue(ok, "imported BP not removed: \(QA.json(f))")
+        HealthFlow.shot("health-deleted-bp", in: self)
+        XCTAssertEqual(try count(app), before, "the Health import count moved for deletions")
+    }
+
+    private static func imported(_ flow: [String: Any], _ key: String, _ value: String) -> Bool {
+        HealthFlow.rows(flow, key).contains { $0.contains(value) && $0.contains("Health import") }
+    }
+    private static func typed(_ flow: [String: Any]) -> Bool {
+        HealthFlow.rows(flow, "weight").contains { $0.contains("77.7") && !$0.contains("Health import") }
+    }
+    /// Settings' "N readings so far" (healthStatusText).
+    private func count(_ app: XCUIApplication) throws -> Int {
+        HealthFlow.launch(app, "health-qa-settings")
+        let line = HealthFlow.webText(app, "so far")
+        XCTAssertTrue(line.waitForExistence(timeout: 30), "no Health import count in Settings")
+        let n = line.label.components(separatedBy: " reading").first?.split(separator: " ").last.flatMap { Int($0) }
+        return try XCTUnwrap(n, "unreadable Health import count: \(line.label)")
+    }
+}
+
+/// A single union authorization grants the diagnostic seed and every kind
+/// requested by Settings. The separate denial part observes Settings' first ask.
+@MainActor
+final class FlowQAHealthImportTests: XCTestCase {
+    func testHealthImport() throws {
+        continueAfterFailure = false
+        QA.reset()
+        let seed = try HealthDiagnosticTests.run(seed: true, labels: true, in: self)
+        XCTAssertEqual(seed["weightSeeded"] as? Bool, true, "simulator did not grant weight seeding: \(QA.json(seed))")
+        XCTAssertEqual(seed["bpSeeded"] as? Bool, true, "simulator did not grant BP seeding: \(QA.json(seed))")
+
+        let app = XCUIApplication()
+        try HealthFlow.turnOn(app, in: self)
         launch(app, "health-qa-import")
         XCTAssertTrue(webText(app, "Sources · Health import").waitForExistence(timeout: 30), "sleep source label absent")
         reveal(app, "Sources · Health import")
@@ -98,26 +190,10 @@ final class FlowQAHealthImportTests: XCTestCase {
         shot("health-import-weight")
     }
 
-    private func launch(_ app: XCUIApplication, _ scene: String) {
-        if app.state != .notRunning { app.terminate(); XCTAssertTrue(app.wait(for: .notRunning, timeout: 30)) }
-        app.launchArguments = ["-wgLocalMode", "YES", "-wgAccountHost", "", "-wgLocalLockOn", "NO", "-wgLocalLock", "NO", "-wgQAScene", scene]
-        app.launch()
-        XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 120), "\(scene) did not start")
-        XCTAssertEqual(QA.report(app)?["ok"] as? Bool, true, "\(scene): \(QA.json(QA.report(app)))")
-    }
-    private func type(_ app: XCUIApplication, _ name: String, _ value: String) {
-        let (ok, state) = QA.tapTarget(app, name, until: { _ in app.keyboards.firstMatch.exists })
-        XCTAssertTrue(ok, "no keyboard for \(name): \(QA.json(state))")
-        QA.dismissKeyboardTip(app); app.typeText(value)
-        let (typed, result) = QA.waitFlow(app, timeout: 5) { (QA.target($0, name) != nil) && (($0["targets"] as? [String: [String: Any]])?[name]?["value"] as? String == value) }
-        XCTAssertTrue(typed, "typing \(name): \(QA.json(result))")
-    }
-    private func rows(_ flow: [String: Any], _ key: String) -> [String] {
-        (flow[key] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
-    }
-    private func webText(_ app: XCUIApplication, _ text: String) -> XCUIElement {
-        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND NOT (label BEGINSWITH '{')", text)).firstMatch
-    }
+    private func launch(_ app: XCUIApplication, _ scene: String) { HealthFlow.launch(app, scene) }
+    private func type(_ app: XCUIApplication, _ name: String, _ value: String) { HealthFlow.type(app, name, value) }
+    private func rows(_ flow: [String: Any], _ key: String) -> [String] { HealthFlow.rows(flow, key) }
+    private func webText(_ app: XCUIApplication, _ text: String) -> XCUIElement { HealthFlow.webText(app, text) }
     private func reveal(_ app: XCUIApplication, _ text: String) {
         let element = webText(app, text)
         for _ in 0..<6 {
@@ -125,10 +201,7 @@ final class FlowQAHealthImportTests: XCTestCase {
             app.swipeUp()
         }
     }
-    private func shot(_ name: String) {
-        let image = XCTAttachment(screenshot: QA.stableScreenshot().0)
-        image.name = name + ".png"; image.lifetime = .keepAlways; add(image)
-    }
+    private func shot(_ name: String) { HealthFlow.shot(name, in: self) }
 }
 
 /// Separate QA part = a fresh Simulator and first Health ask with every read

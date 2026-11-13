@@ -15,13 +15,13 @@ final class HealthDiagnosticTests: XCTestCase {
     /// Launches HealthDiagnosticView in `mode`, accepts the Health sheet, and
     /// returns its JSON report after asserting `ok`.
     @discardableResult
-    static func run(_ mode: String, labels: Bool = false, in test: XCTestCase) throws -> [String: Any] {
-        try runAttempt(mode, labels: labels, in: test, canRetry: true)
+    static func run(_ mode: String, labels: Bool = false, args: [String] = [], in test: XCTestCase) throws -> [String: Any] {
+        try runAttempt(mode, labels: labels, args: args, in: test, canRetry: true)
     }
 
-    private static func runAttempt(_ mode: String, labels: Bool, in test: XCTestCase, canRetry: Bool) throws -> [String: Any] {
+    private static func runAttempt(_ mode: String, labels: Bool, args: [String], in test: XCTestCase, canRetry: Bool) throws -> [String: Any] {
         let app = XCUIApplication()
-        app.launchArguments = [mode, "YES"] + (labels ? ["-wgQAHealthLabels", "YES"] : [])
+        app.launchArguments = [mode, "YES"] + (labels ? ["-wgQAHealthLabels", "YES"] : []) + args
         app.launch()
         defer { app.terminate() }
         let result = app.staticTexts["health-diagnostic-result"]
@@ -84,7 +84,7 @@ final class HealthDiagnosticTests: XCTestCase {
             retry.name = "health-code-100-retry.txt"; retry.lifetime = .keepAlways; test.add(retry)
             app.terminate()
             XCTAssertTrue(app.wait(for: .notRunning, timeout: 30))
-            return try runAttempt(mode, labels: labels, in: test, canRetry: false)
+            return try runAttempt(mode, labels: labels, args: args, in: test, canRetry: false)
         }
         XCTAssertEqual(json["ok"] as? Bool, true, result.label)
         return json
