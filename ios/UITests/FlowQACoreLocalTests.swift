@@ -39,10 +39,14 @@ final class FlowQACoreLocalTests: XCTestCase {
         var (ok, f) = QA.tapLabel(app, "Today", until: { Self.rows($0, "nextUp").contains { $0.contains("QA B1 Dose") } && QA.target($0, "take") != nil })
         XCTAssertTrue(ok, "Today's Next up does not list QA B1 Dose with Take: \(QA.json(f))")
         shot("core-local", "today-due")
-        (ok, f) = QA.tapTarget(app, "take", until: { QA.target($0, "confirm") != nil })
-        XCTAssertTrue(ok, "Take opened no confirm sheet: \(QA.json(f))")
+        // Take logs at once (med-aa18.1) or opens a confirm sheet (before it); drop the confirm branch once .1 is in.
         let loads = QA.report(app)?["loads"] as? Int
-        (ok, f) = QA.tapTarget(app, "confirm", timeout: 5, until: { !Self.rows($0, "nextUp").contains { $0.contains("QA B1 Dose") } })
+        let gone: ([String: Any]) -> Bool = { !Self.rows($0, "nextUp").contains { $0.contains("QA B1 Dose") } }
+        (ok, f) = QA.tapTarget(app, "take", until: { gone($0) || QA.target($0, "confirm") != nil })
+        XCTAssertTrue(ok, "Take neither logged the dose nor opened a confirm sheet: \(QA.json(f))")
+        if QA.target(f, "confirm") != nil {
+            (ok, f) = QA.tapTarget(app, "confirm", timeout: 5, until: gone)
+        }
         XCTAssertTrue(ok, "after Take the dose is still in Next up: \(QA.json(f))")
         XCTAssertEqual(QA.report(app)?["loads"] as? Int, loads, "Take reloaded the page")
         shot("core-local", "today-taken")
