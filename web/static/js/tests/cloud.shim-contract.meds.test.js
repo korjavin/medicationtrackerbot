@@ -2682,6 +2682,27 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         await materializationSettled();
         expect(await stock()).toBe(10);
 
+        // A partial failure (the 25th's batch refused): the 24th's dose
+        // stays taken, and the toast's Undo covers exactly it.
+        acts.length = 0;
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') {
+                acts.push(body);
+                if (body.taken_at === iso(day(25, 9, 0))) throw new Error('offline');
+            }
+            return realApiCall(p, method, body, ...rest);
+        };
+        await window.readPendingDoses(clock);
+        await openToday(window);
+        bulk(false).click();
+        await vi.waitFor(() => expect(lastToast()?.[0]).toBe('1 dose marked taken'));
+        await materializationSettled();
+        expect(await stock()).toBe(9);
+        await lastToast()[2].action.onClick();
+        expect(acts.at(-1)).toMatchObject({ action: 'undo', occ_ids: [String(acts[0].occ_ids[0])] });
+        await materializationSettled();
+        expect(await stock()).toBe(10);
+
         // 08:30, a fresh page: today's 09:00 is inside the hour — one tap.
         // Not in the pending set and no Timeline read on this page, so the
         // next-intake clear runs on Today's own doses (_tlAct's doses argument).

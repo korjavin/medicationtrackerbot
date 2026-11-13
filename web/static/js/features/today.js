@@ -3038,10 +3038,11 @@
             onTakeNow: opts.onTakeNow || ((v) => {
                 const doses = medDoses(v, win);
                 if (!doses.length || typeof win._tlAct !== 'function') { onTakeMed(v); return; }
-                const occIds = doses.map((d) => d.occId);
-                const names = medNames(v);
-                return win._tlAct('take', [{ occIds }], doses).then((ok) => {
-                    if (!ok || typeof win.safeToast !== 'function') return;
+                return win._tlAct('take', [{ occIds: doses.map((d) => d.occId) }], doses).then((occIds) => {
+                    // Undo covers exactly the doses that landed (a refused one
+                    // is already named by the write's own toast).
+                    if (!occIds || !occIds.length || typeof win.safeToast !== 'function') return;
+                    const names = doses.filter((d) => occIds.includes(d.occId)).map((d) => d.name).filter(Boolean);
                     win.safeToast(`${names.join(', ') || 'Medication'} taken`, 'success', {
                         detail: `${fmtTimeHM(v.scheduledAt)} dose · logged ${fmtTimeHM(new Date(Date.now()).toISOString())}`,
                         action: { label: 'Undo', onClick: () => win._tlAct('undo', [{ occIds }]) },
@@ -3065,11 +3066,10 @@
             // TD3/TD4: the fold's Mark all taken (each at its planned time) /
             // Skip all — the Timeline's bulk pair and batches — with one Undo.
             foldBulkActions: opts.foldBulkActions || (typeof win._tlBulkActions !== 'function' ? null : (doses) => win._tlBulkActions((action) => {
-                const occIds = doses.map((d) => d.occId);
-                return win._tlAct(action, win._tlBulkBatches(action, doses), doses).then((ok) => {
-                    if (!ok || typeof win.safeToast !== 'function') return;
-                    const n = doses.length;
-                    win.safeToast(`${n} doses ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
+                return win._tlAct(action, win._tlBulkBatches(action, doses), doses).then((occIds) => {
+                    if (!occIds || !occIds.length || typeof win.safeToast !== 'function') return;
+                    const n = occIds.length;
+                    win.safeToast(`${n} dose${n === 1 ? '' : 's'} ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
                         ...(action === 'take' ? { detail: 'At their planned times' } : {}),
                         action: { label: 'Undo', onClick: () => win._tlAct('undo', [{ occIds }]) },
                         duration: 8000,

@@ -766,8 +766,9 @@ async function _applyOptimisticTimeline(mutator) {
 // rows in place (a take or skip also clears the dose from Today's
 // next-intake card), POST /api/doses/act once per batch ({occIds, takenAt?} —
 // one taken_at each), then settle: the doses that landed stay, only refused
-// ones go back, named in a toast (bd med-2l38). Resolves true when every id
-// applied. doses ({occId, medId, plannedAt}): the caller's own rows for the
+// ones go back, named in a toast (bd med-2l38). Resolves the occIds (String)
+// that applied — a partial failure keeps the landed ones, so a caller's Undo
+// covers exactly those. doses ({occId, medId, plannedAt}): the caller's own rows for the
 // next-intake clear, for a caller (Today) whose doses the timeline may not
 // have read yet.
 async function _tlAct(action, batches, doses = null) {
@@ -779,7 +780,7 @@ async function _tlAct(action, batches, doses = null) {
     }[action]);
     const patches = new Map();
     batches.forEach((b) => b.occIds.forEach((id) => patches.set(String(id), patch(b.takenAt))));
-    if (!patches.size) return false;
+    if (!patches.size) return [];
 
     const mutate = _tlPatchRows(patches);
     const handles = [await _applyOptimisticTimeline(mutate)];
@@ -797,7 +798,7 @@ async function _tlAct(action, batches, doses = null) {
     await _settleDoseWrite(handles, mutate, failed, next);
     if (failed.size < patches.size && window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
     refreshMedsAfterMutation();
-    return failed.size === 0;
+    return [...patches.keys()].filter((id) => !failed.has(id));
 }
 
 // MT4 · pile-up: one bulk pair per earlier day that still has pending doses.
@@ -820,9 +821,9 @@ function _tlBulkBatches(action, rows) {
 async function _tlBulk(action, date) {
     const pending = (_medsTimelineState.rows || []).filter((r) => r.localDate === date && (r.state === 'due' || r.state === 'snoozed'));
     if (!pending.length) return false;
-    if (!await _tlAct(action, _tlBulkBatches(action, pending))) return false;
-    const n = pending.length;
-    const occIds = pending.map((r) => r.occId);
+    const occIds = await _tlAct(action, _tlBulkBatches(action, pending));
+    if (!occIds.length) return false;
+    const n = occIds.length;
     safeToast(`${n} dose${n === 1 ? '' : 's'} ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
         detail: _tlDayName(date),
         action: { label: 'Undo', onClick: () => _tlAct('undo', [{ occIds }]) },
