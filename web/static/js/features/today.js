@@ -121,11 +121,12 @@
     // or a med that doesn't start until tomorrow.
     //
     // cleared (a Take's optimistic clear of the card): `doses` are the exact
-    // {medication_id, scheduled_at} the card held, so each med skips through
-    // its own instant (bd med-s2q8). A card cached before the response carried
-    // them has none: each med then skips its first slot in [slotMs, slotMs +
-    // window] — the card held each med's earliest dose in the cluster, so a
-    // med's later slot in the window still shows.
+    // {medication_id, scheduled_at} taken — the card's, plus any fallback card
+    // taken since — so a med listed there skips through its own instants
+    // (bd med-s2q8). A med not listed (a card cached before the response
+    // carried instants) skips its first slot in [slotMs, slotMs + window] —
+    // the card held each med's earliest dose in the cluster, so a med's later
+    // slot in the window still shows.
     // ponytail: that legacy heuristic is ledger-blind — a med with two slots
     // ≤10 min apart whose first was taken before the card misreads which one
     // the card held; it ages out with the pre-deploy cache.
@@ -149,9 +150,10 @@
             if (type !== 'daily' && type !== 'weekly') continue;
             const toMs = (d) => (!d ? NaN : d instanceof Date ? d.getTime() : Date.parse(d));
             let from = nowMs;
-            if (clearedDoses) {
-                for (const d of clearedDoses) {
-                    const at = d && String(d.medication_id) === String(med.id) ? Date.parse(d.scheduled_at) : NaN;
+            const own = (clearedDoses || []).filter((d) => d && String(d.medication_id) === String(med.id));
+            if (own.length) {
+                for (const d of own) {
+                    const at = Date.parse(d.scheduled_at);
                     if (at > from) from = at;
                 }
             } else if (Number.isFinite(clearedMs)) {
@@ -3051,7 +3053,12 @@
         const onTakeMed = opts.onTakeMed || ((v) => {
             const ids = Array.isArray(v && v.ids) ? v.ids : [];
             if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
-                win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
+                // A grouped card's meds minutes apart: each sheet row names
+                // its own occurrence (bd med-s2q8).
+                const intakeIds = Array.isArray(v.ats) && typeof win._medOccId === 'function'
+                    ? ids.map((id, i) => win._medOccId(id, (v.intakeIds || [])[i], v.ats[i]))
+                    : (v.intakeIds || []);
+                win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', intakeIds);
             } else {
                 onDeeplink('meds');
             }

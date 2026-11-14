@@ -715,6 +715,19 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = []) {
     // before that field existed carries none: the card's slot must match and
     // the fallback keeps its heuristic.
     if (!prev || typeof prev !== 'object' || !scheduledAt) return prev;
+    // An already cleared card: Today shows the schedule fallback's next dose,
+    // and a Take of it is added to the doses the fallback skips.
+    if (prev.scheduled_at == null && prev.cleared_slot) {
+        const taken = (Array.isArray(selectedIds) ? selectedIds : []).filter((id) => id != null);
+        if (!taken.length) return prev;
+        return {
+            ...prev,
+            cleared_doses: [
+                ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
+                ...taken.map((id) => ({ medication_id: id, scheduled_at: scheduledAt })),
+            ],
+        };
+    }
     const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
     const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
     const allAts = Array.isArray(prev.medication_scheduled_at) && allIds.length > 0
@@ -898,8 +911,17 @@ async function confirmSelectedMedications() {
 // _optimisticNextIntake (the sheet's own scheduled instant).
 function _medConfirmDoses(indices, scheduled) {
     const ids = window.PushModalState.getMedConfirmIds();
-    return indices.map((idx) => ({ occId: String(_medConfirmOccId(idx)), medId: ids[idx], plannedAt: scheduled }))
-        .filter((d) => d.occId !== 'null' && d.medId != null);
+    // A slot id (`intake-<medId>-<slotUnix>`) names its own planned instant:
+    // a grouped Today card's sheet holds doses minutes apart (bd med-s2q8).
+    const plannedOf = (occId) => {
+        const m = /^intake-.+-(\d+)$/.exec(occId);
+        const ms = m ? Number(m[1]) * 1000 : NaN;
+        return Number.isFinite(ms) && ms !== Date.parse(scheduled) ? new Date(ms).toISOString() : scheduled;
+    };
+    return indices.map((idx) => {
+        const occId = String(_medConfirmOccId(idx));
+        return { occId, medId: ids[idx], plannedAt: plannedOf(occId) };
+    }).filter((d) => d.occId !== 'null' && d.medId != null);
 }
 
 async function skipSelectedMedications() {
