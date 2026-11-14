@@ -695,7 +695,9 @@ async function _applyOptimisticNextIntake(mutator) {
     if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
         return { commit: async () => {}, rollback: async () => {} };
     }
-    return window.DataStore.applyOptimistic('next_intake', mutator, ['medications', 'history']);
+    // The card's fetch time bounds how long Today trusts "nothing next"
+    // (NEXT_INTAKE_WINDOW_MS): a local patch keeps it (bd med-5igh).
+    return window.DataStore.applyOptimistic('next_intake', mutator, ['medications', 'history'], { keepFetchedAt: true });
 }
 
 function _nextIntakeCleared(prev, scheduledAt, selectedIds = [], selectedNames = []) {

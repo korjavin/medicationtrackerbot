@@ -47,6 +47,7 @@ function installApiCache(window, seed = {}) {
             async get(key) { return map.has(key) ? map.get(key) : null; },
             async getWithMeta(key) { return map.has(key) ? { data: map.get(key), timestamp: stamps.get(key) ?? 0 } : null; },
             async set(key, value) { map.set(key, value); stamps.set(key, window.Date.now()); },
+            async setWithMeta(key, value, ts) { map.set(key, value); stamps.set(key, ts); },
             async clear(key) { map.delete(key); },
             async keys(prefix) {
                 const all = [...map.keys()];
@@ -2832,6 +2833,46 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         const back = await openToday(window);
         expect(back).toHaveLength(1);
         expect(back[0].querySelector('[data-action="take"]')).not.toBeNull();
+    });
+
+    // testscenarios/web/today-next-intake-freshness.yaml (bd med-5igh): the
+    // "nothing next" card fetched at 01:00 rules out slots up to 13:00 only. A
+    // Take at 11:00 patches the card locally — that is no fetch, so the window
+    // stays 01:00 + 12 h and the 14:00 dose shows from the schedule, offline.
+    it('a dose write keeps the next-intake card\'s fetch time: the 14:00 dose shows after 13:00 offline', async () => {
+        clock = at(0, 0);
+        env = boot(undefined, { wrapApiCallDirect: true });
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const { window } = env;
+        window.eval(fs.readFileSync(path.resolve(path.dirname(TODAY_JS), '../cached-fetch.js'), 'utf8'));
+        await window.apiCall('/api/medications', 'POST', { name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['00:30', '14:00'] }) });
+        const [{ id: medId }] = await window.apiCall('/api/medications');
+        const fetchedAt = async () => (await window.MedTrackerDB.ApiCache.getWithMeta('next_intake')).timestamp;
+
+        // 01:00: 14:00 is 13 h out, so next-intake answers "nothing next".
+        clock = at(1, 0);
+        await window.readPendingDoses(clock);
+        await openToday(window);
+        expect(await window.DataStore.getCached('next_intake')).toMatchObject({ scheduled_at: null });
+        expect(await fetchedAt()).toBe(at(1, 0));
+        const realDirect = window.apiCallDirect;
+        window.apiCallDirect = (endpoint, ...rest) => (String(endpoint).startsWith('/api/medications/next-intake')
+            ? Promise.reject(new Error('Failed to fetch'))
+            : realDirect(endpoint, ...rest));
+
+        // 11:00, offline: the missed 00:30 dose taken late.
+        clock = at(11, 0);
+        // Today's missed row hands its own dose, as its Take does.
+        const occId = `intake-${medId}-${Math.floor(at(0, 30) / 1000)}`;
+        await window._tlAct('take', [{ occIds: [occId] }], [{ occId, medId, plannedAt: new Date(at(0, 30)).toISOString() }]);
+        await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
+        await materializationSettled();
+        expect(await fetchedAt()).toBe(at(1, 0));
+
+        clock = at(13, 0);
+        await window.readPendingDoses(clock);
+        const rows = await openToday(window);
+        expect(rows.map((r) => r.querySelector('.wg-row__meta').textContent.slice(0, 5))).toEqual(['14:00']);
     });
 
     // testscenarios/common/today-missed-fold.yaml + med-dose-taken.yaml (kit

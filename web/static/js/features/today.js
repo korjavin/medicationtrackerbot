@@ -205,8 +205,15 @@
         // write's optimistic clear (cleared_slot, the card's earliest slot)
         // rules out the doses that card grouped only.
         const empty = nx && nx.scheduled_at === null && fresh;
-        const cleared = empty && nx.cleared_slot
-            ? { slotMs: Date.parse(nx.cleared_slot), doses: nx.cleared_doses } : null;
+        // The doses a dose write cleared (cleared_doses, and an empty card's
+        // cleared_slot) are this device's record of doses taken, not the
+        // server's forecast: the fallback skips them however old the card's
+        // fetch is — a local patch keeps the fetch time (bd med-5igh), so a
+        // dose taken offline past the 12 h mark, or left on a card an Undo
+        // repopulated, would come back otherwise.
+        const clearedSlot = nx && nx.scheduled_at === null && nx.cleared_slot;
+        const cleared = nx && (clearedSlot || Array.isArray(nx.cleared_doses))
+            ? { slotMs: clearedSlot ? Date.parse(clearedSlot) : NaN, doses: nx.cleared_doses } : null;
         const emptyUntil = empty && !nx.cleared_slot && meta && Number.isFinite(meta.fetchedAt)
             ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
         if (!nextIntakeUsable) {
