@@ -143,6 +143,18 @@
         // timezone confirm over every screenshot (bootstrap.js maybeUpdateTimezone).
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (tz && vault.data && vault.data.settings) vault.data.settings.timezone = tz;
+        // The tz record must agree: the iOS Simulator runs in UTC, and with
+        // settings in UTC but the transitions ending in Berlin the projection
+        // listed no scheduled dose for today at all (today-doses had no 09:00
+        // Take row on iOS, run 43532764623). A week-old move to the device
+        // zone keeps it consistent; in Berlin (Playwright) nothing changes.
+        const z = vault.data && vault.data.tz;
+        if (tz && z && z.current && z.current !== tz) {
+            const at = new Date(Date.now() - 7 * 86400000).toISOString();
+            z.history = [...(z.history || []), { timezone: tz, changed_at: at }];
+            z.transitions = [...(z.transitions || []), { id: 'tztransition-qa-device', old_tz: z.current, new_tz: tz, switch_at: at, steps: [], boundary: null }];
+            z.current = tz;
+        }
         // The first-run overlay record is not vault-managed, so it survives the import.
         await window.apiCall('/api/firstrun/complete', 'POST');
         const input = document.getElementById('importexport-import-file');
