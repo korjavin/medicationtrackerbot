@@ -389,9 +389,9 @@ describe('Today next-intake meds fallback', () => {
     // fallback skips exactly those doses (bd med-s2q8, Argus round 2).
     describe('a cleared card carrying each med\'s instant', () => {
         const iso = (hm) => new Date(`2026-05-09T${hm}:00`).toISOString();
-        const clearedWith = (meds, doses, now) => env.aggregate({
+        const clearedWith = (meds, doses, now, slot = '10:00') => env.aggregate({
             features: FEATURES_MED_ONLY,
-            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: iso('10:00'), cleared_doses: doses },
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: iso(slot), cleared_doses: doses },
             __next_intake_meta: { fetchedAt: new Date('2026-05-09T09:58:00').getTime(), isStale: false },
             medications: meds,
         }, null, new Date(`2026-05-09T${now}:00`), HELPERS).nextMed;
@@ -409,14 +409,19 @@ describe('Today next-intake meds fallback', () => {
             }
         });
 
-        // Breakage review: a legacy cleared card (no instants), then yesterday's
-        // missed dose back-logged — that entry says nothing about today's
-        // card, so the taken 10:00 stays skipped (no double-dose invite).
-        it('a dose listed from before the cleared slot leaves the med on the heuristic', () => {
-            const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '18:00'] }) }];
-            const doses = [{ medication_id: 1, scheduled_at: new Date('2026-05-08T10:00:00').toISOString() }];
-            for (const now of ['09:59', '10:03']) {
-                expect(clearedWith(meds, doses, now).value.scheduledAt).toBe(iso('18:00'));
+        // Delta check on 7c195d328: A 10:00 + B 10:05 both taken early at
+        // 09:40, Undo B, Take B again — the card clears at B's 10:05, and A's
+        // 10:00 listed before that slot is still taken (no double-dose invite).
+        it('Undo and retake of one member: a dose listed before the new cleared slot stays skipped', () => {
+            const meds = [
+                { id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '18:00'] }) },
+                { id: 2, name: 'Metformin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:05', '20:00'] }) },
+            ];
+            const doses = [{ medication_id: 1, scheduled_at: iso('10:00') }, { medication_id: 2, scheduled_at: iso('10:05') }];
+            for (const now of ['09:41', '10:03']) {
+                const next = clearedWith(meds, doses, now, '10:05');
+                expect(next.value.scheduledAt).toBe(iso('18:00'));
+                expect(next.value.names).toEqual(['Aspirin']);
             }
         });
 

@@ -150,10 +150,11 @@
             if (type !== 'daily' && type !== 'weekly') continue;
             const toMs = (d) => (!d ? NaN : d instanceof Date ? d.getTime() : Date.parse(d));
             let from = nowMs;
-            // A listed dose before the cleared slot (a back-logged missed one)
-            // says nothing about the card: the med keeps the heuristic.
+            // Every listed dose counts, even one before cleared_slot: an Undo
+            // and retake moves the slot past doses still taken. A back-logged
+            // dose never gets listed (_nextIntakeCleared's guard).
             const own = (clearedDoses || []).filter((d) => d && String(d.medication_id) === String(med.id)
-                && Number.isFinite(Date.parse(d.scheduled_at)) && !(Date.parse(d.scheduled_at) < clearedMs));
+                && Number.isFinite(Date.parse(d.scheduled_at)));
             if (own.length) {
                 for (const d of own) {
                     const at = Date.parse(d.scheduled_at);

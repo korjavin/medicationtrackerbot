@@ -922,6 +922,17 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             });
         });
 
+        // Breakage review: a back-logged dose from before a cleared card's slot
+        // is not listed, so Today's fallback never skips on its account.
+        it('a Take from before a cleared card\'s slot leaves its cleared doses as they were', async () => {
+            installApiCache(env.window);
+            const cardValue = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z', cleared_doses: [] };
+            await env.window.DataStore.setCachedWithTags('next_intake', cardValue, ['medications', 'history']);
+            const settleNext = await env.window._optimisticNextIntake([{ occId: 'x', medId: 2, plannedAt: '2026-10-22T19:30:00.000Z' }]);
+            await settleNext(new Set());
+            expect(await env.window.DataStore.getCached('next_intake')).toEqual(cardValue);
+        });
+
         // bd med-s2q8: a card grouping 21:30 + 21:35 (each med's own instant
         // carried) taken one dose at a time — each matches the card by its
         // own instant and the clears add up into cleared_doses, which Today's
