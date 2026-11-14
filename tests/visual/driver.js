@@ -787,6 +787,11 @@
                 document.head.appendChild(meta);
             }
             window.SettingsIntegrations.trialOffer = async () => status.on !== true;
+        } else if (step.notifyAsked) {
+            // This device counts as already asked for notifications, so the
+            // "Let Med Tracker remind you" sheet (notify-permission.js
+            // maybeAsk) never opens over a shot that isn't about it.
+            window.localStorage.setItem('wg.notifyPermission.asked', '1');
         } else if (step.noAIKey) {
             // The seed vault has its own OpenAI key, which hides the Settings
             // trial offer: answer the integrations read with that key blank.
@@ -1058,14 +1063,18 @@
             // scroller to its end and wait until it holds still with the
             // element inside the viewport and the scroller's box, 1px slack
             // (the Android WebView misses an exact bottom, bd med-3vc6).
-            await until(() => firstVisible(step.scroll), STEP_MS, `scroll ${step.scroll}`);
-            const target = firstVisible(step.scroll);
+            // The overlay mounts behind the step (a cold iPhone 16e simulator
+            // missed STEP_MS once, bd med-pyfk): wait longer for it, then
+            // re-resolve the target per tick in case a re-render replaced it.
+            await until(() => firstVisible(step.scroll), STEP_MS * 3, `scroll ${step.scroll}`);
+            let target = firstVisible(step.scroll);
             let box = target.parentElement;
             while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
             box = box || document.scrollingElement;
             let last = -1, seen = '';
             try {
                 await until(() => {
+                    target = firstVisible(step.scroll) || target;
                     box.scrollTop = box.scrollHeight;
                     const bottom = target.getBoundingClientRect().bottom;
                     const boxBottom = box === document.scrollingElement ? window.innerHeight : box.getBoundingClientRect().bottom;
