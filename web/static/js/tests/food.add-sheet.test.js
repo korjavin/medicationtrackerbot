@@ -345,7 +345,7 @@ describe('Food Add sheet', () => {
         const asNeeded = JSON.stringify({ type: 'as_needed' });
         const MEDS = [
             { id: 2, name: 'Paracetamol', dosage: '500 mg', schedule: asNeeded, inventory_count: 20, archived: false, created_at: new Date().toISOString() },
-            { id: 1, name: 'Ibuprofen', dosage: '400 mg', schedule: asNeeded, inventory_count: 12, archived: false, last_taken_at: null },
+            { id: 1, name: 'Ibuprofen', dosage: '400 mg', schedule: asNeeded, inventory_count: 12, archived: false, last_taken_at: new Date(new Date().setHours(0, 0, 0, 0)).toISOString() },
             { id: 3, name: 'Metformin', dosage: '850 mg', schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }), archived: false },
             { id: 4, name: 'Cetirizine', dosage: '10 mg', schedule: asNeeded, archived: true },
         ];
@@ -364,10 +364,10 @@ describe('Food Add sheet', () => {
         const hidden = (id) => env.document.getElementById(id).classList.contains('hidden');
         const also = () => Array.from(env.document.querySelectorAll('#food-add-also-row [data-log]')).map((b) => b.textContent);
 
+        afterEach(() => { vi.useRealTimers(); });
+
         beforeEach(() => {
-            // Local midnight at test time (not collection time): always today, never future, never crosses a day.
-            const midnight = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
-            env.window.medications = MEDS.map((m) => ({ ...m, ...(m.id === 1 && { last_taken_at: midnight }) }));
+            env.window.medications = MEDS.map((m) => ({ ...m }));
         });
 
         it('LS1: from Today it is titled "Log" with an Also log row under the food paths, above Recent', async () => {
@@ -427,6 +427,10 @@ describe('Food Add sheet', () => {
 
         it('LS2: Med lists only the When needed group, in My meds order, with stock and last dose', async () => {
             const { document } = env;
+            // Pin the clock (Date only) so the fixture and the render share one local day even across midnight.
+            vi.useFakeTimers({ toFake: ['Date'] });
+            vi.setSystemTime(new Date(new Date().setHours(12, 0, 0, 0)));
+            env.window.medications.find((m) => m.id === 1).last_taken_at = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
             fromToday();
             await settle();
             document.querySelector('#food-add-also-row [data-log="med"]').click();
