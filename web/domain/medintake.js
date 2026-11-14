@@ -1365,7 +1365,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   // (±10min) in the next 12h. Returns null (204-equivalent) when none. A view
   // over the projection's upcoming rows (bd med-wi09.1).
   async function nextIntake() {
-    const { meds: nextMeds, timeMs: nextTimeMs } = await nextCluster(now());
+    const { meds: nextMeds, rows: nextRows, timeMs: nextTimeMs } = await nextCluster(now());
 
     if (nextMeds.length === 0) return null;
 
@@ -1373,6 +1373,10 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       scheduled_at: new Date(nextTimeMs).toISOString(),
       medication_ids: nextMeds.map((m) => m.recordId),
       medication_names: nextMeds.map((m) => m.name),
+      // Each med's own planned instant in the cluster (parallel to
+      // medication_ids): a Take's optimistic clear carries them so the
+      // offline schedule fallback skips exactly those doses (bd med-s2q8).
+      medication_scheduled_at: nextRows.map((r) => new Date(Date.parse(r.plannedAt)).toISOString()),
     };
   }
 

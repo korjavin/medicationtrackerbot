@@ -700,29 +700,46 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
     );
     // A whole slot acted on leaves an empty card naming it (cleared_slot), so
     // Today's schedule fallback skips that slot only — not a 12 h forecast.
+    // Each med's own instant on the card (medication_scheduled_at) is kept
+    // as cleared_doses, accumulated over partial clears, so the fallback skips
+    // exactly the doses acted on (bd med-s2q8). A card cached before that
+    // field existed carries none and the fallback keeps its heuristic.
     return window.DataStore.applyOptimistic('next_intake', (prev) => {
         if (!prev || typeof prev !== 'object') return prev;
         if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
         const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
         const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
+        const allAts = Array.isArray(prev.medication_scheduled_at) ? prev.medication_scheduled_at : null;
+        const cleared = (idxs) => (allAts ? [
+            ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
+            ...idxs.filter((i) => i < allAts.length).map((i) => ({ medication_id: allIds[i], scheduled_at: allAts[i] }))
+        ] : undefined);
+        const clearAll = () => {
+            const out = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
+            const doses = cleared(allIds.map((_, i) => i));
+            if (doses) out.cleared_doses = doses;
+            return out;
+        };
         // No ID list to filter (legacy payload missing medication_ids) — fall
         // back to the wholesale clear so the tile doesn't pin a now-actioned
         // dose. Same fallback when the caller didn't supply selectedIds.
-        if (allIds.length === 0 || selectedIdSet.size === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
-        }
-        const remainingIds = [];
-        const remainingNames = [];
+        if (allIds.length === 0 || selectedIdSet.size === 0) return clearAll();
+        const remaining = [];
+        const removed = [];
         for (let i = 0; i < allIds.length; i++) {
-            const id = Number(allIds[i]);
-            if (selectedIdSet.has(id)) continue;
-            remainingIds.push(allIds[i]);
-            if (i < allNames.length) remainingNames.push(allNames[i]);
+            (selectedIdSet.has(Number(allIds[i])) ? removed : remaining).push(i);
         }
-        if (remainingIds.length === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
+        if (remaining.length === 0) return clearAll();
+        const next = {
+            ...prev,
+            medication_ids: remaining.map((i) => allIds[i]),
+            medication_names: remaining.filter((i) => i < allNames.length).map((i) => allNames[i])
+        };
+        if (allAts) {
+            next.medication_scheduled_at = remaining.filter((i) => i < allAts.length).map((i) => allAts[i]);
+            next.cleared_doses = cleared(removed);
         }
-        return { ...prev, medication_ids: remainingIds, medication_names: remainingNames };
+        return next;
     }, ['medications', 'history']);
 }
 

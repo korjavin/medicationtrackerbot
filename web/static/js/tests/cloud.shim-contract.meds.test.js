@@ -1623,7 +1623,8 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         // the tombstoned 20:00 is not offered.
         const next = await call('/api/medications/next-intake');
         expect(next).toEqual({
-            scheduled_at: upcomingRows[0].plannedAt, medication_ids: [2], medication_names: ['Losartan']
+            scheduled_at: upcomingRows[0].plannedAt, medication_ids: [2], medication_names: ['Losartan'],
+            medication_scheduled_at: [upcomingRows[0].plannedAt]
         });
 
         // Schedule tab upcoming: exactly the projection's upcoming rows.
@@ -1840,7 +1841,9 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             });
 
             const next = await call('/api/medications/next-intake');
-            expect(next).toEqual({ scheduled_at: iso(at(8)), medication_ids: [1], medication_names: ['Metformin'] });
+            expect(next).toEqual({
+                scheduled_at: iso(at(8)), medication_ids: [1], medication_names: ['Metformin'], medication_scheduled_at: [iso(at(8))]
+            });
 
             const res = await trigger();
             expect(res).toMatchObject({
@@ -1867,7 +1870,10 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             });
 
             const next = await call('/api/medications/next-intake');
-            expect(next).toMatchObject({ scheduled_at: iso(at(8)), medication_ids: [1, 2] });
+            // Each med carries its own instant in the cluster (bd med-s2q8).
+            expect(next).toMatchObject({
+                scheduled_at: iso(at(8)), medication_ids: [1, 2], medication_scheduled_at: [iso(at(8)), iso(step)]
+            });
 
             const res = await trigger();
             expect(res).toMatchObject({ scheduled_at: iso(at(8)), medication_count: 2 });

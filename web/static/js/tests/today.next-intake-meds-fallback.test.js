@@ -384,4 +384,35 @@ describe('Today next-intake meds fallback', () => {
         }, null, new Date('2026-05-09T09:59:00'), HELPERS).nextMed;
         expect(next.value.scheduledAt).toBe(new Date('2026-05-09T10:05:00').toISOString());
     });
+
+    // With each med's own instant carried by the clear (cleared_doses), the
+    // fallback skips exactly those doses (bd med-s2q8, Argus round 2).
+    describe('a cleared card carrying each med\'s instant', () => {
+        const iso = (hm) => new Date(`2026-05-09T${hm}:00`).toISOString();
+        const clearedWith = (meds, doses, now) => env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: iso('10:00'), cleared_doses: doses },
+            __next_intake_meta: { fetchedAt: new Date('2026-05-09T09:58:00').getTime(), isStale: false },
+            medications: meds,
+        }, null, new Date(`2026-05-09T${now}:00`), HELPERS).nextMed;
+
+        it('B\'s 10:00 taken before the card (A 10:00 + B 10:05): B 10:05 does not come back', () => {
+            const meds = [
+                { id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '18:00'] }) },
+                { id: 2, name: 'Metformin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '10:05', '12:00'] }) },
+            ];
+            const doses = [{ medication_id: 1, scheduled_at: iso('10:00') }, { medication_id: 2, scheduled_at: iso('10:05') }];
+            for (const now of ['09:59', '10:03']) {
+                const next = clearedWith(meds, doses, now);
+                expect(next.value.scheduledAt).toBe(iso('12:00'));
+                expect(next.value.names).toEqual(['Metformin']);
+            }
+        });
+
+        it('a med\'s own 10:05 never on the card (it held 10:00) still shows', () => {
+            const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '10:05'] }) }];
+            const next = clearedWith(meds, [{ medication_id: 1, scheduled_at: iso('10:00') }], '09:59');
+            expect(next.value.scheduledAt).toBe(iso('10:05'));
+        });
+    });
 });

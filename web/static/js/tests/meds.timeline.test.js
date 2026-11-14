@@ -890,6 +890,27 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
                 .toEqual({ scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z' }));
         });
 
+        // bd med-s2q8: a card carrying each med's own instant hands them to the
+        // clear, so Today's offline fallback skips exactly those doses.
+        it('the next-intake clear carries each med\'s own instant from the card as cleared_doses', async () => {
+            env.window.Date.now = () => Date.parse('2026-10-23T18:45:00.000Z');
+            installApiCache(env.window);
+            await env.window.DataStore.setCachedWithTags('next_intake', {
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [2, 3], medication_names: ['Lercanidipin', 'Metformin'],
+                medication_scheduled_at: ['2026-10-23T19:30:00.000Z', '2026-10-23T19:35:00.000Z'],
+            }, ['medications', 'history']);
+            const server = await serve(normalDay());
+            button(card(env.document).querySelectorAll('.wg-timeline__row')[0], 'Take 2').click();
+            await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+            await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z',
+                cleared_doses: [
+                    { medication_id: 2, scheduled_at: '2026-10-23T19:30:00.000Z' },
+                    { medication_id: 3, scheduled_at: '2026-10-23T19:35:00.000Z' },
+                ],
+            }));
+        });
+
         // bd med-wt2q: at 01:40 a one-tap Take on "Next today" took the 08:20
         // doses 6h40m early. Outside the window the row opens the take sheet.
         it('"Next today" outside the window: a row tap opens the take sheet with "Due at 21:30. Mark taken now?", nothing posted until Take', async () => {

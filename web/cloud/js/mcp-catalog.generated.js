@@ -1358,8 +1358,8 @@ export const CATALOG = [
     "path": "/api/medications/next-intake",
     "risk": "read",
     "description": "Compute the next scheduled intake across all active medications, in the user's timezone.",
-    "response_summary": "Object {scheduled_at (RFC3339), medication_ids[], medication_names[]}; null when no active medication has an upcoming dose.",
-    "response_example": "{\"scheduled_at\": \"2026-05-06T10:00:00Z\", \"medication_ids\": [1], \"medication_names\": [\"Mounjaro\"]}"
+    "response_summary": "Object {scheduled_at (RFC3339, the cluster's earliest), medication_ids[], medication_names[], medication_scheduled_at[] (each med's own RFC3339 instant, parallel to medication_ids)}; null when no active medication has an upcoming dose.",
+    "response_example": "{\"scheduled_at\": \"2026-05-06T10:00:00Z\", \"medication_ids\": [1], \"medication_names\": [\"Mounjaro\"], \"medication_scheduled_at\": [\"2026-05-06T10:00:00Z\"]}"
   },
   {
     "id": "medications.restock",

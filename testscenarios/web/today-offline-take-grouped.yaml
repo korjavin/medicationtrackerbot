@@ -7,8 +7,8 @@ preconditions:
 steps:
   - Open Today and tap Take on the grouped card
 invariants:
-  - Neither dose comes back as Next up before the app is online again; the next card is the next untaken dose after them
+  - None of the card's doses comes back as Next up before the app is online again, also when a medication's earlier dose (10:00) was taken before the card showed its 10:05; the next card is the next untaken dose after them
   - A medication's own later dose minutes after the taken one (it was never on the card) still shows as Next up
 covered_by:
-  web: manual  # partial: data/logic only: web/static/js/tests/today.next-intake-meds-fallback.test.js (an optimistically cleared grouped card skips every dose it grouped; ... keeps a med's later slot it never grouped) render Today from an already-cleared cache; missing: the offline tap on Take writing both doses and the card staying clear
+  web: manual  # partial: data/logic only: web/static/js/tests/meds.timeline.test.js (the next-intake clear carries each med's own instant from the card as cleared_doses), web/static/js/tests/today.next-intake-meds-fallback.test.js (a cleared card carrying each med's instant: B's 10:00 taken before the card does not bring B 10:05 back; a med's own 10:05 still shows; legacy cleared card without instants), web/static/js/tests/cloud.shim-contract.meds.test.js (next-intake medication_scheduled_at); missing: one offline run tapping Take on Today and checking the card stays clear
 source: [bd med-s2q8]
