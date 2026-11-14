@@ -7,7 +7,7 @@ steps:
   - Open Meds → Timeline
   - Unfold "Later today", then tomorrow's Planned row
 invariants:
-  - Within any day of the Timeline the later dose sits above the earlier one. "Later today" is one folded Planned row above the focus card ("1 dose · 21:30", "first" only with 2+ doses; unfolded, later on top). The card shows Next today above Pending. Pending and Done sit below the card. Unfolded future days and History days also run later on top.
+  - Within any day of the Timeline the later dose sits above the earlier one. "Later today" is one folded Planned row above the focus card ("1 dose · 21:30", "first" only with 2+ distinct times; unfolded, later on top). The card shows Next today above Pending. Pending and Done sit below the card. Unfolded future days and History days also run later on top.
   - The overdue dose's Take / Skip in the focus card is visible without scrolling, however many doses are still ahead today
   - '"Show 3 more days ahead" stays the first thing on the page, and the folded future row still names the day''s first dose ("2 doses · first 08:20")'
   - 'A folded day counts doses, not time slots: five meds all at 08:20 read "5 doses · 08:20" (no "first" with a single time), one dose reads "1 dose · 08:20" (med-4a37)'
