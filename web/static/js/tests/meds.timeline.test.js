@@ -582,7 +582,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             await load(normalDay());
             const day = () => document.querySelector('.wg-tl-day[data-local-date="2026-10-24"]');
             expect(text(day().querySelector('.wg-row__title'))).toBe('Tomorrow · Sat 24.10');
-            expect(text(day().querySelector('.wg-row__meta'))).toBe('3 doses · first 08:20');
+            expect(text(day().querySelector('.wg-row__meta'))).toBe('4 doses · first 08:20');
             expect(text(day().querySelector('.wg-tag'))).toBe('Planned');
             expect(day().getAttribute('aria-expanded')).toBe('false');
             expect(document.querySelectorAll('.wg-timeline__future .wg-timeline__row')).toHaveLength(0);
@@ -603,6 +603,15 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             day().click();
             expect(day().getAttribute('aria-expanded')).toBe('false');
             expect(document.querySelectorAll('.wg-timeline__future .wg-timeline__row')).toHaveLength(0);
+        });
+
+        it('counts doses, not slots: five meds at one time read "5 doses · 08:20" (no "first"), singular stays "1 dose"', async () => {
+            const { document } = env;
+            await load([1, 2, 3, 4, 5].map((m) => berlin(m, '2026-10-24', '08:20', 'upcoming')));
+            const meta = (d) => text(document.querySelector(`.wg-tl-day[data-local-date="${d}"] .wg-row__meta`));
+            expect(meta('2026-10-24')).toBe('5 doses · 08:20');
+            await load([berlin(1, '2026-10-24', '09:00', 'upcoming')]);
+            expect(meta('2026-10-24')).toBe('1 dose · 09:00');
         });
 
         it('an unfolded day stays read-only whatever a dose\'s stored state: no sheet, no buttons', async () => {

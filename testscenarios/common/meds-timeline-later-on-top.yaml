@@ -7,11 +7,12 @@ steps:
   - Open Meds → Timeline
   - Unfold "Later today", then tomorrow's Planned row
 invariants:
-  - Within any day of the Timeline the later dose sits above the earlier one. "Later today" is one folded Planned row above the focus card ("1 dose · 21:30", "first" only with 2+ doses; unfolded, later on top). The card shows Next today above Pending. Pending and Done sit below the card. Unfolded future days and History days also run later on top.
+  - Within any day of the Timeline the later dose sits above the earlier one. "Later today" is one folded Planned row above the focus card ("1 dose · 21:30", "first" only with 2+ distinct times; unfolded, later on top). The card shows Next today above Pending. Pending and Done sit below the card. Unfolded future days and History days also run later on top.
   - The overdue dose's Take / Skip in the focus card is visible without scrolling, however many doses are still ahead today
   - '"Show 3 more days ahead" stays the first thing on the page, and the folded future row still names the day''s first dose ("2 doses · first 08:20")'
+  - 'A folded day counts doses, not time slots: five meds all at 08:20 read "5 doses · 08:20" (no "first" with a single time), one dose reads "1 dose · 08:20" (med-4a37)'
 covered_by:
   web: web/static/js/tests/meds.timeline.test.js  # invariant 2: tests/visual/playwright/flows.mjs#meds-timeline-focus-in-view (gates the scene's inView probe, Pixel 7 and 390 wide)
-  android: android/qa/scenarios/local-visual.mjs#meds-timeline-focus-in-view  # invariant 2: local-visual dispatch gates inView; invariants 1 and 3 data/logic only: web/static/js/tests/meds.timeline.test.js
-  ios: ios/UITests/VisualQATests.swift  # invariant 2: tests/visual/scenes.json#meds-timeline-focus-in-view, dispatched: visual_scenes (inView gates both iPhone sizes); invariants 1 and 3 data/logic: web/static/js/tests/meds.timeline.test.js
-source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, bd med-5y49]
+  android: android/qa/scenarios/local-visual.mjs#meds-timeline-focus-in-view  # invariant 2: local-visual dispatch gates inView; invariants 1, 3 and 4 data/logic only: web/static/js/tests/meds.timeline.test.js
+  ios: ios/UITests/VisualQATests.swift  # invariant 2: tests/visual/scenes.json#meds-timeline-focus-in-view, dispatched: visual_scenes (inView gates both iPhone sizes); invariants 1, 3 and 4 data/logic: web/static/js/tests/meds.timeline.test.js
+source: [Zulip 17050, Zulip 17054, Zulip 17139, Zulip 17140, Zulip 25977, bd med-5y49, bd med-4a37]

@@ -920,9 +920,12 @@ function _tlFoldedDay(list, date, title, day, ctx) {
     lead.appendChild(_medsIcon('calendar'));
     const body = _medsEl('span', 'wg-row__body');
     body.appendChild(_medsEl('span', 'wg-row__title', title));
-    // "first" only when there is a second (Iris 17218): "1 dose · 21:00".
+    // Count doses, not slot groups (med-4a37, Iris 25977): five meds at 08:20
+    // read "5 doses · 08:20". "first" only with a second time (Iris 17218).
+    const doses = day.reduce((n, g) => n + g.rows.length, 0);
     const firstAt = day[day.length - 1].localTime;
-    body.appendChild(_medsEl('span', 'wg-row__meta', day.length === 1 ? `1 dose · ${firstAt}` : `${day.length} doses · first ${firstAt}`));
+    const several = new Set(day.map((g) => g.localTime)).size > 1;
+    body.appendChild(_medsEl('span', 'wg-row__meta', `${doses} ${doses === 1 ? 'dose' : 'doses'} · ${several ? 'first ' : ''}${firstAt}`));
     row.append(lead, body, _medsEl('span', 'wg-tag', 'Planned'), _medsIcon(open ? 'chev-u' : 'chev-d', 'wg-row__chev'));
     const toggle = () => {
         if (open) state.open.delete(date);
