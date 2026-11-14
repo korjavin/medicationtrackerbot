@@ -19,7 +19,9 @@
     const WEIGHT_STALE_MS = 7 * 24 * 60 * 60 * 1000; // weight is stale after a week
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
+    const NEXT_INTAKE_WINDOW_MS = 12 * 60 * 60 * 1000; // GET /api/medications/next-intake looks this far ahead
     const MED_LOOKAHEAD_MS = 2 * 60 * 60 * 1000; // Next up shows a future dose only within 2h; earlier it lives on Meds
+    const MED_TAKE_WINDOW_MS = 60 * 60 * 1000; // one-tap Take window, = meds.js MEDS_NEXT_TAKE_WINDOW_MS (kit TD1)
     const MIN_TREND_POINTS = 2;
 
     function cell(value, deeplink, status, meta) {
@@ -166,7 +168,17 @@
         // next_intake that's still fresh stays authoritative — only the server
         // knows whether the upcoming dose has already been taken in another
         // session.
-        const nextIntakeUsable = nx && nx.scheduled_at && (!meta || !meta.isStale);
+        const fresh = !meta || !meta.isStale;
+        const nextIntakeUsable = nx && nx.scheduled_at && fresh;
+        // A fresh card with no slot is known, not missing, so the schedule
+        // cannot hand back the dose just taken. The server's "nothing next"
+        // rules out every slot up to its 12 h window from when it was
+        // fetched (a later slot still shows as the clock moves on); a dose
+        // write's optimistic clear (cleared_slot) rules out that slot only.
+        const empty = nx && nx.scheduled_at === null && fresh;
+        const clearedMs = empty ? Date.parse(nx.cleared_slot) : NaN;
+        const emptyUntil = empty && !nx.cleared_slot && meta && Number.isFinite(meta.fetchedAt)
+            ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
         if (!nextIntakeUsable) {
             const helpers = opts || {};
             const parseSchedule = helpers.parseMedicationSchedule
@@ -174,8 +186,11 @@
             const getNext = helpers.getNextScheduledDate
                 || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
             const meds = bootstrap && bootstrap.medications;
-            const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
-            if (fallback) {
+            let fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
+            if (fallback && Date.parse(fallback.scheduledAt) <= clearedMs) {
+                fallback = computeFallbackFromMedications(meds, clearedMs, parseSchedule, getNext);
+            }
+            if (fallback && !(Date.parse(fallback.scheduledAt) < emptyUntil)) {
                 const at = Date.parse(fallback.scheduledAt);
                 const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
                 return cell(fallback, 'meds', status, medsMeta || meta);
@@ -213,30 +228,30 @@
         const medName = new Map((Array.isArray(bootstrap.medications) ? bootstrap.medications : [])
             .filter((m) => m && typeof m.name === 'string' && m.name)
             .map((m) => [String(m.id), m.name]));
+        // One group per slot and state: a snooze still running keeps its dose
+        // in the slot's snoozed group; a due row (or a lapsed snooze —
+        // clock-only, no refetch) goes in the due group. A slot with both
+        // gives two groups, so a Take or fold never acts on a running snooze.
         const bySlot = new Map();
         for (const r of rows) {
             if (!r || (r.state !== 'due' && r.state !== 'snoozed')) continue;
             const at = Date.parse(r.plannedAt);
             if (!Number.isFinite(at)) continue;
-            let g = bySlot.get(at);
-            if (!g) { g = { at, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], due: false, snoozedUntil: null }; bySlot.set(at, g); }
+            const until = r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : NaN;
+            const snoozed = until > nowMs;
+            const key = `${at}|${snoozed}`;
+            let g = bySlot.get(key);
+            if (!g) { g = { at, snoozed, scheduledAt: r.plannedAt, names: [], ids: [], intakeIds: [], snoozedUntil: null }; bySlot.set(key, g); }
             g.names.push(medName.get(String(r.medId)) || r.name || 'Medication');
             g.ids.push(r.medId);
             g.intakeIds.push(r.occId);
-            // A snooze still running keeps the slot snoozed; a due row (or a
-            // lapsed snooze — clock-only, no refetch) makes it due.
-            const until = r.state === 'snoozed' ? Date.parse(r.snoozedUntil) : NaN;
-            if (until > nowMs) {
-                if (!(Date.parse(g.snoozedUntil) >= until)) g.snoozedUntil = r.snoozedUntil;
-            } else {
-                g.due = true;
-            }
+            if (snoozed && !(Date.parse(g.snoozedUntil) >= until)) g.snoozedUntil = r.snoozedUntil;
         }
-        // `snoozedUntil` only on a slot whose every dose is snoozed.
-        const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at)
-            .map(({ scheduledAt, names, ids, intakeIds, due, snoozedUntil }) => (due
-                ? { scheduledAt, names, ids, intakeIds }
-                : { scheduledAt, names, ids, intakeIds, snoozedUntil }));
+        // `snoozedUntil` only on a snoozed group; due before snoozed at a slot.
+        const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at || a.snoozed - b.snoozed)
+            .map(({ scheduledAt, names, ids, intakeIds, snoozed, snoozedUntil }) => (snoozed
+                ? { scheduledAt, names, ids, intakeIds, snoozedUntil }
+                : { scheduledAt, names, ids, intakeIds }));
         return cell(groups, 'meds', 'ok');
     }
 
@@ -649,6 +664,18 @@
                 const kind = g.snoozedUntil ? 'med-snoozed' : (at + OVERDUE_GRACE_MS < nowMs ? 'med-missed' : 'med');
                 items.push({ kind, value: g, at });
             }
+            // 2+ missed doses (any slots, any days; snoozed ones excluded)
+            // fold into one row with the bulk pair (kit TD3); one stays a row.
+            const missedItems = items.filter((it) => it.kind === 'med-missed');
+            const doses = [];
+            missedItems.forEach(({ value: g }) => g.ids.forEach((medId, i) => doses.push({
+                occId: g.intakeIds[i], medId, plannedAt: g.scheduledAt, name: g.names[i],
+            })));
+            if (doses.length >= 2) {
+                const kept = items.filter((it) => it.kind !== 'med-missed');
+                items.length = 0;
+                items.push({ kind: 'med-missed-fold', value: { doses }, at: missedItems[0].at }, ...kept);
+            }
         }
         const med = state && state.nextMed;
         const medAt = med && med.value ? Date.parse(med.value.scheduledAt) : NaN;
@@ -668,8 +695,9 @@
             if (v.is_today && !hm) at = nowMs;
             items.push({ kind: 'workout', value: v, at });
         }
+        const isMissed = (it) => it.kind === 'med-missed' || it.kind === 'med-missed-fold';
         items.sort((a, b) => {
-            if ((a.kind === 'med-missed') !== (b.kind === 'med-missed')) return a.kind === 'med-missed' ? -1 : 1;
+            if (isMissed(a) !== isMissed(b)) return isMissed(a) ? -1 : 1;
             return (Number.isFinite(a.at) ? a.at : Infinity) - (Number.isFinite(b.at) ? b.at : Infinity);
         });
         return items;
@@ -686,18 +714,58 @@
         return Array.isArray(v.names) ? v.names.filter(Boolean) : [];
     }
 
+    // A Next up med item's doses as {occId, medId, plannedAt, name}: the
+    // take sheet's occId rule (meds-history.js _medOccId), never re-derived.
+    function medDoses(v, win) {
+        if (typeof win._medOccId !== 'function') return [];
+        const ids = Array.isArray(v.ids) ? v.ids : [];
+        const intakeIds = Array.isArray(v.intakeIds) ? v.intakeIds : [];
+        const names = Array.isArray(v.names) ? v.names : [];
+        return ids.map((medId, i) => ({ occId: win._medOccId(medId, intakeIds[i], v.scheduledAt), medId, plannedAt: v.scheduledAt, name: names[i] }))
+            .filter((d) => d.occId != null)
+            .map((d) => ({ ...d, occId: String(d.occId) }));
+    }
+
     function renderNextUpRow(item, primary, h, nowMs) {
         const row = el('div', 'wg-row');
         row.setAttribute('data-next', item.kind);
         const lead = el('span', 'wg-row__lead');
-        if (item.kind === 'med-missed') lead.classList.add('wg-row__lead--danger');
+        if (item.kind === 'med-missed' || item.kind === 'med-missed-fold') lead.classList.add('wg-row__lead--danger');
         else if (primary) lead.classList.add('wg-row__lead--sun');
         const body = el('span', 'wg-row__body');
         const meta = el('span', 'wg-row__meta');
         const trail = el('span', 'wg-row__trail');
         let action = null;
+        // Tapping the row itself (not its buttons) runs open.
+        const tappable = (label, dataAction, open) => {
+            row.classList.add('wg-today-next__tap');
+            row.setAttribute('role', 'button');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-action', dataAction);
+            row.setAttribute('aria-label', label);
+            row.addEventListener('click', (e) => {
+                if (e.target.closest && e.target.closest('.wg-btn')) return;
+                open();
+            });
+            row.addEventListener('keydown', (e) => {
+                if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); }
+            });
+        };
 
-        if (item.kind === 'med' || item.kind === 'med-missed' || item.kind === 'med-snoozed') {
+        if (item.kind === 'med-missed-fold') {
+            // TD3: "N missed doses", the oldest slot, the meds; the bulk pair
+            // sits under it (renderNextUp). The row opens Meds → Timeline.
+            const doses = item.value.doses;
+            lead.appendChild(ico('pill'));
+            body.appendChild(el('span', 'wg-row__title', `${doses.length} missed doses`));
+            const slot = h.slotLabel ? h.slotLabel(new Date(item.at), new Date(nowMs)) : fmtTimeHM(new Date(item.at).toISOString());
+            meta.appendChild(chip(`Since ${slot}`, 'danger'));
+            meta.appendChild(doc().createTextNode(` ${[...new Set(doses.map((d) => d.name))].join(', ')}`));
+            const chev = ico('chev-r');
+            chev.classList.add('wg-row__chev');
+            trail.appendChild(chev);
+            tappable(`${doses.length} missed doses — open the Meds timeline`, 'open-missed', h.onOpenMissed);
+        } else if (item.kind === 'med' || item.kind === 'med-missed' || item.kind === 'med-snoozed') {
             const v = item.value;
             const names = medNames(v);
             lead.appendChild(ico('pill'));
@@ -724,11 +792,18 @@
                 if (names.length > 1) parts.push(names.join(', '));
                 meta.textContent = parts.join(' · ');
             }
-            const label = item.kind === 'med-missed' ? 'Log' : 'Take';
+            // TD1: a due dose (within the hour, or past inside the grace)
+            // takes in one tap; one further ahead opens the early sheet
+            // (bd med-wt2q). Missed / snoozed rows open the sheet.
+            let onClick = () => h.onTakeMed(v);
+            if (item.kind === 'med') {
+                onClick = item.at - nowMs <= MED_TAKE_WINDOW_MS ? () => h.onTakeNow(v) : () => h.onTakeEarly(v);
+            }
+            const label = item.kind === 'med-missed' ? 'Log' : (names.length > 1 ? `Take ${names.length}` : 'Take');
             action = btn(label, {
-                sm: true, primary, action: item.kind === 'med-missed' ? 'log-missed' : 'take',
-                onClick: () => h.onTakeMed(v),
+                sm: true, primary, action: item.kind === 'med-missed' ? 'log-missed' : 'take', onClick,
             });
+            tappable(`${names.join(', ') || 'Medication'} — open the take sheet`, 'open-take-sheet', () => h.onTakeMed(v));
         } else {
             const v = item.value;
             lead.appendChild(ico('dumbbell'));
@@ -759,24 +834,10 @@
             // Tapping the row itself (not its buttons) starts or resumes TODAY's
             // session (kit WR1; Start keeps its confirm, WR2); a later day or a
             // finished/skipped session opens the plan's Day page, as View does.
-            row.classList.add('wg-today-next__tap');
-            row.setAttribute('role', 'button');
-            row.setAttribute('tabindex', '0');
             const name = v.group_name || 'Workout';
-            const open = kind === 'start' ? () => h.onStartWorkout(v.id)
-                : kind === 'resume' ? () => h.onResumeWorkout(v.id)
-                : () => h.onViewWorkout(v);
-            row.setAttribute('data-action', kind === 'start' ? 'start-workout'
-                : kind === 'resume' ? 'resume-workout' : 'open-workout-plan');
-            row.setAttribute('aria-label', kind === 'start' ? `Start ${name}`
-                : kind === 'resume' ? `Resume ${name}` : `${name} — view planned exercises`);
-            row.addEventListener('click', (e) => {
-                if (e.target.closest && e.target.closest('.wg-btn')) return;
-                open();
-            });
-            row.addEventListener('keydown', (e) => {
-                if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); }
-            });
+            if (kind === 'start') tappable(`Start ${name}`, 'start-workout', () => h.onStartWorkout(v.id));
+            else if (kind === 'resume') tappable(`Resume ${name}`, 'resume-workout', () => h.onResumeWorkout(v.id));
+            else tappable(`${name} — view planned exercises`, 'open-workout-plan', () => h.onViewWorkout(v));
         }
         body.appendChild(meta);
         if (action) trail.appendChild(action);
@@ -828,14 +889,23 @@
 
         // Due by the end of today — past days' pending doses included.
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
-        const dueCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
+        const dueCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd)
+            .reduce((n, it) => n + (it.kind === 'med-missed-fold' ? it.value.doses.length : 1), 0);
         if (dueCount > 0) head.appendChild(el('span', 'wg-meta', `${dueCount} due`));
 
         const primaryIdx = !allowPrimary ? -1 : items.findIndex((it) => it.kind === 'med'
             || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));
-        const list = el('div', 'wg-list');
-        items.forEach((it, i) => list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs)));
-        section.appendChild(list);
+        let list = el('div', 'wg-list');
+        items.forEach((it, i) => {
+            list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs));
+            // The fold's bulk pair (kit TD3) splits the list under its row.
+            const bar = it.kind === 'med-missed-fold' && h.foldBulkActions ? h.foldBulkActions(it.value.doses) : null;
+            if (bar) {
+                section.append(list, bar);
+                list = el('div', 'wg-list');
+            }
+        });
+        if (list.childNodes.length) section.appendChild(list);
         return { node: section, hasPrimary: primaryIdx !== -1 };
     }
 
@@ -2947,6 +3017,14 @@
         const onDeeplink = opts.onDeeplink || ((target) => {
             if (target && typeof win.switchTab === 'function') win.switchTab(target);
         });
+        const onTakeMed = opts.onTakeMed || ((v) => {
+            const ids = Array.isArray(v && v.ids) ? v.ids : [];
+            if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
+                win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
+            } else {
+                onDeeplink('meds');
+            }
+        });
         return {
             onDeeplink,
             // The food Add sheet; Today's Log passes { from: 'today', … } (LS1).
@@ -2972,14 +3050,50 @@
             // and the print helper is served from the cloud shell. No handler →
             // no button rather than one that can only fail.
             onDoctorBrief: opts.onDoctorBrief || briefOpenerOrNull(),
-            onTakeMed: opts.onTakeMed || ((v) => {
-                const ids = Array.isArray(v && v.ids) ? v.ids : [];
-                if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
-                    win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
-                } else {
-                    onDeeplink('meds');
-                }
+            onTakeMed,
+            // TD1/TD2: the Timeline's write (meds.js _tlAct) on the item's
+            // doses, then a toast whose Undo puts them back (stock too).
+            onTakeNow: opts.onTakeNow || ((v) => {
+                const doses = medDoses(v, win);
+                if (!doses.length || typeof win._tlAct !== 'function') { onTakeMed(v); return; }
+                return win._tlAct('take', [{ occIds: doses.map((d) => d.occId) }], doses).then((occIds) => {
+                    // Undo covers exactly the doses that landed (a refused one
+                    // is already named by the write's own toast).
+                    if (!occIds || !occIds.length || typeof win.safeToast !== 'function') return;
+                    const names = doses.filter((d) => occIds.includes(d.occId)).map((d) => d.name).filter(Boolean);
+                    win.safeToast(`${names.join(', ') || 'Medication'} taken`, 'success', {
+                        detail: `${fmtTimeHM(v.scheduledAt)} dose · logged ${fmtTimeHM(new Date(Date.now()).toISOString())}`,
+                        action: { label: 'Undo', onClick: () => win._tlAct('undo', [{ occIds }]) },
+                        duration: 8000,
+                    });
+                });
             }),
+            // A dose 1–2 h ahead: the Timeline's early sheet, "Due at HH:MM.
+            // Mark taken now?" (bd med-wt2q).
+            onTakeEarly: opts.onTakeEarly || ((v) => {
+                const doses = medDoses(v, win);
+                if (!doses.length || typeof win._tlOpenEarlySheet !== 'function') { onTakeMed(v); return; }
+                const medById = new Map((Array.isArray(win.medications) ? win.medications : []).map((m) => [String(m.id), m]));
+                win._tlOpenEarlySheet({ rows: doses, localTime: fmtTimeHM(v.scheduledAt) }, { medById });
+            }),
+            // TD3: the missed fold opens Meds → Timeline.
+            onOpenMissed: opts.onOpenMissed || (() => {
+                if (typeof win.setActiveMedsSubTab === 'function') win.setActiveMedsSubTab('timeline');
+                onDeeplink('meds');
+            }),
+            // TD3/TD4: the fold's Mark all taken (each at its planned time) /
+            // Skip all — the Timeline's bulk pair and batches — with one Undo.
+            foldBulkActions: opts.foldBulkActions || (typeof win._tlBulkActions !== 'function' ? null : (doses) => win._tlBulkActions((action) => {
+                return win._tlAct(action, win._tlBulkBatches(action, doses), doses).then((occIds) => {
+                    if (!occIds || !occIds.length || typeof win.safeToast !== 'function') return;
+                    const n = occIds.length;
+                    win.safeToast(`${n} dose${n === 1 ? '' : 's'} ${action === 'take' ? 'marked taken' : 'skipped'}`, 'success', {
+                        ...(action === 'take' ? { detail: 'At their planned times' } : {}),
+                        action: { label: 'Undo', onClick: () => win._tlAct('undo', [{ occIds }]) },
+                        duration: 8000,
+                    });
+                });
+            })),
             onStartWorkout: opts.onStartWorkout || ((id) => {
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.start === 'function') win.WorkoutSessions.start(id);
                 else onDeeplink('workouts');

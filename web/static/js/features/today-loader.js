@@ -73,10 +73,11 @@ async function loadNextIntakeCached() {
             tags: ['history', 'medications'],
             freshAfterMs: NEXT_INTAKE_FRESH_AFTER_MS,
             staleAfterMs: NEXT_INTAKE_STALE_AFTER_MS,
-            transform: (raw) => {
-                if (raw === true) return { scheduled_at: null, medication_names: [] };
-                return raw && typeof raw === 'object' ? raw : null;
-            }
+            // No dose in the 12 h window (null; `true` from older servers) is
+            // an answer, cached as the empty card: an absent one would let
+            // Today's schedule fallback put back the dose just taken.
+            // apiCallDirect throws on a failed read, so null is never an error.
+            transform: (raw) => (raw && typeof raw === 'object' ? raw : { scheduled_at: null, medication_names: [] })
         });
         return result;
     } catch (err) {

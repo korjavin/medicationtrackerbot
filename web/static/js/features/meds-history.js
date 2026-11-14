@@ -698,6 +698,8 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
             .map((id) => Number(id))
             .filter((id) => Number.isFinite(id))
     );
+    // A whole slot acted on leaves an empty card naming it (cleared_slot), so
+    // Today's schedule fallback skips that slot only — not a 12 h forecast.
     return window.DataStore.applyOptimistic('next_intake', (prev) => {
         if (!prev || typeof prev !== 'object') return prev;
         if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
@@ -707,7 +709,7 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
         // back to the wholesale clear so the tile doesn't pin a now-actioned
         // dose. Same fallback when the caller didn't supply selectedIds.
         if (allIds.length === 0 || selectedIdSet.size === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
         }
         const remainingIds = [];
         const remainingNames = [];
@@ -718,7 +720,7 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
             if (i < allNames.length) remainingNames.push(allNames[i]);
         }
         if (remainingIds.length === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
         }
         return { ...prev, medication_ids: remainingIds, medication_names: remainingNames };
     }, ['medications', 'history']);
@@ -775,13 +777,18 @@ async function _settleDoseWrite(handles, mutate, failed, next) {
 // The sheet's explicit occIds (bd med-wi09.2), index-aligned with its meds:
 // the row's own id when the opener had one, else the slot's deterministic id
 // `intake-<medId>-<slotUnix>` (the record-id convention the projection's
-// forecast rows carry as occId) — an exact dose, never a guess.
+// forecast rows carry as occId) — an exact dose, never a guess. _medOccId is
+// the same rule for one dose; Today's one-tap Take reaches it too.
+function _medOccId(medId, intakeId, scheduledAt) {
+    if (intakeId != null) return intakeId;
+    const slotSec = Math.floor(Date.parse(scheduledAt) / 1000);
+    return Number.isFinite(slotSec) && medId != null ? `intake-${medId}-${slotSec}` : null;
+}
+
 function _medConfirmOccId(idx) {
-    const ids = window.PushModalState.getMedConfirmIds();
-    const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
-    if (intakeIds[idx] != null) return intakeIds[idx];
-    const slotSec = Math.floor(Date.parse(window.PushModalState.getMedConfirmScheduled()) / 1000);
-    return Number.isFinite(slotSec) && ids[idx] != null ? `intake-${ids[idx]}-${slotSec}` : null;
+    return _medOccId(window.PushModalState.getMedConfirmIds()[idx],
+        window.PushModalState.getMedConfirmIntakeIds()[idx],
+        window.PushModalState.getMedConfirmScheduled());
 }
 
 function _medConfirmOccIds(indices) {
