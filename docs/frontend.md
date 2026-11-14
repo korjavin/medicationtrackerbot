@@ -112,6 +112,8 @@ try {
 
 `commit` / `rollback` are idempotent — calling either a second time is a no-op, so the handle can be threaded through try/catch without double-settle risk. A `null` / `undefined` payload from the mutator clears the cache entry (used by `workout_next` after the current session finishes).
 
+The optimistic write stamps the cache row with now, as a fetch would. A reader that trusts a payload for a window measured from its fetch passes a fourth argument `{ keepFetchedAt: true }`: the optimistic write and the rollback then keep the row's fetched-at time, and only `commit(serverPayload)` or a real fetch re-stamps it. `next_intake` uses it: Today trusts a "nothing next" card for 12 h from its fetch, and a dose write must not extend that (bd med-5igh).
+
 **Why writes use this, not `invalidateTags + loadX`**: `invalidateTags` clears caches but does *not* dispatch `datastore:changed` — that goes through `requestTabRefresh`, which `applyOptimistic` and the cloud sync pull path both call (`data-store.js`, `web/cloud/js/sync.js`). Handlers that cleared the cache and called `loadX()` therefore missed the cache they just emptied, went to network, and held the UI through the round-trip — a same-device latency regression the user perceives as "save lag". The optimistic helper writes the projected state and dispatches the event up-front; the server response reconciles via `commit`.
 
 **Per-surface mutator shapes** — the canonical mutator for each write surface (what gets prepended / flipped / spliced):

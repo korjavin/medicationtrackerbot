@@ -109,11 +109,18 @@
         // in-flight fetch for it so an older request — which may have been
         // issued before the server-side change that produced `data` — cannot
         // overwrite this value once it eventually resolves.
-        async setCachedWithTags(key, data, tags = []) {
+        // `fetchedAt` (optional): stamp the row with this time instead of now —
+        // a patch of a fetched payload is not a fetch (bd med-5igh).
+        async setCachedWithTags(key, data, tags = [], fetchedAt) {
             registerKeyTags(key, tags);
             if (key) {
                 fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
                 inFlight.delete(key);
+            }
+            const apiCache = window.MedTrackerDB?.ApiCache;
+            if (Number.isFinite(fetchedAt) && typeof apiCache?.setWithMeta === 'function') {
+                await apiCache.setWithMeta(key, data, fetchedAt);
+                return;
             }
             await this.setCached(key, data);
         },
@@ -147,7 +154,13 @@
         // Both `commit` and `rollback` are no-ops after the first call to
         // either, so callers can pass the handle through try/catch without
         // worrying about double-settle.
-        async applyOptimistic(key, mutator, tags = []) {
+        //
+        // `opts.keepFetchedAt`: the optimistic write and the rollback keep the
+        // cached row's fetched-at time, so a reader that trusts the payload for
+        // a window from its fetch (Today's next_intake card) does not get that
+        // window re-opened by a local patch; only commit(serverPayload) or a
+        // real fetch re-stamps it (bd med-5igh).
+        async applyOptimistic(key, mutator, tags = [], opts = {}) {
             if (!key || typeof mutator !== 'function') {
                 return { commit: async () => {}, rollback: async () => {} };
             }
@@ -185,10 +198,18 @@
             };
 
             let priorSnapshot;
+            let priorTs;
             try {
                 let prior = null;
                 try {
-                    prior = await this.getCached(key);
+                    const apiCache = window.MedTrackerDB?.ApiCache;
+                    if (opts && opts.keepFetchedAt && typeof apiCache?.getWithMeta === 'function') {
+                        const row = await apiCache.getWithMeta(key);
+                        prior = row ? row.data : null;
+                        priorTs = row ? row.timestamp : undefined;
+                    } else {
+                        prior = await this.getCached(key);
+                    }
                 } catch (_e) { /* tolerate read failures — treat as cold cache */ }
 
                 priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
@@ -201,7 +222,7 @@
 
                 try {
                     if (hasValue(next)) {
-                        await this.setCachedWithTags(key, next, tags);
+                        await this.setCachedWithTags(key, next, tags, priorTs);
                     } else {
                         await this.clearCached(key);
                         registerKeyTags(key, tags);
@@ -246,7 +267,7 @@
                     settled = true;
                     try {
                         if (hasValue(priorSnapshot)) {
-                            await self.setCachedWithTags(key, priorSnapshot, tags);
+                            await self.setCachedWithTags(key, priorSnapshot, tags, priorTs);
                         } else {
                             await self.clearCached(key);
                         }

@@ -196,7 +196,11 @@
         // next_intake that's still fresh stays authoritative — only the server
         // knows whether the upcoming dose has already been taken in another
         // session.
-        const fresh = !meta || !meta.isStale;
+        // A card a dose write cleared (cleared_slot) is this device's record
+        // of doses taken, not the server's forecast: it holds however old its
+        // fetch is (a local patch keeps the fetch time, bd med-5igh), else a
+        // dose taken offline past the 12 h mark would come back.
+        const fresh = !meta || !meta.isStale || !!(nx && nx.scheduled_at === null && nx.cleared_slot);
         const nextIntakeUsable = nx && nx.scheduled_at && fresh;
         // A fresh card with no slot is known, not missing, so the schedule
         // cannot hand back the dose just taken. The server's "nothing next"

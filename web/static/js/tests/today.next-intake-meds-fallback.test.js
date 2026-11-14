@@ -329,6 +329,22 @@ describe('Today next-intake meds fallback', () => {
         expect(later.value.names).toEqual(['Aspirin']);
     });
 
+    // A dose write no longer re-stamps the card's fetch time (bd med-5igh), so
+    // a card cleared offline can pass the 12 h stale mark: it still records
+    // the doses taken, and the fallback keeps skipping them.
+    it('a cleared card past the stale mark still skips the doses it records', () => {
+        const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['14:00', '20:00'] }) }];
+        const fourteen = new Date('2026-05-09T14:00:00').toISOString();
+        const next = env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: fourteen,
+                cleared_doses: [{ medication_id: 1, scheduled_at: fourteen }] },
+            __next_intake_meta: { fetchedAt: new Date('2026-05-09T01:00:00').getTime(), isStale: true },
+            medications: meds,
+        }, null, new Date('2026-05-09T13:30:00'), HELPERS).nextMed;
+        expect(next.value.scheduledAt).toBe(new Date('2026-05-09T20:00:00').toISOString());
+    });
+
     // A Take's optimistic clear names the slot it emptied: offline (no
     // refetch), only that slot is skipped, so the next one still shows
     // (Argus 26083: 09:00 taken at 08:58, the 10:00 dose stays on).

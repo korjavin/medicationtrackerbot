@@ -1,0 +1,16 @@
+id: today-next-intake-freshness
+title: Taking a dose does not hide the next one past Next up's real look-ahead window
+platforms: [web]
+preconditions:
+  - A medication with a missed dose earlier today (00:30) and its next dose at 14:00
+  - Today was opened online at 01:00, when nothing was due in the next 12 hours
+  - The device is offline afterwards
+steps:
+  - At 11:00 take the missed 00:30 dose
+  - Open Today again at 13:00
+invariants:
+  - The 14:00 dose shows as Next up once it is inside the 12 hours from the 01:00 load, as it would without the Take
+  - A dose taken offline does not come back as Next up, however long ago Today last loaded online
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.meds.test.js  # "a dose write keeps the next-intake card's fetch time"; the second invariant also today.next-intake-meds-fallback.test.js "past the stale mark"
+source: [bd med-5igh]
