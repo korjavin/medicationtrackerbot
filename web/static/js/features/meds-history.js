@@ -688,19 +688,17 @@ function closeMedicationConfirmModal() {
 // + `medication_names`). If no meds remain at that scheduled time, the tile
 // clears entirely (scheduled_at -> null). Without this selectivity, a partial
 // confirm of a grouped dose would hide the remaining meds the user still owes.
-// `slots` is [[scheduledAt, selectedIds], …], applied in order under ONE
-// handle, so a rollback restores the card as it was before the whole write.
+// One write's whole change to the card goes under ONE handle, so a rollback
+// restores the card as it was before the write.
 // Returns a handle (no-op handle if nothing cached or mismatch).
-async function _applyOptimisticNextIntakeClear(slots) {
+async function _applyOptimisticNextIntake(mutator) {
     if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
         return { commit: async () => {}, rollback: async () => {} };
     }
-    return window.DataStore.applyOptimistic('next_intake',
-        (prev) => slots.reduce((card, [at, ids]) => _nextIntakeCleared(card, at, ids), prev),
-        ['medications', 'history']);
+    return window.DataStore.applyOptimistic('next_intake', mutator, ['medications', 'history']);
 }
 
-function _nextIntakeCleared(prev, scheduledAt, selectedIds = []) {
+function _nextIntakeCleared(prev, scheduledAt, selectedIds = [], selectedNames = []) {
     const selectedIdSet = new Set(
         (Array.isArray(selectedIds) ? selectedIds : [])
             .map((id) => Number(id))
@@ -718,13 +716,14 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = []) {
     // An already cleared card: Today shows the schedule fallback's next dose,
     // and a Take of it is added to the doses the fallback skips.
     if (prev.scheduled_at == null && prev.cleared_slot) {
-        const taken = (Array.isArray(selectedIds) ? selectedIds : []).filter((id) => id != null);
+        const ids = Array.isArray(selectedIds) ? selectedIds : [];
+        const taken = ids.map((id, i) => [id, (selectedNames || [])[i] || '']).filter(([id]) => id != null);
         if (!taken.length) return prev;
         return {
             ...prev,
             cleared_doses: [
                 ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
-                ...taken.map((id) => ({ medication_id: id, scheduled_at: scheduledAt })),
+                ...taken.map(([id, name]) => ({ medication_id: id, medication_name: name, scheduled_at: scheduledAt })),
             ],
         };
     }
@@ -736,7 +735,7 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = []) {
     const cardMatches = prev.scheduled_at === scheduledAt || (allAts && Date.parse(prev.scheduled_at) === slotMs);
     const cleared = (idxs) => (allAts ? [
         ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
-        ...idxs.map((i) => ({ medication_id: allIds[i], scheduled_at: allAts[i] }))
+        ...idxs.map((i) => ({ medication_id: allIds[i], medication_name: allNames[i] || '', scheduled_at: allAts[i] }))
     ] : undefined);
     const clearAll = (idxs) => {
         const out = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: prev.scheduled_at };
@@ -771,6 +770,39 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = []) {
     return next;
 }
 
+// Undo of doses a clear recorded (bd med-s2q8): each undone dose found in
+// cleared_doses goes back onto the card (by its own instant), so Today shows
+// it again instead of the fallback skipping it. `undone` is [{medId,
+// plannedAt}]. A card without cleared_doses (cached before they existed) is
+// left as it is.
+function _nextIntakeRestored(prev, undone) {
+    if (!prev || typeof prev !== 'object' || !Array.isArray(prev.cleared_doses)) return prev;
+    const hit = (e) => undone.some((u) => String(u.medId) === String(e.medication_id)
+        && Date.parse(u.plannedAt) === Date.parse(e.scheduled_at));
+    const back = prev.cleared_doses.filter(hit);
+    if (!back.length) return prev;
+    const kept = prev.cleared_doses.filter((e) => !hit(e));
+    const populated = prev.scheduled_at != null && Array.isArray(prev.medication_scheduled_at);
+    const rows = [
+        ...(populated ? prev.medication_ids.map((id, i) => ({
+            medication_id: id, medication_name: (prev.medication_names || [])[i] || '', scheduled_at: prev.medication_scheduled_at[i],
+        })) : []),
+        ...back,
+    ].sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+    const out = {
+        ...prev,
+        scheduled_at: populated && Date.parse(prev.scheduled_at) <= Date.parse(rows[0].scheduled_at)
+            ? prev.scheduled_at : rows[0].scheduled_at,
+        medication_ids: rows.map((r) => r.medication_id),
+        medication_names: rows.map((r) => r.medication_name || ''),
+        medication_scheduled_at: rows.map((r) => r.scheduled_at),
+    };
+    delete out.cleared_slot;
+    if (kept.length) out.cleared_doses = kept;
+    else delete out.cleared_doses;
+    return out;
+}
+
 async function _commitOptimistic(handles) {
     for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
 }
@@ -779,30 +811,50 @@ async function _rollbackOptimistic(handles) {
     for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
 }
 
-// next_intake's optimistic clear for a dose write over `doses`
-// ({occId, medId, plannedAt}), one slot per planned instant under one handle.
-// Resolves its settle(failed): nothing refused → commit; else the clear is
-// redone for the doses that landed only, so a refused dose stays on Today's
-// card.
-async function _optimisticNextIntake(doses) {
-    const slotsOf = (ds) => {
+// next_intake's optimistic change for a dose write over `doses`
+// ({occId, medId, plannedAt, name?}) under one handle: a take/skip clears
+// them (one slot per planned instant), an undo puts back the ones a clear
+// recorded. Resolves its settle(failed): nothing refused → commit; else the
+// change is redone for the doses that landed only, so a refused dose keeps
+// its place on Today's card.
+async function _optimisticNextIntake(doses, undo = false) {
+    const mutatorOf = (ds) => {
+        if (undo) return (prev) => _nextIntakeRestored(prev, ds);
         const bySlot = new Map();
         ds.forEach((d) => {
-            if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, []);
-            bySlot.get(d.plannedAt).push(d.medId);
+            if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, [[], []]);
+            bySlot.get(d.plannedAt)[0].push(d.medId);
+            bySlot.get(d.plannedAt)[1].push(d.name || '');
         });
-        return [...bySlot];
+        return (prev) => [...bySlot].reduce((card, [at, [ids, names]]) => _nextIntakeCleared(card, at, ids, names), prev);
     };
     if (!doses.length) return async () => {};
-    const handle = await _applyOptimisticNextIntakeClear(slotsOf(doses));
+    // An undo with nothing recorded to put back holds no handle: the write's
+    // own invalidation refetches the card as before.
+    if (undo && window.DataStore && typeof window.DataStore.getCached === 'function') {
+        const prev = await window.DataStore.getCached('next_intake').catch(() => null);
+        if (mutatorOf(doses)(prev) === prev) return async () => {};
+    }
+    const handle = await _applyOptimisticNextIntake(mutatorOf(doses));
     return async (failed) => {
         if (!failed.size) { await _commitOptimistic([handle]); return; }
         await _rollbackOptimistic([handle]);
         // An empty id list would clear the whole card: a slot with nothing
         // landed drops out entirely.
         const landed = doses.filter((d) => !failed.has(String(d.occId)));
-        if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntakeClear(slotsOf(landed))]);
+        if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntake(mutatorOf(landed))]);
     };
+}
+
+// The doses an undo of `occIds` restores: the caller's rows when it has them,
+// else each slot id's own med and instant (`intake-<medId>-<slotUnix>`).
+function _undoDoses(occIds, rows) {
+    const byOcc = new Map((rows || []).map((d) => [String(d.occId), d]));
+    return occIds.map((id) => {
+        if (byOcc.has(String(id))) return byOcc.get(String(id));
+        const m = /^intake-(.+)-(\d+)$/.exec(String(id));
+        return m ? { occId: String(id), medId: m[1], plannedAt: new Date(Number(m[2]) * 1000).toISOString() } : null;
+    }).filter(Boolean);
 }
 
 // Settles a dose write on the act's refused occIds (bd med-2l38): none →

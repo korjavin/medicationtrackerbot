@@ -2704,6 +2704,36 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         await expectClearedOffline(g);
     });
 
+    it('offline, Undo of a grouped Take puts both doses back on Next up; taking again clears them again', async () => {
+        const g = await groupedOffline();
+        const toast = vi.spyOn(g.window, 'safeToast');
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(g.acts).toHaveLength(1));
+        const [, , opts] = await vi.waitFor(() => {
+            const call = toast.mock.calls.find(([m]) => m === 'Aspirin, Metformin taken');
+            expect(call).toBeTruthy();
+            return call;
+        });
+        await materializationSettled();
+        await opts.action.onClick();
+        expect(g.acts.at(-1)).toMatchObject({ action: 'undo' });
+        await vi.waitFor(async () => expect(await g.taken()).toEqual([g.occ('Metformin', 10, 0)]));
+        await materializationSettled();
+        // The card is back as it was fetched, by each dose's own instant.
+        expect(await g.window.DataStore.getCached('next_intake')).toMatchObject({
+            scheduled_at: new Date(at(10, 0)).toISOString(),
+            medication_names: ['Aspirin', 'Metformin'],
+            medication_scheduled_at: [new Date(at(10, 0)).toISOString(), new Date(at(10, 5)).toISOString()],
+        });
+        await openToday(g.window);
+        expect(g.takeRows()).toHaveLength(1);
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(g.acts).toHaveLength(3));
+        expect([...g.acts[2].occ_ids].sort()).toEqual([g.occ('Aspirin', 10, 0), g.occ('Metformin', 10, 5)].sort());
+        g.acts.splice(0, 2);
+        await expectClearedOffline(g);
+    });
+
     it('the grouped card\'s take sheet (row tap) confirms each dose at its own instant; offline the card stays cleared', async () => {
         const g = await groupedOffline();
         const [[, row]] = g.takeRows();

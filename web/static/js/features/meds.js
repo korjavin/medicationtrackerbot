@@ -784,7 +784,9 @@ async function _tlAct(action, batches, doses = null) {
 
     const mutate = _tlPatchRows(patches);
     const handles = [await _applyOptimisticTimeline(mutate)];
-    const next = action === 'undo' ? null : await _optimisticNextIntake(doses || _tlDoses([...patches.keys()]));
+    const next = action === 'undo'
+        ? await _optimisticNextIntake(_undoDoses([...patches.keys()], doses || _tlDoses([...patches.keys()])), true)
+        : await _optimisticNextIntake(doses || _tlDoses([...patches.keys()]));
     const failed = new Set();
     for (const b of batches) {
         let refused;

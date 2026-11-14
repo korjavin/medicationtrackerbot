@@ -911,7 +911,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
                 scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [3], medication_names: ['Metformin'],
                 medication_scheduled_at: ['2026-10-23T19:35:00.000Z'],
-                cleared_doses: [{ medication_id: 2, scheduled_at: '2026-10-23T19:30:00.000Z' }],
+                cleared_doses: [{ medication_id: 2, medication_name: 'Lercanidipin', scheduled_at: '2026-10-23T19:30:00.000Z' }],
             }));
             await settle();
             await vi.waitFor(() => expect(nextRow().dataset.occIds).toBe(fixture.find((r) => r.medId === '3' && r.plannedAt === '2026-10-23T19:35:00.000Z').occId));
@@ -920,8 +920,8 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
                 scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z',
                 cleared_doses: [
-                    { medication_id: 2, scheduled_at: '2026-10-23T19:30:00.000Z' },
-                    { medication_id: 3, scheduled_at: '2026-10-23T19:35:00.000Z' },
+                    { medication_id: 2, medication_name: 'Lercanidipin', scheduled_at: '2026-10-23T19:30:00.000Z' },
+                    { medication_id: 3, medication_name: 'Metformin', scheduled_at: '2026-10-23T19:35:00.000Z' },
                 ],
             }));
         });
