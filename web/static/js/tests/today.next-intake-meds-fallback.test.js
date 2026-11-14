@@ -308,4 +308,24 @@ describe('Today next-intake meds fallback', () => {
         const state = env.aggregate(bootstrap, null, now);
         expect(state.nextMed.status).toBe('missing');
     });
+    // A fresh empty card ("nothing in the next 12 h", or a Take's optimistic
+    // clear) rules out the schedule's slots inside that window — the dose just
+    // taken never comes back — but a slot past the window still shows as the
+    // clock moves on, with no refetch (Argus 26080).
+    it('a fresh empty next_intake hides the schedule slots in its 12 h window only', () => {
+        const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['14:00'] }) }];
+        const emptyAt = (fetchedAt, now) => env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_names: [], medication_ids: [] },
+            __next_intake_meta: { fetchedAt: fetchedAt.getTime(), isStale: false },
+            medications: meds,
+        }, null, now, HELPERS).nextMed;
+
+        // Taken at 13:58 ahead of the 14:00 slot: the cleared card hides it.
+        expect(emptyAt(new Date('2026-05-09T13:58:00'), new Date('2026-05-09T13:59:00')).status).toBe('missing');
+        // Empty at 01:00 says nothing up to 13:00; at 12:00 the 14:00 dose is past that window.
+        const later = emptyAt(new Date('2026-05-09T01:00:00'), new Date('2026-05-09T12:00:00'));
+        expect(later.status).toBe('ok');
+        expect(later.value.names).toEqual(['Aspirin']);
+    });
 });

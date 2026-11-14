@@ -19,6 +19,7 @@
     const WEIGHT_STALE_MS = 7 * 24 * 60 * 60 * 1000; // weight is stale after a week
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
+    const NEXT_INTAKE_WINDOW_MS = 12 * 60 * 60 * 1000; // GET /api/medications/next-intake looks this far ahead
     const MED_LOOKAHEAD_MS = 2 * 60 * 60 * 1000; // Next up shows a future dose only within 2h; earlier it lives on Meds
     const MED_TAKE_WINDOW_MS = 60 * 60 * 1000; // one-tap Take window, = meds.js MEDS_NEXT_TAKE_WINDOW_MS (kit TD1)
     const MIN_TREND_POINTS = 2;
@@ -170,10 +171,13 @@
         const fresh = !meta || !meta.isStale;
         const nextIntakeUsable = nx && nx.scheduled_at && fresh;
         // A fresh card with no slot (a dose write's optimistic clear, the
-        // server's "nothing next") is known, not missing: the schedule would
-        // hand back the dose just taken.
-        const knownEmpty = nx && nx.scheduled_at === null && fresh;
-        if (!nextIntakeUsable && !knownEmpty) {
+        // server's "nothing next") is known, not missing: it rules out every
+        // slot up to its 12 h window from when it was written, where the
+        // schedule would hand back the dose just taken. A slot past that
+        // window still comes from the schedule as the clock moves on.
+        const emptyUntil = nx && nx.scheduled_at === null && fresh && meta && Number.isFinite(meta.fetchedAt)
+            ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
+        if (!nextIntakeUsable) {
             const helpers = opts || {};
             const parseSchedule = helpers.parseMedicationSchedule
                 || (typeof window !== 'undefined' ? window.parseMedicationSchedule : null);
@@ -181,7 +185,7 @@
                 || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
             const meds = bootstrap && bootstrap.medications;
             const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
-            if (fallback) {
+            if (fallback && !(Date.parse(fallback.scheduledAt) < emptyUntil)) {
                 const at = Date.parse(fallback.scheduledAt);
                 const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
                 return cell(fallback, 'meds', status, medsMeta || meta);
