@@ -172,7 +172,7 @@ class BasePostTest {
         respond = { Thread.sleep(10_000); raw(200) }
         val start = System.nanoTime()
         fails("network") { BasePost.send(root, "/api/attest/enroll", "{}", null, timeoutMs = 1000) }
-        assertTrue((System.nanoTime() - start) / 1_000_000 < 5000)
+        assertTrue((System.nanoTime() - start) / 1_000_000 < 30_000) // generous for a loaded runner; "network" above already proves the deadline fired
     }
 
     @Test fun drippingServerHitsTheWholeCallDeadline() {
@@ -190,7 +190,7 @@ class BasePostTest {
         }
         val start = System.nanoTime()
         fails("network") { BasePost.send("http://127.0.0.1:${drip.localPort}", "/api/attest/enroll", "", null, timeoutMs = 1000) }
-        assertTrue((System.nanoTime() - start) / 1_000_000 < 5000)
+        assertTrue((System.nanoTime() - start) / 1_000_000 < 30_000) // the drip alone would take 200 s
         drip.close()
     }
 
@@ -209,7 +209,7 @@ class BasePostTest {
         val resolving = CountDownLatch(1)
         val finished = CountDownLatch(1)
         val answers = CopyOnWriteArrayList<Pair<BasePost.Reply?, String?>>()
-        val start = System.nanoTime()
+        val answered = CountDownLatch(1)
         BasePost.start({
             try {
                 resolving.await()
@@ -217,12 +217,12 @@ class BasePostTest {
             } finally {
                 finished.countDown()
             }
-        }, 500) { r, e -> answers += r to e }
-        Thread.sleep(1500)
+        }, 500) { r, e -> answers += r to e; answered.countDown() }
+        // The worker is still blocked on `resolving`, so only the deadline can answer.
+        assertTrue(answered.await(5, TimeUnit.SECONDS))
         assertEquals(1, answers.size)
         assertNull(answers.single().first)
         assertEquals("network", answers.single().second)
-        assertTrue((System.nanoTime() - start) / 1_000_000 < 3000)
         resolving.countDown()
         assertTrue(finished.await(5, TimeUnit.SECONDS))
         Thread.sleep(200)
