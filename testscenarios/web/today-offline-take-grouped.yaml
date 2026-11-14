@@ -10,5 +10,5 @@ invariants:
   - Neither dose comes back as Next up before the app is online again; the next card is the next untaken dose after them
   - A medication's own later dose minutes after the taken one (it was never on the card) still shows as Next up
 covered_by:
-  web: web/static/js/tests/today.next-intake-meds-fallback.test.js#an optimistically cleared grouped card skips every dose it grouped
+  web: manual  # partial: data/logic only: web/static/js/tests/today.next-intake-meds-fallback.test.js (an optimistically cleared grouped card skips every dose it grouped; ... keeps a med's later slot it never grouped) render Today from an already-cleared cache; missing: the offline tap on Take writing both doses and the card staying clear
 source: [bd med-s2q8]

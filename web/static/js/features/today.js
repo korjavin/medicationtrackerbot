@@ -124,6 +124,9 @@
     // held each med's earliest dose within the cluster window, so each med
     // skips its first slot in [clearedMs, clearedMs + window] — a med's later
     // slot in the window, never on the card, still shows.
+    // ponytail: schedule-only, ledger-blind — a med with two slots ≤10 min
+    // apart whose first was already taken before the card misreads which one
+    // the card held; exact needs per-med planned_at on the next_intake payload.
     function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext, clearedMs) {
         if (!Array.isArray(meds) || meds.length === 0) return null;
         if (typeof parseSchedule !== 'function' || typeof getNext !== 'function') return null;
