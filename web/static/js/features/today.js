@@ -150,7 +150,10 @@
             if (type !== 'daily' && type !== 'weekly') continue;
             const toMs = (d) => (!d ? NaN : d instanceof Date ? d.getTime() : Date.parse(d));
             let from = nowMs;
-            const own = (clearedDoses || []).filter((d) => d && String(d.medication_id) === String(med.id));
+            // A listed dose before the cleared slot (a back-logged missed one)
+            // says nothing about the card: the med keeps the heuristic.
+            const own = (clearedDoses || []).filter((d) => d && String(d.medication_id) === String(med.id)
+                && !(Date.parse(d.scheduled_at) < clearedMs));
             if (own.length) {
                 for (const d of own) {
                     const at = Date.parse(d.scheduled_at);

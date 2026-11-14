@@ -409,6 +409,17 @@ describe('Today next-intake meds fallback', () => {
             }
         });
 
+        // Breakage review: a legacy cleared card (no instants), then yesterday's
+        // missed dose back-logged — that entry says nothing about today's
+        // card, so the taken 10:00 stays skipped (no double-dose invite).
+        it('a dose listed from before the cleared slot leaves the med on the heuristic', () => {
+            const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '18:00'] }) }];
+            const doses = [{ medication_id: 1, scheduled_at: new Date('2026-05-08T10:00:00').toISOString() }];
+            for (const now of ['09:59', '10:03']) {
+                expect(clearedWith(meds, doses, now).value.scheduledAt).toBe(iso('18:00'));
+            }
+        });
+
         it('a med\'s own 10:05 never on the card (it held 10:00) still shows', () => {
             const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '10:05'] }) }];
             const next = clearedWith(meds, [{ medication_id: 1, scheduled_at: iso('10:00') }], '09:59');

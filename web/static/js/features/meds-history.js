@@ -714,8 +714,10 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = [], selectedNames =
     // the fallback keeps its heuristic.
     if (!prev || typeof prev !== 'object' || !scheduledAt) return prev;
     // An already cleared card: Today shows the schedule fallback's next dose,
-    // and a Take of it is added to the doses the fallback skips.
+    // and a Take of it is added to the doses the fallback skips. A dose before
+    // the cleared slot (a back-logged missed one) is not that card's business.
     if (prev.scheduled_at == null && prev.cleared_slot) {
+        if (!(Date.parse(scheduledAt) >= Date.parse(prev.cleared_slot))) return prev;
         const ids = Array.isArray(selectedIds) ? selectedIds : [];
         const taken = ids.map((id, i) => [id, (selectedNames || [])[i] || '']).filter(([id]) => id != null);
         if (!taken.length) return prev;
@@ -782,7 +784,10 @@ function _nextIntakeRestored(prev, undone) {
     const back = prev.cleared_doses.filter(hit);
     if (!back.length) return prev;
     const kept = prev.cleared_doses.filter((e) => !hit(e));
-    const populated = prev.scheduled_at != null && Array.isArray(prev.medication_scheduled_at);
+    // Only a card whose per-med times line up with its ids (an older tab's
+    // partial clear leaves them out of step) keeps its members.
+    const populated = prev.scheduled_at != null && Array.isArray(prev.medication_ids)
+        && Array.isArray(prev.medication_scheduled_at) && prev.medication_scheduled_at.length === prev.medication_ids.length;
     const sorted = [
         ...(populated ? prev.medication_ids.map((id, i) => ({
             medication_id: id, medication_name: (prev.medication_names || [])[i] || '', scheduled_at: prev.medication_scheduled_at[i],
