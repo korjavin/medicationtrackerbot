@@ -364,8 +364,6 @@ describe('Food Add sheet', () => {
         const hidden = (id) => env.document.getElementById(id).classList.contains('hidden');
         const also = () => Array.from(env.document.querySelectorAll('#food-add-also-row [data-log]')).map((b) => b.textContent);
 
-        afterEach(() => { vi.useRealTimers(); });
-
         beforeEach(() => {
             env.window.medications = MEDS.map((m) => ({ ...m }));
         });
@@ -427,10 +425,15 @@ describe('Food Add sheet', () => {
 
         it('LS2: Med lists only the When needed group, in My meds order, with stock and last dose', async () => {
             const { document } = env;
-            // Pin the clock (Date only) so the fixture and the render share one local day even across midnight.
-            vi.useFakeTimers({ toFake: ['Date'] });
-            vi.setSystemTime(new Date(new Date().setHours(12, 0, 0, 0)));
-            env.window.medications.find((m) => m.id === 1).last_taken_at = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+            // Pin the app window's clock (its own Date realm; the window is discarded per test) to local noon,
+            // so the fixture and the render share one local day even if the real clock crosses midnight.
+            const RealDate = env.window.Date;
+            const noon = new RealDate(new RealDate().setHours(12, 0, 0, 0)).getTime();
+            env.window.Date = class extends RealDate {
+                constructor(...a) { if (a.length) super(...a); else super(noon); }
+                static now() { return noon; }
+            };
+            env.window.medications.find((m) => m.id === 1).last_taken_at = new RealDate(new RealDate(noon).setHours(0, 0, 0, 0)).toISOString();
             fromToday();
             await settle();
             document.querySelector('#food-add-also-row [data-log="med"]').click();
