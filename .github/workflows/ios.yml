@@ -74,7 +74,7 @@ env:
      "degraded": ["FlowQADegradedBootTests"],
      "eu": ["FlowQAEURegisterTests"],
      "move": ["FlowQAMoveAccountTests"],
-     "health": ["FlowQAHealthImportTests"],
+     "health": ["FlowQAHealthImportTests", "FlowQAHealthDeletedTests"],
      "health-denied": ["FlowQAHealthDeniedTests"],
      "held": ["FlowQAHeldRefreshTests"],
      "reminders": ["FlowQARemindersTests"],
@@ -83,7 +83,7 @@ env:
   # Fixed green references in seconds: core/data/update from 42923864088
   # (restore from attempt 2), degraded from 42921440898, and backup chain,
   # account/rest from 42915152895 attempt 1, testMedsFocusWholeSlot from
-  # 43508295445. Unknown tests remain n/a.
+  # 43508295445, health-deleted from 43503867299. Unknown tests remain n/a.
   QA_GREEN_SECONDS: >-
     {"testCoreLocal": 294, "testMedsFocusWholeSlot": 68.234, "testLocalFirstRun": 63,
      "testWriteReplaceFilterDelete": 110, "testDegradedBootReload": 211,
@@ -92,7 +92,8 @@ env:
      "testErase": 98, "testRestoreFromFile": 145.574,
      "testLeaveStashPickup": 92, "testMoveLocalSide": 68,
      "testAccountGone": 66.470, "testWebExitBarLeaves": 183.059,
-     "testOfflineColdOpen": 337.535, "testEURegister": 161.940, "testLocalLock": 180.954}
+     "testOfflineColdOpen": 337.535, "testEURegister": 161.940, "testLocalLock": 180.954,
+     "testHealthDeletedInHealth": 351.132}
 
 permissions:
   contents: read

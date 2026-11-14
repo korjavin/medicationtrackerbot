@@ -162,6 +162,10 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   Settings import plus BP, weight and sleep source labels; the subsequent
   Settings authorization resolves without another sheet. A second authorization
   ask on the Simulator can hang without presenting a sheet, so seed first.
+  `testHealthDeletedInHealth` (same part) imports the seeded weight and BP,
+  types a weight, deletes the two seeded samples by uuid through the seed
+  scene's `-wgQAHealthDelete` mode (no authorization ask) and checks the
+  relaunch removed them, kept the typed one and left Settings' count alone.
   `testDeniedHealthGuidance`
   uses a separate first ask, verifies all read switches off, denies and checks
   Settings guidance. The `health-qa-*` scenes are flow-only. Evidence includes

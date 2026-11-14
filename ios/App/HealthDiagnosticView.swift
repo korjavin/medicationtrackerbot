@@ -14,6 +14,7 @@ struct HealthDiagnosticView: View {
     @MainActor
     private func diagnose() async {
         if UserDefaults.standard.bool(forKey: "wgQAHealthWriteBack") { return publish(await writeBack()) }
+        if UserDefaults.standard.bool(forKey: "wgQAHealthDelete") { return publish(await deleteSeeded()) }
         var result: [String: Any] = ["available": HKHealthStore.isHealthDataAvailable()]
         let store = HKHealthStore()
         let type = HKQuantityType(.stepCount)
@@ -54,16 +55,20 @@ struct HealthDiagnosticView: View {
                 let mass = HKQuantityType(.bodyMass)
                 let sys = HKQuantityType(.bloodPressureSystolic), dia = HKQuantityType(.bloodPressureDiastolic)
                 if store.authorizationStatus(for: mass) == .sharingAuthorized {
-                    try await store.save(HKQuantitySample(type: mass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 73.4), start: at, end: at))
+                    let weight = HKQuantitySample(type: mass, quantity: HKQuantity(unit: .gramUnit(with: .kilo), doubleValue: 73.4), start: at, end: at)
+                    try await store.save(weight)
                     result["weightSeeded"] = true
+                    result["weightUUID"] = weight.uuid.uuidString
                 }
                 let bp = HKCorrelationType(.bloodPressure)
                 if store.authorizationStatus(for: sys) == .sharingAuthorized && store.authorizationStatus(for: dia) == .sharingAuthorized {
                     let unit = HKUnit.millimeterOfMercury()
                     let s = HKQuantitySample(type: sys, quantity: HKQuantity(unit: unit, doubleValue: 123), start: at, end: at)
                     let d = HKQuantitySample(type: dia, quantity: HKQuantity(unit: unit, doubleValue: 79), start: at, end: at)
-                    try await store.save(HKCorrelation(type: bp, start: at, end: at, objects: [s, d]))
+                    let reading = HKCorrelation(type: bp, start: at, end: at, objects: [s, d])
+                    try await store.save(reading)
                     result["bpSeeded"] = true
+                    result["bpUUID"] = reading.uuid.uuidString
                 }
             }
             let query = HKSampleQueryDescriptor(predicates: [.quantitySample(type: type)],
@@ -85,6 +90,35 @@ struct HealthDiagnosticView: View {
         let data = try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
         report = String(decoding: data, as: UTF8.self)
         NSLog("WG_HEALTH_DIAGNOSTIC %@", report)
+    }
+
+    /// A delete in the Health app (bd med-88x0.6): the labels seed's weight and
+    /// BP correlation by uuid (`-wgQAHealthDeleteUUIDs a,b`). No authorization
+    /// ask: the seed's one sheet granted share, and a second ask can hang.
+    @MainActor
+    private func deleteSeeded() async -> [String: Any] {
+        let store = HKHealthStore()
+        let ids = Set((UserDefaults.standard.string(forKey: "wgQAHealthDeleteUUIDs") ?? "")
+            .split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+        var result: [String: Any] = ["requested": ids.count]
+        var deleted = 0
+        do {
+            for type in [HKQuantityType(.bodyMass), HKCorrelationType(.bloodPressure)] as [HKSampleType] {
+                let found = try await HKSampleQueryDescriptor(
+                    predicates: [.sample(type: type, predicate: HKQuery.predicateForObjects(with: ids))],
+                    sortDescriptors: []).result(for: store)
+                if !found.isEmpty { try await store.delete(found) }
+                deleted += found.count
+            }
+        } catch {
+            let error = error as NSError
+            result["errorDomain"] = error.domain
+            result["errorCode"] = error.code
+            result["errorDescription"] = error.localizedDescription
+        }
+        result["deleted"] = deleted
+        result["ok"] = !ids.isEmpty && deleted == ids.count && result["errorDomain"] == nil
+        return result
     }
 
     /// The write-back through the shell's own ops (bd med-8f4s.3): authorize
