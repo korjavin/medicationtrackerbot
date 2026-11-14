@@ -890,6 +890,38 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
                 .toEqual({ scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z' }));
         });
 
+        // bd med-s2q8 (breakage review + Argus): an older tab's partial clear
+        // leaves per-med times out of step with the ids. An Undo puts its dose
+        // back without dropping the card's remaining member, whose time is
+        // then unknown (null) — never guessed from the stale list — and a
+        // Take of that member names the card's slot, as the older tab would.
+        it('Undo onto a card whose per-med times are out of step keeps every member, the unknown time as null', async () => {
+            env.window.Date.now = () => Date.parse('2026-10-23T18:45:00.000Z');
+            installApiCache(env.window);
+            await env.window.DataStore.setCachedWithTags('next_intake', {
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [3], medication_names: ['Metformin'],
+                medication_scheduled_at: ['2026-10-23T19:30:00.000Z', '2026-10-23T19:30:00.000Z'],
+                cleared_doses: [{ medication_id: 2, medication_name: 'Lercanidipin', scheduled_at: '2026-10-23T19:30:00.000Z' }],
+            }, ['medications', 'history']);
+            const fixture = normalDay();
+            const server = await serve(fixture);
+            const occ2 = fixture.find((r) => r.medId === '2' && r.plannedAt === '2026-10-23T19:30:00.000Z').occId;
+            await env.window._tlAct('undo', [{ occIds: [occ2] }]);
+            expect(server.posts).toHaveLength(1);
+            await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [3, 2], medication_names: ['Metformin', 'Lercanidipin'],
+                medication_scheduled_at: [null, '2026-10-23T19:30:00.000Z'],
+            }));
+            // Taking Metformin at the card's slot clears it; its unknown time is
+            // not recorded, so Today's fallback keeps the heuristic for it.
+            const settleNext = await env.window._optimisticNextIntake([{ occId: 'x', medId: 3, plannedAt: '2026-10-23T19:30:00.000Z' }]);
+            await settleNext(new Set());
+            expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [2], medication_names: ['Lercanidipin'],
+                medication_scheduled_at: ['2026-10-23T19:30:00.000Z'], cleared_doses: [],
+            });
+        });
+
         // bd med-s2q8: a card grouping 21:30 + 21:35 (each med's own instant
         // carried) taken one dose at a time — each matches the card by its
         // own instant and the clears add up into cleared_doses, which Today's

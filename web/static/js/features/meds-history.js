@@ -735,9 +735,12 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = [], selectedNames =
         && prev.medication_scheduled_at.length === allIds.length ? prev.medication_scheduled_at : null;
     const slotMs = Date.parse(scheduledAt);
     const cardMatches = prev.scheduled_at === scheduledAt || (allAts && Date.parse(prev.scheduled_at) === slotMs);
+    // A member with no time of its own (null: rebuilt from an older tab's
+    // card) behaves as a legacy one: matched by the card's slot, never
+    // recorded, so the fallback's heuristic covers it.
     const cleared = (idxs) => (allAts ? [
         ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
-        ...idxs.map((i) => ({ medication_id: allIds[i], medication_name: allNames[i] || '', scheduled_at: allAts[i] }))
+        ...idxs.filter((i) => allAts[i]).map((i) => ({ medication_id: allIds[i], medication_name: allNames[i] || '', scheduled_at: allAts[i] }))
     ] : undefined);
     const clearAll = (idxs) => {
         const out = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: prev.scheduled_at };
@@ -755,7 +758,8 @@ function _nextIntakeCleared(prev, scheduledAt, selectedIds = [], selectedNames =
     const remaining = [];
     const removed = [];
     for (let i = 0; i < allIds.length; i++) {
-        const hit = selectedIdSet.has(Number(allIds[i])) && (!allAts || Date.parse(allAts[i]) === slotMs);
+        const own = allAts && allAts[i] ? Date.parse(allAts[i]) : Date.parse(prev.scheduled_at);
+        const hit = selectedIdSet.has(Number(allIds[i])) && (!allAts || own === slotMs);
         (hit ? removed : remaining).push(i);
     }
     if (removed.length === 0) return prev;
@@ -784,28 +788,30 @@ function _nextIntakeRestored(prev, undone) {
     const back = prev.cleared_doses.filter(hit);
     if (!back.length) return prev;
     const kept = prev.cleared_doses.filter((e) => !hit(e));
-    // Only a card whose per-med times line up with its ids (an older tab's
-    // partial clear leaves them out of step) keeps its members.
-    const populated = prev.scheduled_at != null && Array.isArray(prev.medication_ids)
-        && Array.isArray(prev.medication_scheduled_at) && prev.medication_scheduled_at.length === prev.medication_ids.length;
+    // A populated card keeps its members. Their per-med times count only when
+    // they line up with the ids (an older tab's partial clear leaves them out
+    // of step): otherwise a member's time is unknown (null), taken as the
+    // card's slot — never guessed from the stale list.
+    const ids = prev.scheduled_at != null && Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
+    const ats = Array.isArray(prev.medication_scheduled_at) && prev.medication_scheduled_at.length === ids.length
+        ? prev.medication_scheduled_at : ids.map(() => null);
+    const at = (r) => Date.parse(r.scheduled_at || prev.scheduled_at);
     const sorted = [
-        ...(populated ? prev.medication_ids.map((id, i) => ({
-            medication_id: id, medication_name: (prev.medication_names || [])[i] || '', scheduled_at: prev.medication_scheduled_at[i],
-        })) : []),
+        ...ids.map((id, i) => ({ medication_id: id, medication_name: (prev.medication_names || [])[i] || '', scheduled_at: ats[i] })),
         ...back,
-    ].sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+    ].sort((a, b) => at(a) - at(b));
     // The card is the domain's nextCluster over these doses: one per med (its
     // earliest), within 10 min of the earliest. A dose left off is untaken and
     // shows again once the card clears.
     const rows = [];
     for (const r of sorted) {
-        if (rows.length && (Date.parse(r.scheduled_at) - Date.parse(rows[0].scheduled_at) > 10 * 60 * 1000
+        if (rows.length && (at(r) - at(rows[0]) > 10 * 60 * 1000
             || rows.some((p) => String(p.medication_id) === String(r.medication_id)))) continue;
         rows.push(r);
     }
     const out = {
         ...prev,
-        scheduled_at: rows[0].scheduled_at,
+        scheduled_at: rows[0].scheduled_at || prev.scheduled_at,
         medication_ids: rows.map((r) => r.medication_id),
         medication_names: rows.map((r) => r.medication_name || ''),
         medication_scheduled_at: rows.map((r) => r.scheduled_at),

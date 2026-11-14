@@ -153,7 +153,7 @@
             // A listed dose before the cleared slot (a back-logged missed one)
             // says nothing about the card: the med keeps the heuristic.
             const own = (clearedDoses || []).filter((d) => d && String(d.medication_id) === String(med.id)
-                && !(Date.parse(d.scheduled_at) < clearedMs));
+                && Number.isFinite(Date.parse(d.scheduled_at)) && !(Date.parse(d.scheduled_at) < clearedMs));
             if (own.length) {
                 for (const d of own) {
                     const at = Date.parse(d.scheduled_at);
@@ -3059,7 +3059,7 @@
                 // A grouped card's meds minutes apart: each sheet row names
                 // its own occurrence (bd med-s2q8).
                 const intakeIds = Array.isArray(v.ats) && typeof win._medOccId === 'function'
-                    ? ids.map((id, i) => win._medOccId(id, (v.intakeIds || [])[i], v.ats[i]))
+                    ? ids.map((id, i) => win._medOccId(id, (v.intakeIds || [])[i], v.ats[i] || v.scheduledAt))
                     : (v.intakeIds || []);
                 win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', intakeIds);
             } else {
