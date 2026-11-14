@@ -783,16 +783,24 @@ function _nextIntakeRestored(prev, undone) {
     if (!back.length) return prev;
     const kept = prev.cleared_doses.filter((e) => !hit(e));
     const populated = prev.scheduled_at != null && Array.isArray(prev.medication_scheduled_at);
-    const rows = [
+    const sorted = [
         ...(populated ? prev.medication_ids.map((id, i) => ({
             medication_id: id, medication_name: (prev.medication_names || [])[i] || '', scheduled_at: prev.medication_scheduled_at[i],
         })) : []),
         ...back,
     ].sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+    // The card is the domain's nextCluster over these doses: one per med (its
+    // earliest), within 10 min of the earliest. A dose left off is untaken and
+    // shows again once the card clears.
+    const rows = [];
+    for (const r of sorted) {
+        if (rows.length && (Date.parse(r.scheduled_at) - Date.parse(rows[0].scheduled_at) > 10 * 60 * 1000
+            || rows.some((p) => String(p.medication_id) === String(r.medication_id)))) continue;
+        rows.push(r);
+    }
     const out = {
         ...prev,
-        scheduled_at: populated && Date.parse(prev.scheduled_at) <= Date.parse(rows[0].scheduled_at)
-            ? prev.scheduled_at : rows[0].scheduled_at,
+        scheduled_at: rows[0].scheduled_at,
         medication_ids: rows.map((r) => r.medication_id),
         medication_names: rows.map((r) => r.medication_name || ''),
         medication_scheduled_at: rows.map((r) => r.scheduled_at),
