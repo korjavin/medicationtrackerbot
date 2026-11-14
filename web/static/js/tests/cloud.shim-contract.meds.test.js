@@ -2386,7 +2386,7 @@ describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
         delete globalThis.fetch;
     });
 
-    it('Today\'s sheet for four, then Focus Take for the last: every write lands, Timeline and Today agree after each, no reload', async () => {
+    it('the slot sheet for four, then Focus Take for the last: every write lands, Timeline and Today agree after each, no reload', async () => {
         env = loadCloudShimFrontendEnv({ seedRecords: seed(), now: () => NOW, timeZone: TZ });
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); // the take's relay cancel-refire
         const { window, document } = env;
@@ -2426,9 +2426,11 @@ describe('acting on undone doses from Focus and Today (bd med-2l38)', () => {
         expect(focusRow().dataset.occIds.split(' ').sort()).toEqual(MED_IDS.map(occ).sort());
         expect(focusRow().querySelector('.wg-btn--primary').textContent.trim()).toBe('Take 5');
 
-        // Today's sheet with one dose unticked: four land (UNTAKEN acts like
+        // Today folds the five missed doses (kit TD3); the slot's sheet (the
+        // card row's tap) with one dose unticked: four land (UNTAKEN acts like
         // PENDING — no refusal), and both surfaces keep the same one.
-        root.querySelector('[data-section="next-up"] [data-action="log-missed"]').click();
+        expect(root.querySelector('[data-next="med-missed-fold"] .wg-row__title').textContent).toBe('5 missed doses');
+        focusRow().querySelector('.wg-row__title').click();
         await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(5));
         document.querySelector('#med-confirm-list .med-confirm-check').click();
         await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]')).toHaveLength(4));
@@ -2468,8 +2470,8 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
     let env;
     let clock;
 
-    const boot = (records) => {
-        const e = loadCloudShimFrontendEnv({ records, now: () => clock, timeZone: TZ });
+    const boot = (records, opts = {}) => {
+        const e = loadCloudShimFrontendEnv({ records, now: () => clock, timeZone: TZ, ...opts });
         installApiCache(e.window);
         e.window.Date.now = () => clock;
         e.window.featureSettings = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
@@ -2502,7 +2504,7 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
     });
 
     // testscenarios/common/med-dose-taken.yaml
-    it('the due dose shows with Take; Take drops it from Next up at once; Timeline says Taken HH:MM, also after a reload', async () => {
+    it('the due dose shows with Take; one tap drops it from Next up at once; Timeline says Taken HH:MM, also after a reload', async () => {
         clock = at(8, 59);
         env = boot();
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); // the take's relay cancel-refire
@@ -2517,6 +2519,12 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         document.getElementById('med-modal-save-btn').click();
         await vi.waitFor(async () => expect(await env.records.list('medication')).toHaveLength(1));
 
+        // A pack of 10 on hand.
+        const stock = async () => (await window.apiCall('/api/medications'))[0].inventory_count;
+        const [{ id: medId }] = await window.apiCall('/api/medications');
+        await window.apiCall(`/api/medications/${medId}/restock`, 'POST', { quantity: 10 });
+        expect(await stock()).toBe(10);
+
         // 09:01: the dose is due. Today lists it with Take.
         clock = at(9, 1);
         await window.readPendingDoses(clock);
@@ -2525,26 +2533,56 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         const take = row.querySelector('[data-action="take"]');
         expect(take.textContent.trim()).toBe('Take');
 
-        // Take, with the write held in flight: the open Today screen drops the
-        // dose on its own (no forced render, no reload) before the write lands.
+        // One tap (kit TD1, no sheet), with the write held in flight: the open
+        // Today screen drops the dose on its own (no forced render, no reload)
+        // before the write lands.
         const realApiCall = window.apiCall;
         let release;
         const held = new Promise((r) => { release = r; });
-        let acted = false;
-        window.apiCall = async (p, ...rest) => {
-            if (p === '/api/doses/act') { acted = true; await held; }
-            return realApiCall(p, ...rest);
+        const acts = [];
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') { acts.push(body); await held; }
+            return realApiCall(p, method, body, ...rest);
         };
+        const toast = vi.spyOn(window, 'safeToast');
         take.click();
-        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(1));
-        document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
-        await vi.waitFor(() => expect(acted).toBe(true));
+        await vi.waitFor(() => expect(acts).toHaveLength(1));
+        expect(acts[0]).toMatchObject({ action: 'take' });
+        expect(acts[0].occ_ids).toHaveLength(1);
+        expect(acts[0].taken_at).toBeUndefined();
+        expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(0);
         await vi.waitFor(() => expect(nextUp(window)).toHaveLength(0));
         expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(0);
         release();
         await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
         await materializationSettled();
         expect(nextUp(window)).toHaveLength(0);
+        expect(await stock()).toBe(9);
+
+        // TD2: the toast names the dose and when; its Undo puts the dose
+        // back on Today and returns the stock (Miles 24966).
+        const [msg, type, opts] = await vi.waitFor(() => {
+            const call = toast.mock.calls.find(([m]) => m === 'Metformin taken');
+            expect(call).toBeTruthy();
+            return call;
+        });
+        expect(type).toBe('success');
+        expect(opts).toMatchObject({ detail: '09:00 dose · logged 09:01', duration: 8000, action: { label: 'Undo' } });
+        expect(msg).toBe('Metformin taken');
+        await opts.action.onClick();
+        expect(acts.at(-1)).toMatchObject({ action: 'undo', occ_ids: acts[0].occ_ids });
+        await materializationSettled();
+        expect(await stock()).toBe(10);
+        await window.readPendingDoses(clock);
+        expect(await openToday(window)).toHaveLength(1);
+        expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(0);
+
+        // Take again for the rest of the flow.
+        (await openToday(window))[0].querySelector('[data-action="take"]').click();
+        await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
+        await materializationSettled();
+        expect(await stock()).toBe(9);
+        window.apiCall = realApiCall;
 
         // Meds → Timeline: "Taken 09:01".
         await materializationSettled();
@@ -2562,6 +2600,192 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         expect(focusDone(window)).toBe(true);
         await window.readPendingDoses(clock);
         expect(await openToday(window)).toHaveLength(0);
+    });
+
+    // testscenarios/common/med-dose-taken.yaml: a Take ahead of the slot (in
+    // the hour) when the next dose is over 12 h out, so next-intake answers
+    // null. The cleared card is a known "nothing next", not a missing one: the
+    // schedule fallback must not put the taken 09:00 back (visual
+    // today-doses-undo kept "09:00 · in 2m [Take]" under its Undo toast).
+    it('a Take ahead of the slot leaves Next up and stays gone; Undo puts it back', async () => {
+        clock = at(8, 30);
+        env = boot(undefined, { wrapApiCallDirect: true });
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const { window, document } = env;
+        // Today reads next-intake through cachedFetch (apiCallDirect), as
+        // index.html and cloud-boot.js wire it.
+        window.eval(fs.readFileSync(path.resolve(path.dirname(TODAY_JS), '../cached-fetch.js'), 'utf8'));
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Metformin';
+        document.querySelector('#med-modal [data-schedule-type="daily"]').click();
+        document.querySelector('#time-inputs .med-time-input').value = '09:00';
+        document.getElementById('med-modal-save-btn').click();
+        await vi.waitFor(async () => expect(await env.records.list('medication')).toHaveLength(1));
+
+        clock = at(8, 58);
+        await window.readPendingDoses(clock);
+        const [row] = await openToday(window);
+        expect(row.querySelector('.wg-row__meta, .wg-row__sub')?.textContent || row.textContent).toContain('in 2m');
+        const toast = vi.spyOn(window, 'safeToast');
+        row.querySelector('[data-action="take"]').click();
+        await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
+        await materializationSettled();
+        await vi.waitFor(() => expect(nextUp(window)).toHaveLength(0));
+        expect(await openToday(window)).toHaveLength(0);
+        // The cleared card evicted (a history write): the refetch's null is
+        // cached as the empty card too.
+        await window.DataStore.invalidateTags(['history']);
+        expect(await openToday(window)).toHaveLength(0);
+
+        const [, , opts] = await vi.waitFor(() => {
+            const call = toast.mock.calls.find(([m]) => m === 'Metformin taken');
+            expect(call).toBeTruthy();
+            return call;
+        });
+        expect(opts.detail).toBe('09:00 dose · logged 08:58');
+        await opts.action.onClick();
+        await materializationSettled();
+        await window.readPendingDoses(clock);
+        const back = await openToday(window);
+        expect(back).toHaveLength(1);
+        expect(back[0].querySelector('[data-action="take"]')).not.toBeNull();
+    });
+
+    // testscenarios/common/today-missed-fold.yaml + med-dose-taken.yaml (kit
+    // TD1–TD4): two missed days fold into one row whose Mark all taken stamps
+    // each dose at its planned time and Skip all skips them, each with one
+    // Undo; the 09:00 dose is the early sheet at 07:30 and one tap at 08:30.
+    it('missed doses fold with Mark all taken / Skip all + Undo; a dose ahead is the early sheet, then one tap', async () => {
+        const day = (d, h, m) => new Date(2026, 9, d, h, m).getTime();
+        clock = day(24, 8, 0);
+        env = boot();
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        let { window, document } = env;
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Metformin';
+        document.getElementById('med-dosage').value = '500mg';
+        document.querySelector('#med-modal [data-schedule-type="daily"]').click();
+        document.querySelector('#time-inputs .med-time-input').value = '09:00';
+        document.getElementById('med-modal-save-btn').click();
+        await vi.waitFor(async () => expect(await env.records.list('medication')).toHaveLength(1));
+        const stock = async () => (await window.apiCall('/api/medications'))[0].inventory_count;
+        const [{ id: medId }] = await window.apiCall('/api/medications');
+        await window.apiCall(`/api/medications/${medId}/restock`, 'POST', { quantity: 10 });
+
+        const realApiCall = window.apiCall;
+        const acts = [];
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') acts.push(body);
+            return realApiCall(p, method, body, ...rest);
+        };
+        const toast = vi.spyOn(window, 'safeToast');
+        const lastToast = () => toast.mock.calls.at(-1);
+        const fold = () => document.querySelector('#today-content [data-next="med-missed-fold"]');
+        const bulk = (ghost) => document.querySelector(`#today-content [data-section="next-up"] .wg-timeline__bulk .wg-btn${ghost ? '.wg-btn--ghost' : ':not(.wg-btn--ghost)'}`);
+        const iso = (ms) => new Date(ms).toISOString();
+
+        // 26 Oct 07:30: the 24th's and 25th's 09:00 missed, today's 90 min ahead.
+        clock = day(26, 7, 30);
+        await window.readPendingDoses(clock);
+        let [row] = await openToday(window);
+        expect(fold().querySelector('.wg-row__title').textContent).toBe('2 missed doses');
+        expect(fold().querySelector('.wg-chip--danger').textContent).toBe('Since 09:00 · 2 days ago');
+        expect(bulk(false).textContent).toBe('Mark all taken');
+        expect(bulk(true).textContent).toBe('Skip all');
+        // The dose ahead keeps the sun; its Take opens the early sheet, no write.
+        expect(row.querySelector('[data-action="take"]').classList.contains('wg-btn--primary')).toBe(true);
+        row.querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(document.querySelector('#med-confirm-hint [data-early-take]')).not.toBeNull());
+        expect(document.querySelector('#med-confirm-hint').textContent).toBe('Due at 09:00. Mark taken now?');
+        expect(acts).toHaveLength(0);
+        window.closeMedicationConfirmModal();
+
+        // Mark all taken: one batch per planned instant, stamped with it.
+        bulk(false).click();
+        await vi.waitFor(() => expect(lastToast()?.[0]).toBe('2 doses marked taken'));
+        const occIds = [...acts[0].occ_ids, ...acts[1].occ_ids];
+        expect(acts.map((a) => [a.action, a.taken_at, a.occ_ids.length])).toEqual([
+            ['take', iso(day(24, 9, 0)), 1], ['take', iso(day(25, 9, 0)), 1],
+        ]);
+        expect(lastToast()[2]).toMatchObject({ detail: 'At their planned times', duration: 8000, action: { label: 'Undo' } });
+        await vi.waitFor(() => expect(fold()).toBeNull());
+        await materializationSettled();
+        expect(await stock()).toBe(8);
+        // Undo restores exactly those doses, and their stock.
+        await lastToast()[2].action.onClick();
+        expect(acts.at(-1)).toMatchObject({ action: 'undo', occ_ids: occIds });
+        await materializationSettled();
+        expect(await stock()).toBe(10);
+        await window.readPendingDoses(clock);
+        await openToday(window);
+        expect(fold().querySelector('.wg-row__title').textContent).toBe('2 missed doses');
+
+        // Skip all: one skip batch; Undo brings them back.
+        acts.length = 0;
+        bulk(true).click();
+        await vi.waitFor(() => expect(lastToast()?.[0]).toBe('2 doses skipped'));
+        expect(acts).toEqual([expect.objectContaining({ action: 'skip', occ_ids: occIds })]);
+        await vi.waitFor(() => expect(fold()).toBeNull());
+        await lastToast()[2].action.onClick();
+        expect(acts.at(-1)).toMatchObject({ action: 'undo', occ_ids: occIds });
+        await materializationSettled();
+        expect(await stock()).toBe(10);
+
+        // A partial failure (the 25th's batch refused): the 24th's dose
+        // stays taken, and the toast's Undo covers exactly it.
+        acts.length = 0;
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') {
+                acts.push(body);
+                if (body.taken_at === iso(day(25, 9, 0))) throw new Error('offline');
+            }
+            return realApiCall(p, method, body, ...rest);
+        };
+        await window.readPendingDoses(clock);
+        await openToday(window);
+        bulk(false).click();
+        await vi.waitFor(() => expect(lastToast()?.[0]).toBe('1 dose marked taken'));
+        await materializationSettled();
+        expect(await stock()).toBe(9);
+        await lastToast()[2].action.onClick();
+        expect(acts.at(-1)).toMatchObject({ action: 'undo', occ_ids: [String(acts[0].occ_ids[0])] });
+        await materializationSettled();
+        expect(await stock()).toBe(10);
+
+        // 08:30, a fresh page: today's 09:00 is inside the hour — one tap.
+        // Not in the pending set and no Timeline read on this page, so the
+        // next-intake clear runs on Today's own doses (_tlAct's doses argument).
+        const { records } = env;
+        env.cleanup();
+        clock = day(26, 8, 30);
+        env = boot(records);
+        ({ window, document } = env);
+        await window.readPendingDoses(clock);
+        // next_intake as the unlock bootstrap caches it (auth-bootstrap.js).
+        await window.DataStore.fetchFresh('next_intake', window.fetchNextIntakePayload, ['history', 'medications']);
+        await openToday(window);
+        [row] = await vi.waitFor(() => {
+            const rows = nextUp(window);
+            expect(rows).toHaveLength(1);
+            return rows;
+        });
+        const realApiCall2 = window.apiCall;
+        const toast2 = vi.spyOn(window, 'safeToast');
+        let release;
+        const held = new Promise((r) => { release = r; });
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') { acts.push(body); await held; }
+            return realApiCall2(p, method, body, ...rest);
+        };
+        acts.length = 0;
+        row.querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(acts).toHaveLength(1));
+        await vi.waitFor(() => expect(nextUp(window)).toHaveLength(0));
+        expect(acts[0].action).toBe('take');
+        release();
+        await vi.waitFor(() => expect(toast2.mock.calls.at(-1)?.[0]).toBe('Metformin taken'));
+        await materializationSettled();
+        window.apiCall = realApiCall2;
     });
 
     // testscenarios/common/medication-schedule-edit.yaml (the pairing rule,

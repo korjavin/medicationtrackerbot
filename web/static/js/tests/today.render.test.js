@@ -455,18 +455,129 @@ describe('Today v2 — Next up', () => {
         env.window.showMedicationConfirmModal = vi.fn();
         env.render(state, root, { now: NOW });
         // The snoozed dose says so (the Meds timeline's chip), not Missed, and
-        // never takes the sun.
-        expect(nextKinds(root)).toEqual(['med-missed', 'med-snoozed', 'med']);
+        // never takes the sun; the two missed doses fold (kit TD3).
+        expect(nextKinds(root)).toEqual(['med-missed-fold', 'med-snoozed', 'med']);
         const snoozedRow = root.querySelector('[data-next="med-snoozed"]');
         expect(snoozedRow.querySelector('.wg-chip--danger')).toBeNull();
         expect(snoozedRow.querySelector('.wg-chip').textContent).toBe('Snoozed until 14:30');
         expect(snoozedRow.querySelector('.wg-row__lead--danger')).toBeNull();
         expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
         expect(snoozedRow.querySelector('[data-action="take"]').classList.contains('wg-btn--primary')).toBe(false);
-        const missedRow = root.querySelector('[data-next="med-missed"]');
-        expect(missedRow.querySelector('.wg-row__title').textContent).toBe('2 medications');
-        missedRow.querySelector('[data-action="log-missed"]').click();
-        expect(env.window.showMedicationConfirmModal).toHaveBeenCalledWith(['m1', 'm2'], ['Allopurinol', 'Candecor'], at(8, 20), 'confirm', ['i1', 'i2']);
+        snoozedRow.querySelector('[data-action="take"]').click();
+        expect(env.window.showMedicationConfirmModal).toHaveBeenCalledWith(['m2'], ['Candecor'], at(13, 0), 'confirm', ['i4']);
+    });
+
+    // kit TD3 / TD3b: 2+ missed doses (any slots, any days, snoozed ones not
+    // counted) fold into one danger row; exactly one stays the Log row.
+    it('two or more missed doses fold into one row that opens Meds → Timeline; one stays a Log row', () => {
+        const dose = (occId, medId, plannedAt, state, extra) => ({ occId, medId, name: '', plannedAt, state, ...extra });
+        const bootstrap = (rows) => ({
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm2', name: 'Candecor' }],
+            intake_history: rows,
+        });
+        const onDeeplink = vi.fn();
+        const slotLabel = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · day ${d.getDate()}`;
+        const foldBulkActions = vi.fn(() => {
+            const bar = env.document.createElement('div');
+            bar.className = 'wg-hstack wg-timeline__bulk';
+            return bar;
+        });
+        env.window.setActiveMedsSubTab = vi.fn();
+        const rows = [
+            dose('a', 'm1', at(8, 20, -2), 'due'),
+            dose('b', 'm2', at(8, 20, -1), 'due'),
+            dose('c', 'm1', at(8, 20, -1), 'due'),
+            dose('d', 'm2', at(13, 0), 'snoozed', { snoozedUntil: at(14, 30) }),
+        ];
+        env.render(env.aggregate(bootstrap(rows), {}, NOW), root, { now: NOW, onDeeplink, slotLabel, foldBulkActions });
+        expect(nextKinds(root)).toEqual(['med-missed-fold', 'med-snoozed']);
+        const fold = root.querySelector('[data-next="med-missed-fold"]');
+        expect(fold.querySelector('.wg-row__lead--danger')).not.toBeNull();
+        expect(fold.querySelector('.wg-row__title').textContent).toBe('3 missed doses');
+        expect(fold.querySelector('.wg-chip--danger').textContent).toBe('Since 08:20 · day 18');
+        expect(fold.querySelector('.wg-row__meta').textContent).toContain('Allopurinol, Candecor');
+        expect(fold.querySelector('.wg-btn')).toBeNull();
+        // The bulk pair sits right under the fold, over its doses at their planned times.
+        expect(fold.parentElement.nextElementSibling.classList.contains('wg-timeline__bulk')).toBe(true);
+        expect(foldBulkActions).toHaveBeenCalledWith([
+            { occId: 'a', medId: 'm1', plannedAt: at(8, 20, -2), name: 'Allopurinol' },
+            { occId: 'b', medId: 'm2', plannedAt: at(8, 20, -1), name: 'Candecor' },
+            { occId: 'c', medId: 'm1', plannedAt: at(8, 20, -1), name: 'Allopurinol' },
+        ]);
+        expect(root.querySelector('[data-section="next-up"] .wg-section__head .wg-meta').textContent).toBe('4 due');
+        // Never the sun.
+        expect(primaries(root)).toHaveLength(0);
+        fold.querySelector('.wg-row__title').click();
+        expect(env.window.setActiveMedsSubTab).toHaveBeenCalledWith('timeline');
+        expect(onDeeplink).toHaveBeenCalledWith('meds');
+
+        // A dose still snoozed in a missed slot keeps its snooze: its own
+        // Snoozed row, never folded, never in the bulk pair's doses.
+        foldBulkActions.mockClear();
+        const mixed = [...rows.slice(0, 3), dose('e', 'm2', at(8, 20, -2), 'snoozed', { snoozedUntil: at(15, 0) })];
+        env.render(env.aggregate(bootstrap(mixed), {}, NOW), root, { now: NOW, onDeeplink, slotLabel, foldBulkActions });
+        expect(nextKinds(root)).toEqual(['med-missed-fold', 'med-snoozed']);
+        expect(root.querySelector('[data-next="med-missed-fold"] .wg-row__title').textContent).toBe('3 missed doses');
+        expect(root.querySelector('[data-next="med-snoozed"] .wg-chip').textContent).toBe('Snoozed until 15:00');
+        expect(foldBulkActions.mock.calls[0][0].map((d) => d.occId)).toEqual(['a', 'b', 'c']);
+
+        // One missed dose: the Log row, unchanged (TD3b).
+        env.render(env.aggregate(bootstrap([rows[0], rows[3]]), {}, NOW), root, { now: NOW, onDeeplink, slotLabel, foldBulkActions });
+        expect(nextKinds(root)).toEqual(['med-missed', 'med-snoozed']);
+        expect(root.querySelector('[data-next="med-missed"] [data-action="log-missed"]')).not.toBeNull();
+        expect(root.querySelector('.wg-timeline__bulk')).toBeNull();
+    });
+
+    // kit TD1: Take in the hour window (or due within the grace) is one tap;
+    // 1–2 h ahead it opens the early sheet; the row itself opens the take sheet.
+    it('Take is one tap inside the hour, the early sheet beyond it, and the row opens the take sheet', () => {
+        const onTakeNow = vi.fn();
+        const onTakeEarly = vi.fn();
+        const onTakeMed = vi.fn();
+        const s = baseState();
+        const soon = { scheduledAt: at(14, 59), names: ['Candecor', 'Metformin'], ids: [4, 6] };
+        s.nextMed = { value: soon, deeplink: 'meds', status: 'ok' };
+        env.render(s, root, { now: NOW, onTakeNow, onTakeEarly, onTakeMed });
+        const take = root.querySelector('[data-next="med"] [data-action="take"]');
+        expect(take.textContent).toBe('Take 2');
+        expect(take.classList.contains('wg-btn--primary')).toBe(true);
+        take.click();
+        expect(onTakeNow).toHaveBeenCalledWith(soon);
+        expect(onTakeMed).not.toHaveBeenCalled();
+        root.querySelector('[data-next="med"] .wg-row__title').click();
+        expect(onTakeMed).toHaveBeenCalledWith(soon);
+
+        // Due 2 min ago, inside the grace: still one tap.
+        const due = { scheduledAt: at(13, 58), names: ['Aspirin'], ids: [1] };
+        s.nextMed = { value: due, deeplink: 'meds', status: 'ok' };
+        env.render(s, root, { now: NOW, onTakeNow, onTakeEarly, onTakeMed });
+        root.querySelector('[data-next="med"] [data-action="take"]').click();
+        expect(onTakeNow).toHaveBeenLastCalledWith(due);
+
+        // A slot due inside the grace with one dose still snoozed: Take
+        // acts on the due dose only; the snoozed one keeps its own row.
+        const mixedSlot = env.aggregate({
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm2', name: 'Candecor' }],
+            intake_history: [
+                { occId: 'i1', medId: 'm1', name: '', plannedAt: at(13, 58), state: 'due' },
+                { occId: 'i2', medId: 'm2', name: '', plannedAt: at(13, 58), state: 'snoozed', snoozedUntil: at(14, 30) },
+            ],
+        }, {}, NOW);
+        env.render(mixedSlot, root, { now: NOW, onTakeNow, onTakeEarly, onTakeMed });
+        expect(nextKinds(root)).toEqual(['med', 'med-snoozed']);
+        root.querySelector('[data-next="med"] [data-action="take"]').click();
+        expect(onTakeNow).toHaveBeenLastCalledWith({ scheduledAt: at(13, 58), names: ['Allopurinol'], ids: ['m1'], intakeIds: ['i1'] });
+        onTakeNow.mockClear();
+
+        // 90 min ahead: the early sheet, no write.
+        const later = { scheduledAt: at(15, 30), names: ['Aspirin'], ids: [1] };
+        s.nextMed = { value: later, deeplink: 'meds', status: 'ok' };
+        env.render(s, root, { now: NOW, onTakeNow, onTakeEarly, onTakeMed });
+        root.querySelector('[data-next="med"] [data-action="take"]').click();
+        expect(onTakeEarly).toHaveBeenCalledWith(later);
+        expect(onTakeNow).not.toHaveBeenCalled();
     });
 
     // snoozed → due is clock-only: Today left open past the snooze deadline,

@@ -887,7 +887,7 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
             await vi.waitFor(() => expect(server.posts).toHaveLength(1));
             expect(server.posts[0]).toEqual({ action: 'take', occ_ids: occIds });
             await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake'))
-                .toEqual({ scheduled_at: null, medication_ids: [], medication_names: [] }));
+                .toEqual({ scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z' }));
         });
 
         // bd med-wt2q: at 01:40 a one-tap Take on "Next today" took the 08:20

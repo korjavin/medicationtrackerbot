@@ -308,4 +308,44 @@ describe('Today next-intake meds fallback', () => {
         const state = env.aggregate(bootstrap, null, now);
         expect(state.nextMed.status).toBe('missing');
     });
+    // A fresh empty card ("nothing in the next 12 h", or a Take's optimistic
+    // clear) rules out the schedule's slots inside that window — the dose just
+    // taken never comes back — but a slot past the window still shows as the
+    // clock moves on, with no refetch (Argus 26080).
+    it('a fresh empty next_intake hides the schedule slots in its 12 h window only', () => {
+        const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['14:00'] }) }];
+        const emptyAt = (fetchedAt, now) => env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_names: [], medication_ids: [] },
+            __next_intake_meta: { fetchedAt: fetchedAt.getTime(), isStale: false },
+            medications: meds,
+        }, null, now, HELPERS).nextMed;
+
+        // Taken at 13:58 ahead of the 14:00 slot: the cleared card hides it.
+        expect(emptyAt(new Date('2026-05-09T13:58:00'), new Date('2026-05-09T13:59:00')).status).toBe('missing');
+        // Empty at 01:00 says nothing up to 13:00; at 12:00 the 14:00 dose is past that window.
+        const later = emptyAt(new Date('2026-05-09T01:00:00'), new Date('2026-05-09T12:00:00'));
+        expect(later.status).toBe('ok');
+        expect(later.value.names).toEqual(['Aspirin']);
+    });
+
+    // A Take's optimistic clear names the slot it emptied: offline (no
+    // refetch), only that slot is skipped, so the next one still shows
+    // (Argus 26083: 09:00 taken at 08:58, the 10:00 dose stays on).
+    it('an optimistically cleared card skips only its own slot', () => {
+        const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['09:00', '10:00'] }) }];
+        const nine = new Date('2026-05-09T09:00:00').toISOString();
+        const clearedAt = (now) => env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: nine },
+            __next_intake_meta: { fetchedAt: new Date('2026-05-09T08:58:00').getTime(), isStale: false },
+            medications: meds,
+        }, null, now, HELPERS).nextMed;
+
+        const before = clearedAt(new Date('2026-05-09T08:59:00'));
+        expect(before.value.scheduledAt).toBe(new Date('2026-05-09T10:00:00').toISOString());
+        const after = clearedAt(new Date('2026-05-09T09:30:00'));
+        expect(after.status).toBe('ok');
+        expect(after.value.scheduledAt).toBe(new Date('2026-05-09T10:00:00').toISOString());
+    });
 });
