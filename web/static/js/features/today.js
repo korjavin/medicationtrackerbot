@@ -196,11 +196,7 @@
         // next_intake that's still fresh stays authoritative — only the server
         // knows whether the upcoming dose has already been taken in another
         // session.
-        // A card a dose write cleared (cleared_slot) is this device's record
-        // of doses taken, not the server's forecast: it holds however old its
-        // fetch is (a local patch keeps the fetch time, bd med-5igh), else a
-        // dose taken offline past the 12 h mark would come back.
-        const fresh = !meta || !meta.isStale || !!(nx && nx.scheduled_at === null && nx.cleared_slot);
+        const fresh = !meta || !meta.isStale;
         const nextIntakeUsable = nx && nx.scheduled_at && fresh;
         // A fresh card with no slot is known, not missing, so the schedule
         // cannot hand back the dose just taken. The server's "nothing next"
@@ -209,8 +205,15 @@
         // write's optimistic clear (cleared_slot, the card's earliest slot)
         // rules out the doses that card grouped only.
         const empty = nx && nx.scheduled_at === null && fresh;
-        const cleared = empty && nx.cleared_slot
-            ? { slotMs: Date.parse(nx.cleared_slot), doses: nx.cleared_doses } : null;
+        // The doses a dose write cleared (cleared_doses, and an empty card's
+        // cleared_slot) are this device's record of doses taken, not the
+        // server's forecast: the fallback skips them however old the card's
+        // fetch is — a local patch keeps the fetch time (bd med-5igh), so a
+        // dose taken offline past the 12 h mark, or left on a card an Undo
+        // repopulated, would come back otherwise.
+        const clearedSlot = nx && nx.scheduled_at === null && nx.cleared_slot;
+        const cleared = nx && (clearedSlot || Array.isArray(nx.cleared_doses))
+            ? { slotMs: clearedSlot ? Date.parse(clearedSlot) : NaN, doses: nx.cleared_doses } : null;
         const emptyUntil = empty && !nx.cleared_slot && meta && Number.isFinite(meta.fetchedAt)
             ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
         if (!nextIntakeUsable) {
