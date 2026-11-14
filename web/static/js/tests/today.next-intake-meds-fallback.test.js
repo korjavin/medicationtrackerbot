@@ -328,4 +328,24 @@ describe('Today next-intake meds fallback', () => {
         expect(later.status).toBe('ok');
         expect(later.value.names).toEqual(['Aspirin']);
     });
+
+    // A Take's optimistic clear names the slot it emptied: offline (no
+    // refetch), only that slot is skipped, so the next one still shows
+    // (Argus 26083: 09:00 taken at 08:58, the 10:00 dose stays on).
+    it('an optimistically cleared card skips only its own slot', () => {
+        const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['09:00', '10:00'] }) }];
+        const nine = new Date('2026-05-09T09:00:00').toISOString();
+        const clearedAt = (now) => env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: nine },
+            __next_intake_meta: { fetchedAt: new Date('2026-05-09T08:58:00').getTime(), isStale: false },
+            medications: meds,
+        }, null, now, HELPERS).nextMed;
+
+        const before = clearedAt(new Date('2026-05-09T08:59:00'));
+        expect(before.value.scheduledAt).toBe(new Date('2026-05-09T10:00:00').toISOString());
+        const after = clearedAt(new Date('2026-05-09T09:30:00'));
+        expect(after.status).toBe('ok');
+        expect(after.value.scheduledAt).toBe(new Date('2026-05-09T10:00:00').toISOString());
+    });
 });

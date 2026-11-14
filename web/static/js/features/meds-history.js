@@ -698,6 +698,8 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
             .map((id) => Number(id))
             .filter((id) => Number.isFinite(id))
     );
+    // A whole slot acted on leaves an empty card naming it (cleared_slot), so
+    // Today's schedule fallback skips that slot only — not a 12 h forecast.
     return window.DataStore.applyOptimistic('next_intake', (prev) => {
         if (!prev || typeof prev !== 'object') return prev;
         if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
@@ -707,7 +709,7 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
         // back to the wholesale clear so the tile doesn't pin a now-actioned
         // dose. Same fallback when the caller didn't supply selectedIds.
         if (allIds.length === 0 || selectedIdSet.size === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
         }
         const remainingIds = [];
         const remainingNames = [];
@@ -718,7 +720,7 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
             if (i < allNames.length) remainingNames.push(allNames[i]);
         }
         if (remainingIds.length === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [] };
+            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
         }
         return { ...prev, medication_ids: remainingIds, medication_names: remainingNames };
     }, ['medications', 'history']);
