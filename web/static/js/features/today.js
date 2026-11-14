@@ -119,10 +119,14 @@
     // Course-window filter (start_date / end_date) mirrors medplan.PlanDoses
     // so the offline fallback does not advertise a finished antibiotic course
     // or a med that doesn't start until tomorrow.
-    function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext) {
+    //
+    // clearedMs (a Take's optimistic clear of the card at that slot): the card
+    // held each med's earliest dose within the cluster window, so each med
+    // skips its first slot in [clearedMs, clearedMs + window] — a med's later
+    // slot in the window, never on the card, still shows.
+    function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext, clearedMs) {
         if (!Array.isArray(meds) || meds.length === 0) return null;
         if (typeof parseSchedule !== 'function' || typeof getNext !== 'function') return null;
-        const nowDate = new Date(nowMs);
         let bestMs = Infinity;
         const candidates = [];
         for (const med of meds) {
@@ -136,9 +140,13 @@
             if (!schedule) continue;
             const type = schedule.type;
             if (type !== 'daily' && type !== 'weekly') continue;
-            const next = getNext(schedule, nowDate);
-            if (!next) continue;
-            const t = next instanceof Date ? next.getTime() : Date.parse(next);
+            const toMs = (d) => (!d ? NaN : d instanceof Date ? d.getTime() : Date.parse(d));
+            let from = nowMs;
+            if (Number.isFinite(clearedMs)) {
+                const taken = toMs(getNext(schedule, new Date(clearedMs - 1)));
+                if (taken <= clearedMs + NEXT_INTAKE_CLUSTER_MS) from = Math.max(nowMs, taken);
+            }
+            const t = toMs(getNext(schedule, new Date(from)));
             if (!Number.isFinite(t)) continue;
             if (Number.isFinite(endMs) && t > endMs) continue;
             candidates.push({ med, t });
@@ -176,9 +184,9 @@
         // rules out every slot up to its 12 h window from when it was
         // fetched (a later slot still shows as the clock moves on); a dose
         // write's optimistic clear (cleared_slot, the card's earliest slot)
-        // rules out that slot's cluster only — every dose the card grouped.
+        // rules out the doses that card grouped only.
         const empty = nx && nx.scheduled_at === null && fresh;
-        const clearedMs = empty ? Date.parse(nx.cleared_slot) + NEXT_INTAKE_CLUSTER_MS : NaN;
+        const clearedMs = empty ? Date.parse(nx.cleared_slot) : NaN;
         const emptyUntil = empty && !nx.cleared_slot && meta && Number.isFinite(meta.fetchedAt)
             ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
         if (!nextIntakeUsable) {
@@ -188,10 +196,7 @@
             const getNext = helpers.getNextScheduledDate
                 || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
             const meds = bootstrap && bootstrap.medications;
-            let fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
-            if (fallback && Date.parse(fallback.scheduledAt) <= clearedMs) {
-                fallback = computeFallbackFromMedications(meds, clearedMs, parseSchedule, getNext);
-            }
+            const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext, clearedMs);
             if (fallback && !(Date.parse(fallback.scheduledAt) < emptyUntil)) {
                 const at = Date.parse(fallback.scheduledAt);
                 const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';

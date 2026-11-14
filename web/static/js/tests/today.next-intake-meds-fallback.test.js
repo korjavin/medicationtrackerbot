@@ -371,4 +371,17 @@ describe('Today next-intake meds fallback', () => {
             expect(next.value.names).toEqual(['Metformin']);
         }
     });
+
+    // The card holds each med's earliest dose only (domain nextCluster), so a
+    // med's own second slot inside the window was never on it and still shows.
+    it('an optimistically cleared card keeps a med\'s later slot it never grouped', () => {
+        const meds = [{ id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '10:05'] }) }];
+        const next = env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: new Date('2026-05-09T10:00:00').toISOString() },
+            __next_intake_meta: { fetchedAt: new Date('2026-05-09T09:58:00').getTime(), isStale: false },
+            medications: meds,
+        }, null, new Date('2026-05-09T09:59:00'), HELPERS).nextMed;
+        expect(next.value.scheduledAt).toBe(new Date('2026-05-09T10:05:00').toISOString());
+    });
 });

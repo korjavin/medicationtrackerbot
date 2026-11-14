@@ -1,0 +1,14 @@
+id: today-offline-take-grouped
+title: Offline, taking a Next up card that groups doses minutes apart clears all of them
+platforms: [web]
+preconditions:
+  - Two medications due minutes apart (10:00 and 10:05), shown together on one Next up card
+  - The device is offline
+steps:
+  - Open Today and tap Take on the grouped card
+invariants:
+  - Neither dose comes back as Next up before the app is online again; the next card is the next untaken dose after them
+  - A medication's own later dose minutes after the taken one (it was never on the card) still shows as Next up
+covered_by:
+  web: web/static/js/tests/today.next-intake-meds-fallback.test.js#an optimistically cleared grouped card skips every dose it grouped
+source: [bd med-s2q8]
