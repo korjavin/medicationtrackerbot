@@ -178,9 +178,11 @@ class BasePostTest {
     @Test fun drippingServerHitsTheWholeCallDeadline() {
         // Each byte arrives inside readTimeout; only the whole-call deadline ends it.
         val drip = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        var dripped: Socket? = null
         thread(isDaemon = true) {
             runCatching {
                 drip.accept().use { c ->
+                    dripped = c
                     generateSequence { line(c.getInputStream()) }.takeWhile { it.isNotEmpty() }.toList()
                     val out = c.getOutputStream()
                     out.write("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n".toByteArray())
@@ -191,6 +193,9 @@ class BasePostTest {
         val start = System.nanoTime()
         fails("network") { BasePost.send("http://127.0.0.1:${drip.localPort}", "/api/attest/enroll", "", null, timeoutMs = 1000) }
         assertTrue((System.nanoTime() - start) / 1_000_000 < 30_000) // the drip alone would take 200 s
+        // The JVM's HttpURLConnection.disconnect() blocks the shared deadline Timer for as long as the
+        // body keeps dripping; hang up so the timer is free for the tests that follow.
+        runCatching { dripped?.close() }
         drip.close()
     }
 
