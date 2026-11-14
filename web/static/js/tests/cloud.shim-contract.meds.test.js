@@ -2608,6 +2608,84 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         expect(await openToday(window)).toHaveLength(0);
     });
 
+    // testscenarios/web/today-offline-take-grouped.yaml (bd med-s2q8): a card
+    // grouping Aspirin 10:00 + Metformin 10:05 (Metformin's own 10:00 already
+    // taken) — one tap writes each dose at its own instant, and the cleared
+    // card the schedule fallback reads offline never hands Metformin 10:05 back,
+    // while Aspirin's own 10:08 (never on the card) still shows.
+    it('a grouped Next up Take writes each dose at its own instant; the cleared card skips exactly those offline', async () => {
+        clock = at(9, 50);
+        env = boot();
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const { window } = env;
+        const daily = (...times) => JSON.stringify({ type: 'daily', times });
+        // Aspirin's own 10:08 is inside the window but never on the card (one
+        // row per med): it is what shows next once the card is cleared.
+        await window.apiCall('/api/medications', 'POST', { name: 'Aspirin', dosage: '100mg', schedule: daily('10:00', '10:08') });
+        await window.apiCall('/api/medications', 'POST', { name: 'Metformin', dosage: '500mg', schedule: daily('10:00', '10:05', '12:00') });
+        const meds = await window.apiCall('/api/medications');
+        const idOf = (name) => meds.find((m) => m.name === name).id;
+        const occ = (name, ms) => `intake-${idOf(name)}-${Math.floor(ms / 1000)}`;
+        await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [occ('Metformin', at(10, 0))] });
+        await materializationSettled();
+
+        clock = at(9, 58);
+        const card = await window.apiCall('/api/medications/next-intake');
+        expect(card).toEqual({
+            scheduled_at: new Date(at(10, 0)).toISOString(),
+            medication_ids: [idOf('Aspirin'), idOf('Metformin')],
+            medication_names: ['Aspirin', 'Metformin'],
+            medication_scheduled_at: [new Date(at(10, 0)).toISOString(), new Date(at(10, 5)).toISOString()],
+        });
+
+        // Offline from here: next_intake is what was cached when the card was
+        // fetched, and cachedFetch serves that cache (no revalidation).
+        await window.DataStore.setCachedWithTags('next_intake', card, ['history', 'medications']);
+        window.cachedFetch = async (key) => ({
+            data: await window.DataStore.getCached(key), fetchedAt: at(9, 58), isFromCache: true, isStale: false,
+        });
+        await window.readPendingDoses(clock);
+        await openToday(window);
+        const [row] = [...window.document.querySelectorAll('#today-content [data-section="next-up"] .wg-row')]
+            .filter((r) => r.querySelector('[data-action="take"]'));
+        expect(row).toBeTruthy();
+        const realApiCall = window.apiCall;
+        const acts = [];
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') acts.push(body);
+            return realApiCall(p, method, body, ...rest);
+        };
+        row.querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(acts).toHaveLength(1));
+        expect([...acts[0].occ_ids].sort()).toEqual([occ('Aspirin', at(10, 0)), occ('Metformin', at(10, 5))].sort());
+        await vi.waitFor(async () => expect((await env.records.list('intake'))
+            .filter((i) => i.status === 'TAKEN').map((i) => i.recordId).sort())
+            .toEqual([occ('Aspirin', at(10, 0)), occ('Metformin', at(10, 0)), occ('Metformin', at(10, 5))].sort()));
+        await materializationSettled();
+        window.apiCall = realApiCall;
+
+        // Offline: the cleared card as the clear left it, its fetch stale-free
+        // but empty, read by the schedule fallback over the cached med list.
+        const cleared = await window.DataStore.getCached('next_intake');
+        expect(cleared).toMatchObject({
+            scheduled_at: null,
+            cleared_doses: [
+                { medication_id: idOf('Aspirin'), scheduled_at: new Date(at(10, 0)).toISOString() },
+                { medication_id: idOf('Metformin'), scheduled_at: new Date(at(10, 5)).toISOString() },
+            ],
+        });
+        for (const now of [at(9, 59), at(10, 3)]) {
+            const next = window.TodayDashboard.aggregateToday({
+                features: window.featureSettings,
+                next_intake: cleared,
+                __next_intake_meta: { fetchedAt: at(9, 58), isStale: false },
+                medications: meds,
+            }, null, new Date(now)).nextMed;
+            expect(next.value.names).toEqual(['Aspirin']);
+            expect(next.value.scheduledAt).toBe(new Date(at(10, 8)).toISOString());
+        }
+    });
+
     // testscenarios/common/med-dose-taken.yaml: a Take ahead of the slot (in
     // the hour) when the next dose is over 12 h out, so next-intake answers
     // null. The cleared card is a known "nothing next", not a missing one: the

@@ -174,7 +174,8 @@
         return {
             scheduledAt: new Date(earliest.t).toISOString(),
             names: grouped.map((c) => c.med.name),
-            ids: grouped.map((c) => c.med.id)
+            ids: grouped.map((c) => c.med.id),
+            ats: grouped.map((c) => new Date(c.t).toISOString())
         };
     }
 
@@ -226,6 +227,10 @@
         const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
         const ids = Array.isArray(nx.medication_ids) ? nx.medication_ids : [];
         const value = { scheduledAt: nx.scheduled_at, names, ids };
+        // Each med's own instant (bd med-s2q8): a grouped card's Take writes
+        // the 10:05 dose, not a 10:00 one. Absent on a pre-deploy cache.
+        const ats = nx.medication_scheduled_at;
+        if (Array.isArray(ats) && ats.length === ids.length) value.ats = ats;
         const status = at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
         return cell(value, 'meds', status, meta);
     }
@@ -736,12 +741,18 @@
 
     // A Next up med item's doses as {occId, medId, plannedAt, name}: the
     // take sheet's occId rule (meds-history.js _medOccId), never re-derived.
+    // Each dose at its own instant (v.ats) when the card carries them: a
+    // grouped card's meds are minutes apart (bd med-s2q8).
     function medDoses(v, win) {
         if (typeof win._medOccId !== 'function') return [];
         const ids = Array.isArray(v.ids) ? v.ids : [];
         const intakeIds = Array.isArray(v.intakeIds) ? v.intakeIds : [];
         const names = Array.isArray(v.names) ? v.names : [];
-        return ids.map((medId, i) => ({ occId: win._medOccId(medId, intakeIds[i], v.scheduledAt), medId, plannedAt: v.scheduledAt, name: names[i] }))
+        const ats = Array.isArray(v.ats) ? v.ats : [];
+        return ids.map((medId, i) => {
+            const at = ats[i] || v.scheduledAt;
+            return { occId: win._medOccId(medId, intakeIds[i], at), medId, plannedAt: at, name: names[i] };
+        })
             .filter((d) => d.occId != null)
             .map((d) => ({ ...d, occId: String(d.occId) }));
     }

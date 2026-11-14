@@ -688,11 +688,19 @@ function closeMedicationConfirmModal() {
 // + `medication_names`). If no meds remain at that scheduled time, the tile
 // clears entirely (scheduled_at -> null). Without this selectivity, a partial
 // confirm of a grouped dose would hide the remaining meds the user still owes.
+// `slots` is [[scheduledAt, selectedIds], …], applied in order under ONE
+// handle, so a rollback restores the card as it was before the whole write.
 // Returns a handle (no-op handle if nothing cached or mismatch).
-async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
+async function _applyOptimisticNextIntakeClear(slots) {
     if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
         return { commit: async () => {}, rollback: async () => {} };
     }
+    return window.DataStore.applyOptimistic('next_intake',
+        (prev) => slots.reduce((card, [at, ids]) => _nextIntakeCleared(card, at, ids), prev),
+        ['medications', 'history']);
+}
+
+function _nextIntakeCleared(prev, scheduledAt, selectedIds = []) {
     const selectedIdSet = new Set(
         (Array.isArray(selectedIds) ? selectedIds : [])
             .map((id) => Number(id))
@@ -702,45 +710,52 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
     // Today's schedule fallback skips that slot only — not a 12 h forecast.
     // Each med's own instant on the card (medication_scheduled_at) is kept
     // as cleared_doses, accumulated over partial clears, so the fallback skips
-    // exactly the doses acted on (bd med-s2q8). A card cached before that
-    // field existed carries none and the fallback keeps its heuristic.
-    return window.DataStore.applyOptimistic('next_intake', (prev) => {
-        if (!prev || typeof prev !== 'object') return prev;
-        if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
-        const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
-        const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
-        const allAts = Array.isArray(prev.medication_scheduled_at) ? prev.medication_scheduled_at : null;
-        const cleared = (idxs) => (allAts ? [
-            ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
-            ...idxs.filter((i) => i < allAts.length).map((i) => ({ medication_id: allIds[i], scheduled_at: allAts[i] }))
-        ] : undefined);
-        const clearAll = () => {
-            const out = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
-            const doses = cleared(allIds.map((_, i) => i));
-            if (doses) out.cleared_doses = doses;
-            return out;
-        };
-        // No ID list to filter (legacy payload missing medication_ids) — fall
-        // back to the wholesale clear so the tile doesn't pin a now-actioned
-        // dose. Same fallback when the caller didn't supply selectedIds.
-        if (allIds.length === 0 || selectedIdSet.size === 0) return clearAll();
-        const remaining = [];
-        const removed = [];
-        for (let i = 0; i < allIds.length; i++) {
-            (selectedIdSet.has(Number(allIds[i])) ? removed : remaining).push(i);
-        }
-        if (remaining.length === 0) return clearAll();
-        const next = {
-            ...prev,
-            medication_ids: remaining.map((i) => allIds[i]),
-            medication_names: remaining.filter((i) => i < allNames.length).map((i) => allNames[i])
-        };
-        if (allAts) {
-            next.medication_scheduled_at = remaining.filter((i) => i < allAts.length).map((i) => allAts[i]);
-            next.cleared_doses = cleared(removed);
-        }
-        return next;
-    }, ['medications', 'history']);
+    // exactly the doses acted on (bd med-s2q8); a dose then matches the card
+    // by its own instant, so a 10:05 member clears at 10:05. A card cached
+    // before that field existed carries none: the card's slot must match and
+    // the fallback keeps its heuristic.
+    if (!prev || typeof prev !== 'object' || !scheduledAt) return prev;
+    const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
+    const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
+    const allAts = Array.isArray(prev.medication_scheduled_at) && allIds.length > 0
+        && prev.medication_scheduled_at.length === allIds.length ? prev.medication_scheduled_at : null;
+    const slotMs = Date.parse(scheduledAt);
+    const cardMatches = prev.scheduled_at === scheduledAt || (allAts && Date.parse(prev.scheduled_at) === slotMs);
+    const cleared = (idxs) => (allAts ? [
+        ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
+        ...idxs.map((i) => ({ medication_id: allIds[i], scheduled_at: allAts[i] }))
+    ] : undefined);
+    const clearAll = (idxs) => {
+        const out = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: prev.scheduled_at };
+        const doses = cleared(idxs);
+        if (doses) out.cleared_doses = doses;
+        return out;
+    };
+    // No ID list to filter (legacy payload missing medication_ids) — fall
+    // back to the wholesale clear so the tile doesn't pin a now-actioned
+    // dose. Same fallback when the caller didn't supply selectedIds.
+    if (allIds.length === 0 || selectedIdSet.size === 0) {
+        return cardMatches ? clearAll(allIds.map((_, i) => i)) : prev;
+    }
+    if (!allAts && !cardMatches) return prev;
+    const remaining = [];
+    const removed = [];
+    for (let i = 0; i < allIds.length; i++) {
+        const hit = selectedIdSet.has(Number(allIds[i])) && (!allAts || Date.parse(allAts[i]) === slotMs);
+        (hit ? removed : remaining).push(i);
+    }
+    if (removed.length === 0) return prev;
+    if (remaining.length === 0) return clearAll(removed);
+    const next = {
+        ...prev,
+        medication_ids: remaining.map((i) => allIds[i]),
+        medication_names: remaining.filter((i) => i < allNames.length).map((i) => allNames[i])
+    };
+    if (allAts) {
+        next.medication_scheduled_at = remaining.map((i) => allAts[i]);
+        next.cleared_doses = cleared(removed);
+    }
+    return next;
 }
 
 async function _commitOptimistic(handles) {
@@ -752,27 +767,28 @@ async function _rollbackOptimistic(handles) {
 }
 
 // next_intake's optimistic clear for a dose write over `doses`
-// ({occId, medId, plannedAt}), one handle per planned instant. Resolves its
-// settle(failed): nothing refused → commit; else the clear is redone for the
-// doses that landed only, so a refused dose stays on Today's card.
+// ({occId, medId, plannedAt}), one slot per planned instant under one handle.
+// Resolves its settle(failed): nothing refused → commit; else the clear is
+// redone for the doses that landed only, so a refused dose stays on Today's
+// card.
 async function _optimisticNextIntake(doses) {
-    const bySlot = new Map();
-    doses.forEach((d) => {
-        if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, []);
-        bySlot.get(d.plannedAt).push(d);
-    });
-    const entries = [];
-    for (const [at, slotDoses] of bySlot) {
-        entries.push({ at, slotDoses, handle: await _applyOptimisticNextIntakeClear(at, slotDoses.map((d) => d.medId)) });
-    }
+    const slotsOf = (ds) => {
+        const bySlot = new Map();
+        ds.forEach((d) => {
+            if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, []);
+            bySlot.get(d.plannedAt).push(d.medId);
+        });
+        return [...bySlot];
+    };
+    if (!doses.length) return async () => {};
+    const handle = await _applyOptimisticNextIntakeClear(slotsOf(doses));
     return async (failed) => {
-        for (const { at, slotDoses, handle } of entries) {
-            if (!failed.size) { await _commitOptimistic([handle]); continue; }
-            await _rollbackOptimistic([handle]);
-            // An empty id list would clear the whole card.
-            const landed = slotDoses.filter((d) => !failed.has(String(d.occId))).map((d) => d.medId);
-            if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntakeClear(at, landed)]);
-        }
+        if (!failed.size) { await _commitOptimistic([handle]); return; }
+        await _rollbackOptimistic([handle]);
+        // An empty id list would clear the whole card: a slot with nothing
+        // landed drops out entirely.
+        const landed = doses.filter((d) => !failed.has(String(d.occId)));
+        if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntakeClear(slotsOf(landed))]);
     };
 }
 
