@@ -2470,8 +2470,8 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
     let env;
     let clock;
 
-    const boot = (records) => {
-        const e = loadCloudShimFrontendEnv({ records, now: () => clock, timeZone: TZ });
+    const boot = (records, opts = {}) => {
+        const e = loadCloudShimFrontendEnv({ records, now: () => clock, timeZone: TZ, ...opts });
         installApiCache(e.window);
         e.window.Date.now = () => clock;
         e.window.featureSettings = { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false };
@@ -2600,6 +2600,55 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         expect(focusDone(window)).toBe(true);
         await window.readPendingDoses(clock);
         expect(await openToday(window)).toHaveLength(0);
+    });
+
+    // testscenarios/common/med-dose-taken.yaml: a Take ahead of the slot (in
+    // the hour) when the next dose is over 12 h out, so next-intake answers
+    // null. The cleared card is a known "nothing next", not a missing one: the
+    // schedule fallback must not put the taken 09:00 back (visual
+    // today-doses-undo kept "09:00 · in 2m [Take]" under its Undo toast).
+    it('a Take ahead of the slot leaves Next up and stays gone; Undo puts it back', async () => {
+        clock = at(8, 30);
+        env = boot(undefined, { wrapApiCallDirect: true });
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const { window, document } = env;
+        // Today reads next-intake through cachedFetch (apiCallDirect), as
+        // index.html and cloud-boot.js wire it.
+        window.eval(fs.readFileSync(path.resolve(path.dirname(TODAY_JS), '../cached-fetch.js'), 'utf8'));
+        window.showAddModal();
+        document.getElementById('med-name').value = 'Metformin';
+        document.querySelector('#med-modal [data-schedule-type="daily"]').click();
+        document.querySelector('#time-inputs .med-time-input').value = '09:00';
+        document.getElementById('med-modal-save-btn').click();
+        await vi.waitFor(async () => expect(await env.records.list('medication')).toHaveLength(1));
+
+        clock = at(8, 58);
+        await window.readPendingDoses(clock);
+        const [row] = await openToday(window);
+        expect(row.querySelector('.wg-row__meta, .wg-row__sub')?.textContent || row.textContent).toContain('in 2m');
+        const toast = vi.spyOn(window, 'safeToast');
+        row.querySelector('[data-action="take"]').click();
+        await vi.waitFor(async () => expect((await env.records.list('intake')).filter((i) => i.status === 'TAKEN')).toHaveLength(1));
+        await materializationSettled();
+        await vi.waitFor(() => expect(nextUp(window)).toHaveLength(0));
+        expect(await openToday(window)).toHaveLength(0);
+        // The cleared card evicted (a history write): the refetch's null is
+        // cached as the empty card too.
+        await window.DataStore.invalidateTags(['history']);
+        expect(await openToday(window)).toHaveLength(0);
+
+        const [, , opts] = await vi.waitFor(() => {
+            const call = toast.mock.calls.find(([m]) => m === 'Metformin taken');
+            expect(call).toBeTruthy();
+            return call;
+        });
+        expect(opts.detail).toBe('09:00 dose · logged 08:58');
+        await opts.action.onClick();
+        await materializationSettled();
+        await window.readPendingDoses(clock);
+        const back = await openToday(window);
+        expect(back).toHaveLength(1);
+        expect(back[0].querySelector('[data-action="take"]')).not.toBeNull();
     });
 
     // testscenarios/common/today-missed-fold.yaml + med-dose-taken.yaml (kit

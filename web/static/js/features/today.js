@@ -167,8 +167,13 @@
         // next_intake that's still fresh stays authoritative — only the server
         // knows whether the upcoming dose has already been taken in another
         // session.
-        const nextIntakeUsable = nx && nx.scheduled_at && (!meta || !meta.isStale);
-        if (!nextIntakeUsable) {
+        const fresh = !meta || !meta.isStale;
+        const nextIntakeUsable = nx && nx.scheduled_at && fresh;
+        // A fresh card with no slot (a dose write's optimistic clear, the
+        // server's "nothing next") is known, not missing: the schedule would
+        // hand back the dose just taken.
+        const knownEmpty = nx && nx.scheduled_at === null && fresh;
+        if (!nextIntakeUsable && !knownEmpty) {
             const helpers = opts || {};
             const parseSchedule = helpers.parseMedicationSchedule
                 || (typeof window !== 'undefined' ? window.parseMedicationSchedule : null);
