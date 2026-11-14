@@ -20,6 +20,9 @@
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
     const NEXT_INTAKE_WINDOW_MS = 12 * 60 * 60 * 1000; // GET /api/medications/next-intake looks this far ahead
+    // The card groups doses within this of its earliest slot — the server's
+    // forecastClusterWindow / triggerNextIntakeClusterWindow (10 minutes).
+    const NEXT_INTAKE_CLUSTER_MS = 10 * 60 * 1000;
     const MED_LOOKAHEAD_MS = 2 * 60 * 60 * 1000; // Next up shows a future dose only within 2h; earlier it lives on Meds
     const MED_TAKE_WINDOW_MS = 60 * 60 * 1000; // one-tap Take window, = meds.js MEDS_NEXT_TAKE_WINDOW_MS (kit TD1)
     const MIN_TREND_POINTS = 2;
@@ -142,12 +145,10 @@
             if (t < bestMs) bestMs = t;
         }
         if (!Number.isFinite(bestMs)) return null;
-        // Mirror the server's forecastClusterWindow / triggerNextIntakeClusterWindow
-        // (10 minutes) so the offline fallback collapses multi-med slots into one
-        // card the same way /api/medications/next-intake does.
-        const TOL_MS = 10 * 60 * 1000;
+        // Collapse multi-med slots into one card the same way
+        // /api/medications/next-intake does.
         const grouped = candidates
-            .filter((c) => c.t - bestMs <= TOL_MS)
+            .filter((c) => c.t - bestMs <= NEXT_INTAKE_CLUSTER_MS)
             .sort((a, b) => a.t - b.t);
         const earliest = grouped[0];
         return {
@@ -174,9 +175,10 @@
         // cannot hand back the dose just taken. The server's "nothing next"
         // rules out every slot up to its 12 h window from when it was
         // fetched (a later slot still shows as the clock moves on); a dose
-        // write's optimistic clear (cleared_slot) rules out that slot only.
+        // write's optimistic clear (cleared_slot, the card's earliest slot)
+        // rules out that slot's cluster only — every dose the card grouped.
         const empty = nx && nx.scheduled_at === null && fresh;
-        const clearedMs = empty ? Date.parse(nx.cleared_slot) : NaN;
+        const clearedMs = empty ? Date.parse(nx.cleared_slot) + NEXT_INTAKE_CLUSTER_MS : NaN;
         const emptyUntil = empty && !nx.cleared_slot && meta && Number.isFinite(meta.fetchedAt)
             ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
         if (!nextIntakeUsable) {

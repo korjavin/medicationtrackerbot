@@ -348,4 +348,27 @@ describe('Today next-intake meds fallback', () => {
         expect(after.status).toBe('ok');
         expect(after.value.scheduledAt).toBe(new Date('2026-05-09T10:00:00').toISOString());
     });
+
+    // The card groups doses within 10 min under its earliest slot, and its
+    // clear names that slot: offline, a Take of the 10:00 + 10:05 card must not
+    // hand the 10:05 dose back — the whole cluster is skipped (bd med-s2q8).
+    it('an optimistically cleared grouped card skips every dose it grouped', () => {
+        const meds = [
+            { id: 1, name: 'Aspirin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:00', '18:00'] }) },
+            { id: 2, name: 'Metformin', archived: false, schedule: JSON.stringify({ type: 'daily', times: ['10:05', '10:30'] }) },
+        ];
+        const ten = new Date('2026-05-09T10:00:00').toISOString();
+        const clearedAt = (now) => env.aggregate({
+            features: FEATURES_MED_ONLY,
+            next_intake: { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: ten },
+            __next_intake_meta: { fetchedAt: new Date('2026-05-09T09:58:00').getTime(), isStale: false },
+            medications: meds,
+        }, null, now, HELPERS).nextMed;
+
+        for (const now of ['2026-05-09T09:59:00', '2026-05-09T10:03:00']) {
+            const next = clearedAt(new Date(now));
+            expect(next.value.scheduledAt).toBe(new Date('2026-05-09T10:30:00').toISOString());
+            expect(next.value.names).toEqual(['Metformin']);
+        }
+    });
 });
