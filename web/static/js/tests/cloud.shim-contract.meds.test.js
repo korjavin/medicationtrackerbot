@@ -1623,7 +1623,8 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
         // the tombstoned 20:00 is not offered.
         const next = await call('/api/medications/next-intake');
         expect(next).toEqual({
-            scheduled_at: upcomingRows[0].plannedAt, medication_ids: [2], medication_names: ['Losartan']
+            scheduled_at: upcomingRows[0].plannedAt, medication_ids: [2], medication_names: ['Losartan'],
+            medication_scheduled_at: [upcomingRows[0].plannedAt]
         });
 
         // Schedule tab upcoming: exactly the projection's upcoming rows.
@@ -1840,7 +1841,9 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             });
 
             const next = await call('/api/medications/next-intake');
-            expect(next).toEqual({ scheduled_at: iso(at(8)), medication_ids: [1], medication_names: ['Metformin'] });
+            expect(next).toEqual({
+                scheduled_at: iso(at(8)), medication_ids: [1], medication_names: ['Metformin'], medication_scheduled_at: [iso(at(8))]
+            });
 
             const res = await trigger();
             expect(res).toMatchObject({
@@ -1867,7 +1870,10 @@ describe('one occurrence projection — every reader agrees (bd med-wi09.1)', ()
             });
 
             const next = await call('/api/medications/next-intake');
-            expect(next).toMatchObject({ scheduled_at: iso(at(8)), medication_ids: [1, 2] });
+            // Each med carries its own instant in the cluster (bd med-s2q8).
+            expect(next).toMatchObject({
+                scheduled_at: iso(at(8)), medication_ids: [1, 2], medication_scheduled_at: [iso(at(8)), iso(step)]
+            });
 
             const res = await trigger();
             expect(res).toMatchObject({ scheduled_at: iso(at(8)), medication_count: 2 });
@@ -2600,6 +2606,183 @@ describe('testscenarios: meds release flows (editor → Today → Timeline)', ()
         expect(focusDone(window)).toBe(true);
         await window.readPendingDoses(clock);
         expect(await openToday(window)).toHaveLength(0);
+    });
+
+    // testscenarios/web/today-offline-take-grouped.yaml (bd med-s2q8): a card
+    // grouping Aspirin 10:00 + Metformin 10:05 (Metformin's own 10:00 already
+    // taken) — one tap writes each dose at its own instant, and the cleared
+    // card the schedule fallback reads offline never hands Metformin 10:05 back,
+    // while Aspirin's own 10:08 (never on the card) still shows.
+    // Aspirin 10:00/10:08 + Metformin 10:00/10:05/12:00 with Metformin's
+    // 10:00 already taken: at 09:58 next-intake groups Aspirin 10:00 +
+    // Metformin 10:05. Today read it once online through cachedFetch, then
+    // the device goes offline (next-intake fails; cachedFetch serves cache).
+    const groupedOffline = async () => {
+        clock = at(9, 50);
+        env = boot(undefined, { wrapApiCallDirect: true });
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        const { window } = env;
+        window.eval(fs.readFileSync(path.resolve(path.dirname(TODAY_JS), '../cached-fetch.js'), 'utf8'));
+        const daily = (...times) => JSON.stringify({ type: 'daily', times });
+        // Aspirin's own 10:08 is inside the window but never on the card (one
+        // row per med): it is what shows next once the card is cleared.
+        await window.apiCall('/api/medications', 'POST', { name: 'Aspirin', dosage: '100mg', schedule: daily('10:00', '10:08') });
+        await window.apiCall('/api/medications', 'POST', { name: 'Metformin', dosage: '500mg', schedule: daily('10:00', '10:05', '12:00') });
+        const meds = await window.apiCall('/api/medications');
+        const idOf = (name) => meds.find((m) => m.name === name).id;
+        const occ = (name, h, m) => `intake-${idOf(name)}-${Math.floor(at(h, m) / 1000)}`;
+        await window.apiCall('/api/doses/act', 'POST', { action: 'take', occ_ids: [occ('Metformin', 10, 0)] });
+        await materializationSettled();
+
+        clock = at(9, 58);
+        expect(await window.apiCall('/api/medications/next-intake')).toEqual({
+            scheduled_at: new Date(at(10, 0)).toISOString(),
+            medication_ids: [idOf('Aspirin'), idOf('Metformin')],
+            medication_names: ['Aspirin', 'Metformin'],
+            medication_scheduled_at: [new Date(at(10, 0)).toISOString(), new Date(at(10, 5)).toISOString()],
+        });
+        await window.readPendingDoses(clock);
+        await openToday(window);
+        expect(await window.DataStore.getCached('next_intake')).toMatchObject({ scheduled_at: new Date(at(10, 0)).toISOString() });
+        const realDirect = window.apiCallDirect;
+        window.apiCallDirect = (endpoint, ...rest) => (String(endpoint).startsWith('/api/medications/next-intake')
+            ? Promise.reject(new Error('Failed to fetch'))
+            : realDirect(endpoint, ...rest));
+        const acts = [];
+        const realApiCall = window.apiCall;
+        window.apiCall = async (p, method, body, ...rest) => {
+            if (p === '/api/doses/act') acts.push(body);
+            return realApiCall(p, method, body, ...rest);
+        };
+        // Next up's med rows that offer Take, as [title, row].
+        const takeRows = () => [...window.document.querySelectorAll('#today-content [data-section="next-up"] .wg-row')]
+            .filter((r) => r.querySelector('[data-action="take"]'))
+            .map((r) => [r.querySelector('.wg-row__title')?.textContent, r]);
+        const taken = async () => (await env.records.list('intake'))
+            .filter((i) => i.status === 'TAKEN').map((i) => i.recordId).sort();
+        return { window, idOf, occ, acts, takeRows, taken };
+    };
+
+    // After the grouped Take, offline: Next up never hands Metformin 10:05
+    // back, shows Aspirin's own 10:08, and that one's Take clears it too.
+    const expectClearedOffline = async ({ window, occ, acts, takeRows, taken }) => {
+        await materializationSettled();
+        await openToday(window);
+        // Offline: Today painted from the cleared card, nothing refetched it.
+        expect(await window.DataStore.getCached('next_intake')).toMatchObject({
+            scheduled_at: null,
+            cleared_doses: [
+                { scheduled_at: new Date(at(10, 0)).toISOString() },
+                { scheduled_at: new Date(at(10, 5)).toISOString() },
+            ],
+        });
+        expect(takeRows().map(([t]) => t)).toEqual(['Aspirin']);
+        expect(window.document.querySelector('#today-content [data-section="next-up"]').textContent).not.toContain('Metformin');
+        takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(acts).toHaveLength(2));
+        expect(acts[1].occ_ids).toEqual([occ('Aspirin', 10, 8)]);
+        await vi.waitFor(async () => expect(await taken()).toContain(occ('Aspirin', 10, 8)));
+        await materializationSettled();
+        await openToday(window);
+        expect(takeRows()).toEqual([]);
+        // 10:03: the next untaken dose is Metformin 12:00, now inside the 2 h
+        // lookahead — not its 10:05.
+        clock = at(10, 3);
+        await openToday(window);
+        expect(takeRows().map(([t, r]) => [t, r.querySelector('.wg-row__meta').textContent.slice(0, 5)]))
+            .toEqual([['Metformin', '12:00']]);
+    };
+
+    it('a grouped Next up Take writes each dose at its own instant; offline the cleared card skips exactly those', async () => {
+        const g = await groupedOffline();
+        const [[, row]] = g.takeRows();
+        row.querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(g.acts).toHaveLength(1));
+        expect([...g.acts[0].occ_ids].sort()).toEqual([g.occ('Aspirin', 10, 0), g.occ('Metformin', 10, 5)].sort());
+        await vi.waitFor(async () => expect(await g.taken())
+            .toEqual([g.occ('Aspirin', 10, 0), g.occ('Metformin', 10, 0), g.occ('Metformin', 10, 5)].sort()));
+        await expectClearedOffline(g);
+    });
+
+    it('offline, Undo of a grouped Take puts both doses back on Next up; taking again clears them again', async () => {
+        const g = await groupedOffline();
+        const toast = vi.spyOn(g.window, 'safeToast');
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(g.acts).toHaveLength(1));
+        const [, , opts] = await vi.waitFor(() => {
+            const call = toast.mock.calls.find(([m]) => m === 'Aspirin, Metformin taken');
+            expect(call).toBeTruthy();
+            return call;
+        });
+        await materializationSettled();
+        await opts.action.onClick();
+        expect(g.acts.at(-1)).toMatchObject({ action: 'undo' });
+        await vi.waitFor(async () => expect(await g.taken()).toEqual([g.occ('Metformin', 10, 0)]));
+        await materializationSettled();
+        // The card is back as it was fetched, by each dose's own instant.
+        expect(await g.window.DataStore.getCached('next_intake')).toMatchObject({
+            scheduled_at: new Date(at(10, 0)).toISOString(),
+            medication_names: ['Aspirin', 'Metformin'],
+            medication_scheduled_at: [new Date(at(10, 0)).toISOString(), new Date(at(10, 5)).toISOString()],
+        });
+        await openToday(g.window);
+        expect(g.takeRows()).toHaveLength(1);
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(g.acts).toHaveLength(3));
+        expect([...g.acts[2].occ_ids].sort()).toEqual([g.occ('Aspirin', 10, 0), g.occ('Metformin', 10, 5)].sort());
+        g.acts.splice(0, 2);
+        await expectClearedOffline(g);
+    });
+
+    // Argus: undone doses rebuild the card the domain's way — one dose per
+    // med, the earliest — not every undone occurrence at once.
+    it('offline, undoing doses back onto the card keeps one dose per med: the earliest', async () => {
+        const g = await groupedOffline();
+        const { window } = g;
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(async () => expect(await g.taken()).toHaveLength(3));
+        await materializationSettled();
+        await openToday(window);
+        expect(g.takeRows().map(([t]) => t)).toEqual(['Aspirin']);
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(async () => expect(await g.taken()).toContain(g.occ('Aspirin', 10, 8)));
+        await materializationSettled();
+        await window._tlAct('undo', [{ occIds: [g.occ('Aspirin', 10, 8)] }]);
+        await window._tlAct('undo', [{ occIds: [g.occ('Aspirin', 10, 0)] }]);
+        await vi.waitFor(async () => expect(await g.taken()).toEqual([g.occ('Metformin', 10, 0), g.occ('Metformin', 10, 5)]));
+        await materializationSettled();
+        expect(await window.DataStore.getCached('next_intake')).toEqual({
+            scheduled_at: new Date(at(10, 0)).toISOString(),
+            medication_ids: [g.idOf('Aspirin')],
+            medication_names: ['Aspirin'],
+            medication_scheduled_at: [new Date(at(10, 0)).toISOString()],
+            cleared_doses: [expect.objectContaining({ scheduled_at: new Date(at(10, 5)).toISOString() })],
+        });
+        await openToday(window);
+        expect(g.takeRows().map(([t]) => t)).toEqual(['Aspirin']);
+        g.acts.length = 0;
+        g.takeRows()[0][1].querySelector('[data-action="take"]').click();
+        await vi.waitFor(() => expect(g.acts).toHaveLength(1));
+        expect(g.acts[0].occ_ids).toEqual([g.occ('Aspirin', 10, 0)]);
+        await vi.waitFor(async () => expect(await g.taken()).toContain(g.occ('Aspirin', 10, 0)));
+        await materializationSettled();
+        await openToday(window);
+        expect(g.takeRows().map(([t, r]) => [t, r.querySelector('.wg-row__meta').textContent.slice(0, 5)]))
+            .toEqual([['Aspirin', '10:08']]);
+    });
+
+    it('the grouped card\'s take sheet (row tap) confirms each dose at its own instant; offline the card stays cleared', async () => {
+        const g = await groupedOffline();
+        const [[, row]] = g.takeRows();
+        row.click();
+        const { document } = g.window;
+        await vi.waitFor(() => expect(document.querySelectorAll('#med-confirm-list .med-confirm-check')).toHaveLength(2));
+        document.getElementById('med-confirm-action-btn').dispatchEvent(new g.window.Event('click', { bubbles: true }));
+        await vi.waitFor(() => expect(g.acts).toHaveLength(1));
+        expect([...g.acts[0].occ_ids].sort()).toEqual([g.occ('Aspirin', 10, 0), g.occ('Metformin', 10, 5)].sort());
+        await vi.waitFor(async () => expect(await g.taken())
+            .toEqual([g.occ('Aspirin', 10, 0), g.occ('Metformin', 10, 0), g.occ('Metformin', 10, 5)].sort()));
+        await expectClearedOffline(g);
     });
 
     // testscenarios/common/med-dose-taken.yaml: a Take ahead of the slot (in

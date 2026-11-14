@@ -890,6 +890,85 @@ describe('Meds timeline v2 (TL1–TL4)', () => {
                 .toEqual({ scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z' }));
         });
 
+        // bd med-s2q8 (breakage review + Argus): an older tab's partial clear
+        // leaves per-med times out of step with the ids. An Undo puts its dose
+        // back without dropping the card's remaining member, whose time is
+        // then unknown (null) — never guessed from the stale list — and a
+        // Take of that member names the card's slot, as the older tab would.
+        it('Undo onto a card whose per-med times are out of step keeps every member, the unknown time as null', async () => {
+            env.window.Date.now = () => Date.parse('2026-10-23T18:45:00.000Z');
+            installApiCache(env.window);
+            await env.window.DataStore.setCachedWithTags('next_intake', {
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [3], medication_names: ['Metformin'],
+                medication_scheduled_at: ['2026-10-23T19:30:00.000Z', '2026-10-23T19:30:00.000Z'],
+                cleared_doses: [{ medication_id: 2, medication_name: 'Lercanidipin', scheduled_at: '2026-10-23T19:30:00.000Z' }],
+            }, ['medications', 'history']);
+            const fixture = normalDay();
+            const server = await serve(fixture);
+            const occ2 = fixture.find((r) => r.medId === '2' && r.plannedAt === '2026-10-23T19:30:00.000Z').occId;
+            await env.window._tlAct('undo', [{ occIds: [occ2] }]);
+            expect(server.posts).toHaveLength(1);
+            await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [3, 2], medication_names: ['Metformin', 'Lercanidipin'],
+                medication_scheduled_at: [null, '2026-10-23T19:30:00.000Z'],
+            }));
+            // Taking Metformin at the card's slot clears it; its unknown time is
+            // not recorded, so Today's fallback keeps the heuristic for it.
+            const settleNext = await env.window._optimisticNextIntake([{ occId: 'x', medId: 3, plannedAt: '2026-10-23T19:30:00.000Z' }]);
+            await settleNext(new Set());
+            expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [2], medication_names: ['Lercanidipin'],
+                medication_scheduled_at: ['2026-10-23T19:30:00.000Z'], cleared_doses: [],
+            });
+        });
+
+        // Breakage review: a back-logged dose from before a cleared card's slot
+        // is not listed, so Today's fallback never skips on its account.
+        it('a Take from before a cleared card\'s slot leaves its cleared doses as they were', async () => {
+            installApiCache(env.window);
+            const cardValue = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z', cleared_doses: [] };
+            await env.window.DataStore.setCachedWithTags('next_intake', cardValue, ['medications', 'history']);
+            const settleNext = await env.window._optimisticNextIntake([{ occId: 'x', medId: 2, plannedAt: '2026-10-22T19:30:00.000Z' }]);
+            await settleNext(new Set());
+            expect(await env.window.DataStore.getCached('next_intake')).toEqual(cardValue);
+        });
+
+        // bd med-s2q8: a card grouping 21:30 + 21:35 (each med's own instant
+        // carried) taken one dose at a time — each matches the card by its
+        // own instant and the clears add up into cleared_doses, which Today's
+        // offline fallback skips exactly.
+        it('successive Takes of a grouped card\'s doses minutes apart each clear their own dose', async () => {
+            env.window.Date.now = () => Date.parse('2026-10-23T18:45:00.000Z');
+            installApiCache(env.window);
+            await env.window.DataStore.setCachedWithTags('next_intake', {
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [2, 3], medication_names: ['Lercanidipin', 'Metformin'],
+                medication_scheduled_at: ['2026-10-23T19:30:00.000Z', '2026-10-23T19:35:00.000Z'],
+            }, ['medications', 'history']);
+            const fixture = normalDay().map((r) => (r.medId === '3' && r.plannedAt === '2026-10-23T19:30:00.000Z'
+                ? dose({ med: 3, at: '2026-10-23T19:35:00.000Z', localDate: '2026-10-23', localTime: '21:35', state: 'upcoming' })
+                : r));
+            const server = await serve(fixture);
+            const nextRow = () => card(env.document).querySelectorAll('.wg-timeline__row')[0];
+            button(nextRow(), 'Take').click();
+            await vi.waitFor(() => expect(server.posts).toHaveLength(1));
+            await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: '2026-10-23T19:30:00.000Z', medication_ids: [3], medication_names: ['Metformin'],
+                medication_scheduled_at: ['2026-10-23T19:35:00.000Z'],
+                cleared_doses: [{ medication_id: 2, medication_name: 'Lercanidipin', scheduled_at: '2026-10-23T19:30:00.000Z' }],
+            }));
+            await settle();
+            await vi.waitFor(() => expect(nextRow().dataset.occIds).toBe(fixture.find((r) => r.medId === '3' && r.plannedAt === '2026-10-23T19:35:00.000Z').occId));
+            button(nextRow(), 'Take').click();
+            await vi.waitFor(() => expect(server.posts).toHaveLength(2));
+            await vi.waitFor(async () => expect(await env.window.DataStore.getCached('next_intake')).toEqual({
+                scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: '2026-10-23T19:30:00.000Z',
+                cleared_doses: [
+                    { medication_id: 2, medication_name: 'Lercanidipin', scheduled_at: '2026-10-23T19:30:00.000Z' },
+                    { medication_id: 3, medication_name: 'Metformin', scheduled_at: '2026-10-23T19:35:00.000Z' },
+                ],
+            }));
+        });
+
         // bd med-wt2q: at 01:40 a one-tap Take on "Next today" took the 08:20
         // doses 6h40m early. Outside the window the row opens the take sheet.
         it('"Next today" outside the window: a row tap opens the take sheet with "Due at 21:30. Mark taken now?", nothing posted until Take', async () => {

@@ -1,0 +1,19 @@
+id: today-offline-take-grouped
+title: Offline, taking a Next up card that groups doses minutes apart clears all of them
+platforms: [web]
+preconditions:
+  - Two medications due minutes apart (10:00 and 10:05), shown together on one Next up card
+  - The device is offline
+steps:
+  - Open Today and tap Take on the grouped card (or tap the row and confirm in its take sheet)
+  - Tap Take on the next dose Next up shows
+  - Or, after the first Take, tap Undo on its toast
+invariants:
+  - Take, one tap or the sheet, logs each dose on the card at its own time (the 10:05 dose, not a 10:00 one)
+  - None of the card's doses comes back as Next up before the app is online again, also when a medication's earlier dose (10:00) was taken before the card showed its 10:05
+  - A medication's own later dose minutes after the taken one (it was never on the card) still shows as Next up
+  - Taking the next dose shown afterwards, still offline, clears it from Next up too
+  - Undo puts the card's doses back on Next up, and taking them again clears them again
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.meds.test.js  # its three "grouped" cases, one per path: one tap, Undo then Take again, the take sheet
+source: [bd med-s2q8]

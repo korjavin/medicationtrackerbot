@@ -688,11 +688,17 @@ function closeMedicationConfirmModal() {
 // + `medication_names`). If no meds remain at that scheduled time, the tile
 // clears entirely (scheduled_at -> null). Without this selectivity, a partial
 // confirm of a grouped dose would hide the remaining meds the user still owes.
+// One write's whole change to the card goes under ONE handle, so a rollback
+// restores the card as it was before the write.
 // Returns a handle (no-op handle if nothing cached or mismatch).
-async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
+async function _applyOptimisticNextIntake(mutator) {
     if (!window.DataStore || typeof window.DataStore.applyOptimistic !== 'function') {
         return { commit: async () => {}, rollback: async () => {} };
     }
+    return window.DataStore.applyOptimistic('next_intake', mutator, ['medications', 'history']);
+}
+
+function _nextIntakeCleared(prev, scheduledAt, selectedIds = [], selectedNames = []) {
     const selectedIdSet = new Set(
         (Array.isArray(selectedIds) ? selectedIds : [])
             .map((id) => Number(id))
@@ -700,30 +706,120 @@ async function _applyOptimisticNextIntakeClear(scheduledAt, selectedIds = []) {
     );
     // A whole slot acted on leaves an empty card naming it (cleared_slot), so
     // Today's schedule fallback skips that slot only — not a 12 h forecast.
-    return window.DataStore.applyOptimistic('next_intake', (prev) => {
-        if (!prev || typeof prev !== 'object') return prev;
-        if (!scheduledAt || prev.scheduled_at !== scheduledAt) return prev;
-        const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
-        const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
-        // No ID list to filter (legacy payload missing medication_ids) — fall
-        // back to the wholesale clear so the tile doesn't pin a now-actioned
-        // dose. Same fallback when the caller didn't supply selectedIds.
-        if (allIds.length === 0 || selectedIdSet.size === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
-        }
-        const remainingIds = [];
-        const remainingNames = [];
-        for (let i = 0; i < allIds.length; i++) {
-            const id = Number(allIds[i]);
-            if (selectedIdSet.has(id)) continue;
-            remainingIds.push(allIds[i]);
-            if (i < allNames.length) remainingNames.push(allNames[i]);
-        }
-        if (remainingIds.length === 0) {
-            return { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: scheduledAt };
-        }
-        return { ...prev, medication_ids: remainingIds, medication_names: remainingNames };
-    }, ['medications', 'history']);
+    // Each med's own instant on the card (medication_scheduled_at) is kept
+    // as cleared_doses, accumulated over partial clears, so the fallback skips
+    // exactly the doses acted on (bd med-s2q8); a dose then matches the card
+    // by its own instant, so a 10:05 member clears at 10:05. A card cached
+    // before that field existed carries none: the card's slot must match and
+    // the fallback keeps its heuristic.
+    if (!prev || typeof prev !== 'object' || !scheduledAt) return prev;
+    // An already cleared card: Today shows the schedule fallback's next dose,
+    // and a Take of it is added to the doses the fallback skips. A dose before
+    // the cleared slot (a back-logged missed one) is not that card's business.
+    if (prev.scheduled_at == null && prev.cleared_slot) {
+        if (!(Date.parse(scheduledAt) >= Date.parse(prev.cleared_slot))) return prev;
+        const ids = Array.isArray(selectedIds) ? selectedIds : [];
+        const taken = ids.map((id, i) => [id, (selectedNames || [])[i] || '']).filter(([id]) => id != null);
+        if (!taken.length) return prev;
+        return {
+            ...prev,
+            cleared_doses: [
+                ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
+                ...taken.map(([id, name]) => ({ medication_id: id, medication_name: name, scheduled_at: scheduledAt })),
+            ],
+        };
+    }
+    const allIds = Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
+    const allNames = Array.isArray(prev.medication_names) ? prev.medication_names : [];
+    const allAts = Array.isArray(prev.medication_scheduled_at) && allIds.length > 0
+        && prev.medication_scheduled_at.length === allIds.length ? prev.medication_scheduled_at : null;
+    const slotMs = Date.parse(scheduledAt);
+    const cardMatches = prev.scheduled_at === scheduledAt || (allAts && Date.parse(prev.scheduled_at) === slotMs);
+    // A member with no time of its own (null: rebuilt from an older tab's
+    // card) behaves as a legacy one: matched by the card's slot, never
+    // recorded, so the fallback's heuristic covers it.
+    const cleared = (idxs) => (allAts ? [
+        ...(Array.isArray(prev.cleared_doses) ? prev.cleared_doses : []),
+        ...idxs.filter((i) => allAts[i]).map((i) => ({ medication_id: allIds[i], medication_name: allNames[i] || '', scheduled_at: allAts[i] }))
+    ] : undefined);
+    const clearAll = (idxs) => {
+        const out = { scheduled_at: null, medication_ids: [], medication_names: [], cleared_slot: prev.scheduled_at };
+        const doses = cleared(idxs);
+        if (doses) out.cleared_doses = doses;
+        return out;
+    };
+    // No ID list to filter (legacy payload missing medication_ids) — fall
+    // back to the wholesale clear so the tile doesn't pin a now-actioned
+    // dose. Same fallback when the caller didn't supply selectedIds.
+    if (allIds.length === 0 || selectedIdSet.size === 0) {
+        return cardMatches ? clearAll(allIds.map((_, i) => i)) : prev;
+    }
+    if (!allAts && !cardMatches) return prev;
+    const remaining = [];
+    const removed = [];
+    for (let i = 0; i < allIds.length; i++) {
+        const own = allAts && allAts[i] ? Date.parse(allAts[i]) : Date.parse(prev.scheduled_at);
+        const hit = selectedIdSet.has(Number(allIds[i])) && (!allAts || own === slotMs);
+        (hit ? removed : remaining).push(i);
+    }
+    if (removed.length === 0) return prev;
+    if (remaining.length === 0) return clearAll(removed);
+    const next = {
+        ...prev,
+        medication_ids: remaining.map((i) => allIds[i]),
+        medication_names: remaining.filter((i) => i < allNames.length).map((i) => allNames[i])
+    };
+    if (allAts) {
+        next.medication_scheduled_at = remaining.map((i) => allAts[i]);
+        next.cleared_doses = cleared(removed);
+    }
+    return next;
+}
+
+// Undo of doses a clear recorded (bd med-s2q8): each undone dose found in
+// cleared_doses goes back onto the card (by its own instant), so Today shows
+// it again instead of the fallback skipping it. `undone` is [{medId,
+// plannedAt}]. A card without cleared_doses (cached before they existed) is
+// left as it is.
+function _nextIntakeRestored(prev, undone) {
+    if (!prev || typeof prev !== 'object' || !Array.isArray(prev.cleared_doses)) return prev;
+    const hit = (e) => undone.some((u) => String(u.medId) === String(e.medication_id)
+        && Date.parse(u.plannedAt) === Date.parse(e.scheduled_at));
+    const back = prev.cleared_doses.filter(hit);
+    if (!back.length) return prev;
+    const kept = prev.cleared_doses.filter((e) => !hit(e));
+    // A populated card keeps its members. Their per-med times count only when
+    // they line up with the ids (an older tab's partial clear leaves them out
+    // of step): otherwise a member's time is unknown (null), taken as the
+    // card's slot — never guessed from the stale list.
+    const ids = prev.scheduled_at != null && Array.isArray(prev.medication_ids) ? prev.medication_ids : [];
+    const ats = Array.isArray(prev.medication_scheduled_at) && prev.medication_scheduled_at.length === ids.length
+        ? prev.medication_scheduled_at : ids.map(() => null);
+    const at = (r) => Date.parse(r.scheduled_at || prev.scheduled_at);
+    const sorted = [
+        ...ids.map((id, i) => ({ medication_id: id, medication_name: (prev.medication_names || [])[i] || '', scheduled_at: ats[i] })),
+        ...back,
+    ].sort((a, b) => at(a) - at(b));
+    // The card is the domain's nextCluster over these doses: one per med (its
+    // earliest), within 10 min of the earliest. A dose left off is untaken and
+    // shows again once the card clears.
+    const rows = [];
+    for (const r of sorted) {
+        if (rows.length && (at(r) - at(rows[0]) > 10 * 60 * 1000
+            || rows.some((p) => String(p.medication_id) === String(r.medication_id)))) continue;
+        rows.push(r);
+    }
+    const out = {
+        ...prev,
+        scheduled_at: rows[0].scheduled_at || prev.scheduled_at,
+        medication_ids: rows.map((r) => r.medication_id),
+        medication_names: rows.map((r) => r.medication_name || ''),
+        medication_scheduled_at: rows.map((r) => r.scheduled_at),
+    };
+    delete out.cleared_slot;
+    if (kept.length) out.cleared_doses = kept;
+    else delete out.cleared_doses;
+    return out;
 }
 
 async function _commitOptimistic(handles) {
@@ -734,29 +830,50 @@ async function _rollbackOptimistic(handles) {
     for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
 }
 
-// next_intake's optimistic clear for a dose write over `doses`
-// ({occId, medId, plannedAt}), one handle per planned instant. Resolves its
-// settle(failed): nothing refused → commit; else the clear is redone for the
-// doses that landed only, so a refused dose stays on Today's card.
-async function _optimisticNextIntake(doses) {
-    const bySlot = new Map();
-    doses.forEach((d) => {
-        if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, []);
-        bySlot.get(d.plannedAt).push(d);
-    });
-    const entries = [];
-    for (const [at, slotDoses] of bySlot) {
-        entries.push({ at, slotDoses, handle: await _applyOptimisticNextIntakeClear(at, slotDoses.map((d) => d.medId)) });
-    }
-    return async (failed) => {
-        for (const { at, slotDoses, handle } of entries) {
-            if (!failed.size) { await _commitOptimistic([handle]); continue; }
-            await _rollbackOptimistic([handle]);
-            // An empty id list would clear the whole card.
-            const landed = slotDoses.filter((d) => !failed.has(String(d.occId))).map((d) => d.medId);
-            if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntakeClear(at, landed)]);
-        }
+// next_intake's optimistic change for a dose write over `doses`
+// ({occId, medId, plannedAt, name?}) under one handle: a take/skip clears
+// them (one slot per planned instant), an undo puts back the ones a clear
+// recorded. Resolves its settle(failed): nothing refused → commit; else the
+// change is redone for the doses that landed only, so a refused dose keeps
+// its place on Today's card.
+async function _optimisticNextIntake(doses, undo = false) {
+    const mutatorOf = (ds) => {
+        if (undo) return (prev) => _nextIntakeRestored(prev, ds);
+        const bySlot = new Map();
+        ds.forEach((d) => {
+            if (!bySlot.has(d.plannedAt)) bySlot.set(d.plannedAt, [[], []]);
+            bySlot.get(d.plannedAt)[0].push(d.medId);
+            bySlot.get(d.plannedAt)[1].push(d.name || '');
+        });
+        return (prev) => [...bySlot].reduce((card, [at, [ids, names]]) => _nextIntakeCleared(card, at, ids, names), prev);
     };
+    if (!doses.length) return async () => {};
+    // An undo with nothing recorded to put back holds no handle: the write's
+    // own invalidation refetches the card as before.
+    if (undo && window.DataStore && typeof window.DataStore.getCached === 'function') {
+        const prev = await window.DataStore.getCached('next_intake').catch(() => null);
+        if (mutatorOf(doses)(prev) === prev) return async () => {};
+    }
+    const handle = await _applyOptimisticNextIntake(mutatorOf(doses));
+    return async (failed) => {
+        if (!failed.size) { await _commitOptimistic([handle]); return; }
+        await _rollbackOptimistic([handle]);
+        // An empty id list would clear the whole card: a slot with nothing
+        // landed drops out entirely.
+        const landed = doses.filter((d) => !failed.has(String(d.occId)));
+        if (landed.length) await _commitOptimistic([await _applyOptimisticNextIntake(mutatorOf(landed))]);
+    };
+}
+
+// The doses an undo of `occIds` restores: the caller's rows when it has them,
+// else each slot id's own med and instant (`intake-<medId>-<slotUnix>`).
+function _undoDoses(occIds, rows) {
+    const byOcc = new Map((rows || []).map((d) => [String(d.occId), d]));
+    return occIds.map((id) => {
+        if (byOcc.has(String(id))) return byOcc.get(String(id));
+        const m = /^intake-(.+)-(\d+)$/.exec(String(id));
+        return m ? { occId: String(id), medId: m[1], plannedAt: new Date(Number(m[2]) * 1000).toISOString() } : null;
+    }).filter(Boolean);
 }
 
 // Settles a dose write on the act's refused occIds (bd med-2l38): none →
@@ -865,8 +982,17 @@ async function confirmSelectedMedications() {
 // _optimisticNextIntake (the sheet's own scheduled instant).
 function _medConfirmDoses(indices, scheduled) {
     const ids = window.PushModalState.getMedConfirmIds();
-    return indices.map((idx) => ({ occId: String(_medConfirmOccId(idx)), medId: ids[idx], plannedAt: scheduled }))
-        .filter((d) => d.occId !== 'null' && d.medId != null);
+    // A slot id (`intake-<medId>-<slotUnix>`) names its own planned instant:
+    // a grouped Today card's sheet holds doses minutes apart (bd med-s2q8).
+    const plannedOf = (occId) => {
+        const m = /^intake-.+-(\d+)$/.exec(occId);
+        const ms = m ? Number(m[1]) * 1000 : NaN;
+        return Number.isFinite(ms) && ms !== Date.parse(scheduled) ? new Date(ms).toISOString() : scheduled;
+    };
+    return indices.map((idx) => {
+        const occId = String(_medConfirmOccId(idx));
+        return { occId, medId: ids[idx], plannedAt: plannedOf(occId) };
+    }).filter((d) => d.occId !== 'null' && d.medId != null);
 }
 
 async function skipSelectedMedications() {

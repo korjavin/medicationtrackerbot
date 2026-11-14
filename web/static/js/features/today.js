@@ -20,6 +20,9 @@
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
     const NEXT_INTAKE_WINDOW_MS = 12 * 60 * 60 * 1000; // GET /api/medications/next-intake looks this far ahead
+    // The card groups doses within this of its earliest slot — the server's
+    // forecastClusterWindow / triggerNextIntakeClusterWindow (10 minutes).
+    const NEXT_INTAKE_CLUSTER_MS = 10 * 60 * 1000;
     const MED_LOOKAHEAD_MS = 2 * 60 * 60 * 1000; // Next up shows a future dose only within 2h; earlier it lives on Meds
     const MED_TAKE_WINDOW_MS = 60 * 60 * 1000; // one-tap Take window, = meds.js MEDS_NEXT_TAKE_WINDOW_MS (kit TD1)
     const MIN_TREND_POINTS = 2;
@@ -116,10 +119,22 @@
     // Course-window filter (start_date / end_date) mirrors medplan.PlanDoses
     // so the offline fallback does not advertise a finished antibiotic course
     // or a med that doesn't start until tomorrow.
-    function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext) {
+    //
+    // cleared (a Take's optimistic clear of the card): `doses` are the exact
+    // {medication_id, scheduled_at} taken — the card's, plus any fallback card
+    // taken since — so a med listed there skips through its own instants
+    // (bd med-s2q8). A med not listed (a card cached before the response
+    // carried instants) skips its first slot in [slotMs, slotMs + window] —
+    // the card held each med's earliest dose in the cluster, so a med's later
+    // slot in the window still shows.
+    // ponytail: that legacy heuristic is ledger-blind — a med with two slots
+    // ≤10 min apart whose first was taken before the card misreads which one
+    // the card held; it ages out with the pre-deploy cache.
+    function computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext, cleared) {
+        const clearedMs = cleared ? cleared.slotMs : NaN;
+        const clearedDoses = cleared && Array.isArray(cleared.doses) ? cleared.doses : null;
         if (!Array.isArray(meds) || meds.length === 0) return null;
         if (typeof parseSchedule !== 'function' || typeof getNext !== 'function') return null;
-        const nowDate = new Date(nowMs);
         let bestMs = Infinity;
         const candidates = [];
         for (const med of meds) {
@@ -133,27 +148,40 @@
             if (!schedule) continue;
             const type = schedule.type;
             if (type !== 'daily' && type !== 'weekly') continue;
-            const next = getNext(schedule, nowDate);
-            if (!next) continue;
-            const t = next instanceof Date ? next.getTime() : Date.parse(next);
+            const toMs = (d) => (!d ? NaN : d instanceof Date ? d.getTime() : Date.parse(d));
+            let from = nowMs;
+            // Every listed dose counts, even one before cleared_slot: an Undo
+            // and retake moves the slot past doses still taken. A back-logged
+            // dose never gets listed (_nextIntakeCleared's guard).
+            const own = (clearedDoses || []).filter((d) => d && String(d.medication_id) === String(med.id)
+                && Number.isFinite(Date.parse(d.scheduled_at)));
+            if (own.length) {
+                for (const d of own) {
+                    const at = Date.parse(d.scheduled_at);
+                    if (at > from) from = at;
+                }
+            } else if (Number.isFinite(clearedMs)) {
+                const taken = toMs(getNext(schedule, new Date(clearedMs - 1)));
+                if (taken <= clearedMs + NEXT_INTAKE_CLUSTER_MS) from = Math.max(nowMs, taken);
+            }
+            const t = toMs(getNext(schedule, new Date(from)));
             if (!Number.isFinite(t)) continue;
             if (Number.isFinite(endMs) && t > endMs) continue;
             candidates.push({ med, t });
             if (t < bestMs) bestMs = t;
         }
         if (!Number.isFinite(bestMs)) return null;
-        // Mirror the server's forecastClusterWindow / triggerNextIntakeClusterWindow
-        // (10 minutes) so the offline fallback collapses multi-med slots into one
-        // card the same way /api/medications/next-intake does.
-        const TOL_MS = 10 * 60 * 1000;
+        // Collapse multi-med slots into one card the same way
+        // /api/medications/next-intake does.
         const grouped = candidates
-            .filter((c) => c.t - bestMs <= TOL_MS)
+            .filter((c) => c.t - bestMs <= NEXT_INTAKE_CLUSTER_MS)
             .sort((a, b) => a.t - b.t);
         const earliest = grouped[0];
         return {
             scheduledAt: new Date(earliest.t).toISOString(),
             names: grouped.map((c) => c.med.name),
-            ids: grouped.map((c) => c.med.id)
+            ids: grouped.map((c) => c.med.id),
+            ats: grouped.map((c) => new Date(c.t).toISOString())
         };
     }
 
@@ -174,9 +202,11 @@
         // cannot hand back the dose just taken. The server's "nothing next"
         // rules out every slot up to its 12 h window from when it was
         // fetched (a later slot still shows as the clock moves on); a dose
-        // write's optimistic clear (cleared_slot) rules out that slot only.
+        // write's optimistic clear (cleared_slot, the card's earliest slot)
+        // rules out the doses that card grouped only.
         const empty = nx && nx.scheduled_at === null && fresh;
-        const clearedMs = empty ? Date.parse(nx.cleared_slot) : NaN;
+        const cleared = empty && nx.cleared_slot
+            ? { slotMs: Date.parse(nx.cleared_slot), doses: nx.cleared_doses } : null;
         const emptyUntil = empty && !nx.cleared_slot && meta && Number.isFinite(meta.fetchedAt)
             ? meta.fetchedAt + NEXT_INTAKE_WINDOW_MS : -Infinity;
         if (!nextIntakeUsable) {
@@ -186,10 +216,7 @@
             const getNext = helpers.getNextScheduledDate
                 || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
             const meds = bootstrap && bootstrap.medications;
-            let fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext);
-            if (fallback && Date.parse(fallback.scheduledAt) <= clearedMs) {
-                fallback = computeFallbackFromMedications(meds, clearedMs, parseSchedule, getNext);
-            }
+            const fallback = computeFallbackFromMedications(meds, nowMs, parseSchedule, getNext, cleared);
             if (fallback && !(Date.parse(fallback.scheduledAt) < emptyUntil)) {
                 const at = Date.parse(fallback.scheduledAt);
                 const status = Number.isFinite(at) && at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
@@ -206,6 +233,10 @@
         const names = Array.isArray(nx.medication_names) ? nx.medication_names : [];
         const ids = Array.isArray(nx.medication_ids) ? nx.medication_ids : [];
         const value = { scheduledAt: nx.scheduled_at, names, ids };
+        // Each med's own instant (bd med-s2q8): a grouped card's Take writes
+        // the 10:05 dose, not a 10:00 one. Absent on a pre-deploy cache.
+        const ats = nx.medication_scheduled_at;
+        if (Array.isArray(ats) && ats.length === ids.length) value.ats = ats;
         const status = at + OVERDUE_GRACE_MS < nowMs ? 'overdue' : 'ok';
         return cell(value, 'meds', status, meta);
     }
@@ -716,12 +747,18 @@
 
     // A Next up med item's doses as {occId, medId, plannedAt, name}: the
     // take sheet's occId rule (meds-history.js _medOccId), never re-derived.
+    // Each dose at its own instant (v.ats) when the card carries them: a
+    // grouped card's meds are minutes apart (bd med-s2q8).
     function medDoses(v, win) {
         if (typeof win._medOccId !== 'function') return [];
         const ids = Array.isArray(v.ids) ? v.ids : [];
         const intakeIds = Array.isArray(v.intakeIds) ? v.intakeIds : [];
         const names = Array.isArray(v.names) ? v.names : [];
-        return ids.map((medId, i) => ({ occId: win._medOccId(medId, intakeIds[i], v.scheduledAt), medId, plannedAt: v.scheduledAt, name: names[i] }))
+        const ats = Array.isArray(v.ats) ? v.ats : [];
+        return ids.map((medId, i) => {
+            const at = ats[i] || v.scheduledAt;
+            return { occId: win._medOccId(medId, intakeIds[i], at), medId, plannedAt: at, name: names[i] };
+        })
             .filter((d) => d.occId != null)
             .map((d) => ({ ...d, occId: String(d.occId) }));
     }
@@ -3020,7 +3057,12 @@
         const onTakeMed = opts.onTakeMed || ((v) => {
             const ids = Array.isArray(v && v.ids) ? v.ids : [];
             if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
-                win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
+                // A grouped card's meds minutes apart: each sheet row names
+                // its own occurrence (bd med-s2q8).
+                const intakeIds = Array.isArray(v.ats) && typeof win._medOccId === 'function'
+                    ? ids.map((id, i) => win._medOccId(id, (v.intakeIds || [])[i], v.ats[i] || v.scheduledAt))
+                    : (v.intakeIds || []);
+                win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', intakeIds);
             } else {
                 onDeeplink('meds');
             }
