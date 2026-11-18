@@ -105,9 +105,14 @@ final class FlowQALoadRetryTests: XCTestCase {
         app.terminate()
     }
 
-    /// Polls the persisted defaults until `key` is true (cfprefsd writes a moment later).
+    /// Polls the persisted defaults until `key` is true. The flag is set on
+    /// didFinish, i.e. once every subresource loaded, and page() is no
+    /// readiness signal (run 44315889091: it matched ~2 s before GET / was
+    /// even served; on that CI Simulator with WebKit wiped by QA.reset the
+    /// first subresource came 11 s after the document, didFinish ~16 s after
+    /// page()), so the budget covers a whole cold load.
     private func waitFlag(_ key: String) -> Bool {
-        let end = Date().addingTimeInterval(15)
+        let end = Date().addingTimeInterval(60)
         while QA.appDefaults()?[key] as? Bool != true, Date() < end { Thread.sleep(forTimeInterval: 0.5) }
         return QA.appDefaults()?[key] as? Bool == true
     }
