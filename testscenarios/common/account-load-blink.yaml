@@ -10,7 +10,7 @@ steps:
 invariants:
   - The app opens from the phone within seconds once a load succeeds
   - The mark stays on screen while it retries; never a browser error page and never "Can't reach your account"
-  - After about ten seconds a quiet "Opening…" line shows under the mark; after about thirty an unobtrusive Switch account
+  - After about ten seconds a quiet "Opening…" line shows under the mark; after about thirty an unobtrusive Switch account and Copy diagnostics
   - A first-ever open with no network still reaches the error screen after a few seconds, with Try again
 covered_by:
   web: manual  # partial: web/cloud/js/tests/sw.fetch-cache.test.js#Cache Storage failure (med-x2jc) asserts only the worker response (a failed cache lookup on a navigation serves the network document, else the retry document; never a rejected respondWith = net::ERR_FAILED); missing: the interrupted cold open opening the app, no browser error page during the retry, the error screen only after every retry, a first-ever offline open
