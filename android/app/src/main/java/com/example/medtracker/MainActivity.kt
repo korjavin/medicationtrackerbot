@@ -493,7 +493,7 @@ class MainActivity : Activity() {
         if (h != host) Notifications.clear(this)
         setLocal(false) // leaving local mode keeps the move stash for the new account
         leave.clear() // opening an account abandons a pending leave stash; the next leave stashes afresh
-        prefs.edit().putString(HOST_KEY, h).remove(LEAVE_HOST_KEY).apply { if (h != host) host?.let { remove(shownKey(it)) } }.apply()
+        prefs.edit().putString(HOST_KEY, h).remove(LEAVE_HOST_KEY).apply()
         clearErase() // opening an account drops a pending join erase; local.leave {erase} re-arms it after
         setInvite(null) // whatever invite was waiting, this open consumed or superseded it
         host = h
@@ -517,7 +517,9 @@ class MainActivity : Activity() {
         prefs.edit().apply { if (thenLocal && !drop && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
         setLocal(true)
         Notifications.clear(this)
-        prefs.edit().remove(HOST_KEY).apply { if (left != null) remove(shownKey(left)) }.apply()
+        // The known-account flag (bd med-wcpg) goes only with the account itself (drop); a plain switch
+        // keeps it, as WebView keeps the origin's data.
+        prefs.edit().remove(HOST_KEY).apply { if (drop && left != null) remove(shownKey(left)) }.apply()
         host = null
         reopen(if (thenLocal) home else Invite.withInvite(home))
     }
@@ -577,8 +579,8 @@ class MainActivity : Activity() {
      * known account's cached app is reachable only by navigating again (the Service Worker answers
      * the navigation), so the shell retries quietly under the mark ([coverView]) after 0.5, 1.5 and
      * 3 s. Known (this host showed on this phone before, [shownKey]): then every 10 s until a page
-     * draws or the user leaves, never N4; "Opening…" shows after 10 s and Switch account after 30 s,
-     * the way out when the flag outlived WebView's cache offline. First-ever open: N4 with the last
+     * draws or the user leaves, never N4; "Opening…" shows after 10 s, Switch account and Copy
+     * diagnostics after 30 s (the way out when the flag outlived WebView's cache offline). First-ever open: N4 with the last
      * error once the third retry failed. The posted timers keep running while the activity is stopped.
      */
     private fun loadFailure(url: String, code: Int, why: String) {
@@ -849,6 +851,7 @@ class MainActivity : Activity() {
             // error screen and Try again.
             if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
                 diag("shell account gone")
+                prefs.edit().remove(shownKey(h)).apply() // the account is gone: no longer known (bd med-wcpg)
                 forget()
                 return
             }
@@ -1293,11 +1296,18 @@ class MainActivity : Activity() {
 
     /**
      * The quiet-retry cover (bd med-wcpg): the 96dp mark tile at the window's centre, where the splash
-     * and the lock put it, on wg_screen; a warm account's "Opening…" and Switch account below it, shown late.
+     * and the lock put it, on wg_screen; a known account's "Opening…" below it and, in the foot, Switch
+     * account and Copy diagnostics, shown late.
      */
     private fun buildCover(): View {
         coverNote = wgText(R.style.Widget_Wg_Text_Meta, "Opening…").apply { gravity = Gravity.CENTER }
-        coverSwitch = wgButton(R.style.Widget_Wg_Button_Ghost_Sm, "Switch account") { forget() }.apply {
+        // The ~30 s way out and the field evidence (Miles 27084): two ghosts side by side, as N4's actions.
+        coverSwitch = wgStack(
+            8,
+            wgButton(R.style.Widget_Wg_Button_Ghost_Sm, "Switch account") { forget() },
+            wgButton(R.style.Widget_Wg_Button_Ghost_Sm, "Copy diagnostics") { copyDiagnostics() },
+            horizontal = true,
+        ).apply {
             val wrap = LinearLayout.LayoutParams.WRAP_CONTENT
             layoutParams = LinearLayout.LayoutParams(wrap, wrap).apply { gravity = Gravity.CENTER_HORIZONTAL }
         }
@@ -1485,8 +1495,9 @@ class MainActivity : Activity() {
         /** Per-cycle cap on "shell load retry <n>" diag lines (a known account retries indefinitely). */
         const val DIAG_TRIES = 10
         /**
-         * The known-account flag (bd med-wcpg): a page of this host showed on this phone. Cleared in
-         * forget() for the host left (Switch account, X-Account-Gone, account.leave) and when another host is opened.
+         * The known-account flag (bd med-wcpg): a page of this host showed on this phone. Cleared only
+         * when the account is dropped (X-Account-Gone, forget(drop = true)); a plain switch or opening
+         * another host keeps it, like WebView keeps the origin's data.
          */
         fun shownKey(host: String) = "accountShown:$host"
         const val LEAVE_HOST_KEY = "leaveHost"

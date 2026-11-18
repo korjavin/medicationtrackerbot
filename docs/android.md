@@ -237,14 +237,14 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   settling the navigation with `error -1 · net::ERR_FAILED`) never shows N4 at once
   (bd med-wcpg): the shell covers the window with the mark on wg_screen and loads
   again. On a known account (prefs `shell` key `accountShown:<host>`, set when a
-  page of the host finished loading, cleared by `forget()` for the host left and
-  when another host is opened) it keeps retrying every 10 s and never shows N4:
-  "Opening…" under the mark at ~10 s, a ghost Switch account at ~30 s (the way out
-  when the flag outlived WebView's cache offline). The cycle ends when a page of
-  the vault draws (its first `chrome` sample: Chromium's error page commits on the
-  same URL but runs no bridge). Accepted edge: `leave.clear {back: true}` returns
-  to an account whose flag `forget()` cleared, so one offline open right after a
-  switch-back can reach N4. Diag lines `shell load retry <n> error <code> <why>`
+  page of the host finished loading) it keeps retrying every 10 s and never shows
+  N4: "Opening…" under the mark at ~10 s, ghost Switch account and Copy diagnostics
+  at ~30 s (the way out when the flag outlived WebView's cache offline). The flag
+  survives a plain switch (Switch account, Use another invite, account.leave, another
+  host opened: WebView keeps the origin's data) and is dropped only with the
+  account: X-Account-Gone and `account.leave {then: "local", forget: true}`. The
+  cycle ends when a page of the vault draws (its first `chrome` sample: Chromium's
+  error page commits on the same URL but runs no bridge). Diag lines `shell load retry <n> error <code> <why>`
   (10 per cycle) and `shell load retry gave up`; QA lever `--ei wgQAFailLoads <n>`
   (android-qa `load-retry`). Only the server's own "no such account" 404 — marked
   `X-Account-Gone: 1` by `internal/cloudserver/router.go` (a mistyped account,

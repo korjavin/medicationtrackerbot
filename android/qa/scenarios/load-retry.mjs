@@ -4,7 +4,8 @@
 // a navigation the Service Worker answers cannot be failed from the network side. The account is the
 // run's reachable invite host, opened at its root (nothing is claimed).
 // Known (shown on this phone before, accountShown:<host>): every 10 s after that, never N4; "Opening…"
-// at ~10 s, Switch account at ~30 s. First-ever open: N4 only after the third retry failed.
+// at ~10 s, Switch account + Copy diagnostics at ~30 s; a plain switch keeps the flag. First-ever
+// open (after pm clear): N4 only after the third retry failed.
 import { join } from 'node:path';
 
 // The cover's mark is an ImageView UiAutomator does not report (run 44312948936), so the cover is
@@ -73,7 +74,7 @@ export default async function loadRetry(ctx) {
   });
   await ctx.shot('known-page');
 
-  await ctx.step('known, every load fails: Opening… by 12 s, Switch account at 28–33 s, never N4', async () => {
+  await ctx.step('known, every load fails: Opening… by 12 s, Switch account + Copy diagnostics at 28–33 s, never N4', async () => {
     await reopen(ctx, 99);
     const t0 = Date.now(); // am start -W returned: the first load is under way
     let opening = 0, exit = 0;
@@ -85,7 +86,10 @@ export default async function loadRetry(ctx) {
         opening = t;
         await ctx.shot('known-opening');
       }
-      if (await has(ctx, 'Switch account')) exit = t;
+      if (await has(ctx, 'Switch account')) {
+        exit = t;
+        if (!(await has(ctx, 'Copy diagnostics', 1_000))) throw new Error('Switch account without Copy diagnostics');
+      }
       if (!opening && t > 12_000) throw new Error('no Opening… by 12 s');
       if (t > 33_000) throw new Error('no Switch account by 33 s');
     }
@@ -99,15 +103,24 @@ export default async function loadRetry(ctx) {
     if (!diag.includes('shell load retry 3 error -1')) throw new Error('diag lacks retry 3');
   });
 
-  await ctx.step('Switch account on the cover: local mode with F1, the flag gone', async () => {
+  await ctx.step('Copy diagnostics stays on the cover', async () => {
+    await ctx.device.tap({ text: 'Copy diagnostics' });
+    await ctx.sleep(1_000);
+    for (const t of ['Opening…', 'Switch account']) if (!(await has(ctx, t, 3_000))) throw new Error(`left the cover: no ${t}`);
+    await watch(ctx, 1_000);
+  });
+
+  await ctx.step('Switch account on the cover: local mode with F1, the flag kept', async () => {
     await ctx.device.tap({ text: 'Switch account' });
     await ctx.sleep(2000);
     await ctx.localPage((p) => p.locator('[data-invite-action="paste"]').waitFor({ state: 'visible', timeout: 60_000 }));
     const xml = await prefs(ctx, 'shell');
-    if (/accountHost|accountShown/.test(xml) || !/name="wgLocalMode" value="true"/.test(xml)) throw new Error(`prefs: ${xml}`);
+    if (/accountHost/.test(xml) || !/name="wgLocalMode" value="true"/.test(xml)) throw new Error(`prefs: ${xml}`);
+    if (!xml.includes(`name="accountShown:${host}" value="true"`)) throw new Error(`plain switch dropped the flag: ${xml}`);
   });
 
   await ctx.step('first-ever open, every try fails: N4 at 4.5–10 s with the last error', async () => {
+    await ctx.shell(`pm clear ${ctx.pkg}`); // nothing known: the flag (kept by the switch) and the origin's data go
     await fresh(ctx, 4);
     await ctx.openLink(url);
     const t0 = Date.now();
