@@ -62,10 +62,19 @@ export default async function loadRetry(ctx) {
 
   await ctx.step('known, one failed load: the mark, then the page; never N4', async () => {
     await reopen(ctx, 1);
-    if (!(await has(ctx, COVER, 10_000))) throw new Error('the retry cover never showed');
-    await ctx.device.screenshot({ path: join(ctx.out, 'screenshots', `${ctx.scenario}-known-retrying.png`) }); // now: the cycle is short
-    const r = await cycle(ctx, 8_000);
-    if (r !== 'page') throw new Error(`ended on ${r}`);
+    // The cover is up for ~0.5 s plus one load: too short to wait on, so watch for 8 s that nothing
+    // else shows (the long steps below assert the cover itself), shooting it if it is caught.
+    const end = Date.now() + 8_000;
+    let shot = false;
+    while (Date.now() < end) {
+      if (await has(ctx, N4)) throw new Error('N4 on a known account');
+      if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
+      if (!shot && await has(ctx, COVER, 100)) {
+        shot = true;
+        await ctx.device.screenshot({ path: join(ctx.out, 'screenshots', `${ctx.scenario}-known-retrying.png`) });
+      }
+    }
+    ctx.log('load-retry: cover caught on the one-blink retry:', shot);
     await onAccount(ctx, host);
     const diag = await prefs(ctx, 'diag');
     if (!diag.includes('shell load retry 1 error -1 net::ERR_FAILED (qa)')) throw new Error('diag lacks the retry line');
