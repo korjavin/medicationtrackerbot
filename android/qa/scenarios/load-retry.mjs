@@ -15,7 +15,12 @@ const N4 = 'Can\'t reach your account';
 // A string text selector missed the on-screen "Opening…" twice (runs 44314911268, 44316587038; the
 // FAILED shot shows it), so the ellipsis line is matched by a regex.
 const OPENING = /Opening.*/; // UiAutomator matches the whole text (cf. run.mjs's ANR regex)
-const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, () => false);
+const seen = new Set();
+const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, (e) => {
+  const msg = String(e?.message || e).split('\n')[0];
+  if (!seen.has(msg)) { seen.add(msg); ctx.log('load-retry: wait', String(text), '->', msg); }
+  return false;
+});
 
 /** launch() with the QA failure count: Switch account (the flag cleared), local mode with F1. */
 async function fresh(ctx, n) {
