@@ -1055,9 +1055,18 @@ changes for it.
   load-error screen (N4, bd med-ckm5.15: "Can't reach your account" with Try
   again / Switch account; a bare 404 "We can't find this account" with Use
   another invite / Try again; local mode "Can't open Med Tracker" with Try
-  again only — the invite entry is that bundled page; each with Copy diagnostics and a mono status line) appears only
-  when the very first load fails with nothing cached, or the host answers an
-  HTTP error. Try again keeps an invite link's `#claim=` fragment (in memory
+  again only — the invite entry is that bundled page; each with Copy diagnostics and a mono status line) appears
+  when the host answers an HTTP error, or local mode's bundle fails. A failed
+  account load (no page of the account showing) retries quietly under the
+  launch mark instead (bd med-si05, twin of Android med-wcpg): after 0.5 /
+  1.5 / 3 s, then N4 with the last error on a cold host; a warm host (a page
+  of it finished here: `wgAccountShown`, removed by every forget, another
+  host and local.reset) retries every 10 s and never shows N4, with
+  "Opening…" under the mark after 10 s and Switch account after 30 s. A
+  committed account page ends the cycle, Try again starts a fresh one, a
+  WebContent crash cancels it; diag lines `shell load retry <n>` and `shell
+  load retry gave up`. Debug `-wgQAFailLoads <n>` (qa.test base) fails the
+  first n account loads (FlowQALoadRetryTests). Try again keeps an invite link's `#claim=` fragment (in memory
   only). A 404 carrying the server's `X-Account-Gone: 1` marker (an unknown
   account subdomain — mistyped, deleted or expired) instead forgets the host
   (no way back: `wgLeaveHost` removed) and lands in local mode on

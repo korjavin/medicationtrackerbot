@@ -54,10 +54,44 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
     @Published private(set) var loadError: LoadError? {
-        didSet { if loadError != nil { painted = true } }
+        didSet {
+            if loadError != nil {
+                painted = true
+                retryingSince = nil
+            }
+        }
     }
     /// The first page reported ready (N6): RootView fades the launch mark out.
     @Published private(set) var painted = false
+    /// A quiet retry cycle runs since then (bd med-si05, twin of Android
+    /// med-wcpg): a failed load with no account page showing is tried again
+    /// under the launch mark (RootView's RetryCover) — after retryDelays, then
+    /// N4 on a cold host; a warm one (shownKey) keeps trying every warmDelay
+    /// and never shows N4. Cleared once a page finishes, N4 shows, or the
+    /// mode or account changes.
+    @Published private(set) var retryingSince: Date?
+    private static let retryDelays: [Double] = [0.5, 1.5, 3]
+    private static let warmDelay: Double = 10
+    /// The account host whose page finished loading on this phone (the warm
+    /// flag): its Service Worker can answer a failed load, so it never gets
+    /// N4 for one (HTTP errors still do). Removed by forget() (X-Account-Gone
+    /// included), another host and local.reset (Erase). If WebKit dropped the
+    /// worker's cache meanwhile, an offline warm open waits under the mark
+    /// until the network is back; its Switch account is the way out (Miles 27076).
+    static let shownKey = "wgAccountShown"
+    private var warm: Bool {
+        !local && host != nil && UserDefaults.standard.string(forKey: Shell.shownKey) == host
+    }
+    /// Failures in the running cycle, and its scheduled next try.
+    private var retries = 0
+    private var retryWork: Task<Void, Never>?
+    #if DEBUG
+    /// `-wgQAFailLoads <n>` (FlowQALoadRetryTests): the first n account loads
+    /// fail at once with a synthetic connection error. Debug builds for the
+    /// qa.test base only, as qaSoftAuthn.
+    private var qaFailLoads = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String)?.lowercased() == "qa.test"
+        ? UserDefaults.standard.integer(forKey: "wgQAFailLoads") : 0
+    #endif
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
@@ -258,6 +292,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         defaults.set(host, forKey: Shell.hostKey)
         defaults.set(false, forKey: LocalOrigin.modeKey)
         defaults.removeObject(forKey: Shell.leaveHostKey)
+        if defaults.string(forKey: Shell.shownKey) != host { defaults.removeObject(forKey: Shell.shownKey) } // a new host starts cold
         JoinErase.clear() // opening any account drops a pending join's erase; local.leave {erase} re-arms it
         setInvite(nil) // whatever invite was waiting, this open consumed or superseded it
         self.host = host
@@ -309,6 +344,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         if to == .local, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
         else { defaults.removeObject(forKey: Shell.leaveHostKey) }
         defaults.removeObject(forKey: Shell.hostKey)
+        defaults.removeObject(forKey: Shell.shownKey)
         defaults.set(true, forKey: LocalOrigin.modeKey)
         host = nil
         local = true
@@ -441,13 +477,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         lastURL = nil
         committedHost = nil
         loadError = nil
+        retryingSince = nil // the old mode's or account's cycle: its cover must not sit over a lock screen
         deferredURL = nil
         deferredReminder = nil
         if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
         if let target = url ?? home { load(target) } else { webView.loadHTMLString("", baseURL: nil) }
     }
 
-    private func load(_ url: URL) {
+    /// `fresh`: every load but the retry cycle's own starts a new cycle (Try again included).
+    private func load(_ url: URL, fresh: Bool = true) {
+        if fresh { cancelRetries() }
         loadError = nil
         lastURL = url
         if erasing {
@@ -458,7 +497,22 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             deferredURL = url
             return
         }
+        #if DEBUG
+        if !local, qaFailLoads > 0 {
+            qaFailLoads -= 1
+            let e = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+                            userInfo: [NSLocalizedDescriptionKey: "qa fail load"])
+            Task { [weak self] in self?.loadFailed(e) } // after this load() returns, as WebKit's callback would be
+            return
+        }
+        #endif
         webView.load(URLRequest(url: url))
+    }
+
+    private func cancelRetries() {
+        retryWork?.cancel()
+        retryWork = nil
+        retries = 0
     }
 
     /// An account page: never in local mode, whatever host is still stored.
@@ -546,26 +600,50 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loadError = nil
         painted = true
+        retryingSince = nil
         if local { LocalOrigin.includeInBackup() }
+        else if showingAccount, let host { UserDefaults.standard.set(host, forKey: Shell.shownKey) }
     }
 
-    /// Offline with a Service Worker in control never gets here: the worker
-    /// answers. This is the first-ever load failing (no network, no cache yet).
+    /// Offline with a Service Worker in control rarely gets here: the worker
+    /// answers. A first-ever load failing (no network, no cache yet), or a
+    /// worker answer that failed (a Cache Storage read: Android med-wcpg).
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let e = error as NSError
         // -999 superseded by another load; 102 interrupted by policy (external link, download).
         if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
-        // A page of this account already showing stays usable.
-        if !showingAccount {
-            loadError = local ? LoadError(.local, "local · bundle failed to load · \(e.code)")
-                : LoadError(.network, "error \(e.code) · " + e.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
-        }
+        loadFailed(e)
+    }
+
+    /// A failed main-frame load (or the QA lever's). A page of this account
+    /// already showing stays usable. Account mode retries quietly under the
+    /// mark (retryingSince): a cold host gets N4 with the last error after
+    /// the third retry failed, a warm one keeps trying. Local mode: N4 at once.
+    private func loadFailed(_ e: NSError) {
         diag("shell load failed \(e.domain) \(e.code)")
+        guard !showingAccount else { return }
+        if !local, let url = lastURL ?? home, warm || retries < Shell.retryDelays.count {
+            let delay = retries < Shell.retryDelays.count ? Shell.retryDelays[retries] : Shell.warmDelay
+            retries += 1
+            if retryingSince == nil { retryingSince = Date() }
+            diag("shell load retry \(retries) \(e.domain) \(e.code)")
+            retryWork = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                self?.load(url, fresh: false)
+            }
+            return
+        }
+        if !local { diag("shell load retry gave up") }
+        retries = 0
+        loadError = local ? LoadError(.local, "local · bundle failed to load · \(e.code)")
+            : LoadError(.network, "error \(e.code) · " + e.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedHost = webView.url?.host?.lowercased()
         edgeBack.isEnabled = true // a new page: swipe on until its back.state says otherwise
+        if showingAccount { cancelRetries() } // the cycle is over; the cover goes once the page finishes
     }
 
     // MARK: Left-edge swipe (bd med-y7b4.4)
@@ -591,6 +669,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        cancelRetries() // a running cycle ends; the reload below may start a fresh one
         if concealed, let url = webView.url {
             deferredURL = url
             return
@@ -623,6 +702,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: String] else { return }
         painted = true // the page's first sample: it has painted
+        retryingSince = nil
         if let c = body["top"].flatMap(Shell.color) { top = Color(uiColor: c) }
         if let c = body["bottom"].flatMap(Shell.color) { bottom = Color(uiColor: c) }
     }
@@ -675,6 +755,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
             // A stale account must not come back on a later leave.clear {back} (bd med-w6gx.28, Android #1217).
             UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
+            UserDefaults.standard.removeObject(forKey: Shell.shownKey) // Erase: no account counts as warm after it
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase

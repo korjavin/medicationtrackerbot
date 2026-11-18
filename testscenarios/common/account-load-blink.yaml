@@ -1,0 +1,18 @@
+id: account-load-blink
+title: A failed load of a known account retries quietly and opens the app, not the error screen
+platforms: [web, android, ios]
+preconditions:
+  - Account mode, opened before on this phone
+  - The app is fully closed
+steps:
+  - Interrupt the first load (a network blink while opening)
+invariants:
+  - The app opens from the phone within seconds
+  - The mark stays on screen during the retry, never a browser error page or a blank
+  - An account opened before on this phone never shows "Can't reach your account" for a failed load; after about 10 s "Opening…" shows under the mark, after about 30 s Switch account
+  - A first-ever open with no network still reaches "Can't reach your account" with Try again, after the quiet retries failed
+covered_by:
+  web: manual  # the web sibling bead (med-x2jc) replaces this line
+  android: manual  # the Android bead (med-wcpg) replaces this line with load-retry.mjs
+  ios: ios/UITests/FlowQALoadRetryTests.swift#testWarmHostNeverShowsError  # the Simulator has no airplane mode: -wgQAFailLoads fails loads synthetically; the cold case is #testColdHostGivesUpAfterThreeRetries
+source: [med-wcpg, med-x2jc, med-si05]
