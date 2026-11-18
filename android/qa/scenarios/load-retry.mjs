@@ -74,7 +74,7 @@ export default async function loadRetry(ctx) {
   });
   await ctx.shot('known-page');
 
-  await ctx.step('known, every load fails: Opening… by 12 s, Switch account + Copy diagnostics at 28–33 s, never N4', async () => {
+  await ctx.step('known, every load fails: Opening… ~10 s, Switch account + Copy diagnostics ~30 s, never N4', async () => {
     await reopen(ctx, 99);
     const t0 = Date.now(); // am start -W returned: the first load is under way
     let opening = 0, exit = 0;
@@ -90,12 +90,14 @@ export default async function loadRetry(ctx) {
         exit = t;
         if (!(await has(ctx, 'Copy diagnostics', 1_000))) throw new Error('Switch account without Copy diagnostics');
       }
-      if (!opening && t > 12_000) throw new Error('no Opening… by 12 s');
-      if (t > 33_000) throw new Error('no Switch account by 33 s');
+      // Both timers start at the first failure, which a cold start reaches a few seconds after
+      // am start returns: Opening… by 15 s of it, Switch account ~20 s after Opening….
+      if (!opening && t > 15_000) throw new Error('no Opening… by 15 s');
+      if (t > 38_000) throw new Error('no Switch account by 38 s');
     }
     ctx.log('load-retry: Opening… at', opening, 'ms, Switch account at', exit, 'ms');
     if (!opening) throw new Error('Switch account came before Opening…');
-    if (exit < 28_000) throw new Error(`Switch account already at ${exit} ms`);
+    if (exit - opening < 17_000 || exit - opening > 23_000) throw new Error(`Switch account ${exit - opening} ms after Opening…, want ~20 s`);
     await ctx.shot('known-switch');
     await ctx.sleep(2_000); // past 35 s
     if (await has(ctx, N4)) throw new Error('N4 on a known account');
