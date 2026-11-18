@@ -12,6 +12,9 @@ import { join } from 'node:path';
 // proven by its "Opening…" / "Switch account" lines and by the shots; every step watches that
 // neither N4 nor Chromium's error page shows when it must not.
 const N4 = 'Can\'t reach your account';
+// A string text selector missed the on-screen "Opening…" twice (runs 44314911268, 44316587038; the
+// FAILED shot shows it), so the ellipsis line is matched by a regex.
+const OPENING = /Opening.*/; // UiAutomator matches the whole text (cf. run.mjs's ANR regex)
 const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, () => false);
 
 /** launch() with the QA failure count: Switch account (the flag cleared), local mode with F1. */
@@ -82,7 +85,7 @@ export default async function loadRetry(ctx) {
       const t = Date.now() - t0;
       if (await has(ctx, N4)) throw new Error(`N4 on a known account at ${t} ms`);
       if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-      if (!opening && await has(ctx, 'Opening…')) {
+      if (!opening && await has(ctx, OPENING)) {
         opening = t;
         await ctx.shot('known-opening');
       }
@@ -108,7 +111,7 @@ export default async function loadRetry(ctx) {
   await ctx.step('Copy diagnostics stays on the cover', async () => {
     await ctx.device.tap({ text: 'Copy diagnostics' });
     await ctx.sleep(1_000);
-    for (const t of ['Opening…', 'Switch account']) if (!(await has(ctx, t, 3_000))) throw new Error(`left the cover: no ${t}`);
+    for (const t of [OPENING, 'Switch account']) if (!(await has(ctx, t, 3_000))) throw new Error(`left the cover: no ${t}`);
     await watch(ctx, 1_000);
   });
 
