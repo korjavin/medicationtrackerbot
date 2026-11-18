@@ -787,8 +787,9 @@ class MainActivity : Activity() {
             updateBack()
             // QA (bd med-wcpg, debug + qa.test only): fail this account load as the field's ERR_FAILED did.
             // loadFailed is set here, synchronously, so the stopped load's onPageFinished never marks the account shown.
-            qaStopped = qaFailLoads > 0 && !local && url != null && Uri.parse(url).host?.lowercase() == host
-            if (qaStopped) {
+            qaStopped = false
+            if (qaFailLoads > 0 && !local && url != null && Uri.parse(url).host?.lowercase() == host) {
+                qaStopped = true
                 qaFailLoads--
                 view.stopLoading()
                 loadFailure(url, -1, "net::ERR_FAILED (qa)")
