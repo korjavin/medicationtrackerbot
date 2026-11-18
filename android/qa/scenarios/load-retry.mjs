@@ -85,18 +85,22 @@ export default async function loadRetry(ctx) {
       const t = Date.now() - t0;
       if (await has(ctx, N4)) throw new Error(`N4 on a known account at ${t} ms`);
       if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-      if (!opening && await has(ctx, OPENING)) {
+      // 2 s, not 300 ms: UiAutomator's idle wait runs long while the WebView reloads every 10 s.
+      if (!opening && await has(ctx, OPENING, 2_000)) {
         opening = t;
         await ctx.shot('known-opening');
       }
-      if (await has(ctx, 'Switch account')) {
+      if (opening && await has(ctx, 'Switch account', 2_000)) {
         exit = t;
         if (!(await has(ctx, 'Copy diagnostics', 1_000))) throw new Error('Switch account without Copy diagnostics');
       }
       // Both timers start at the first failure, which a cold start reaches a few seconds after
       // am start returns: Opening… by 15 s of it, Switch account ~20 s after Opening….
-      if (!opening && t > 15_000) throw new Error('no Opening… by 15 s');
-      if (t > 38_000) throw new Error('no Switch account by 38 s');
+      if ((!opening && t > 15_000) || t > 38_000) {
+        await ctx.shell('uiautomator dump /sdcard/wg-ui.xml').catch(() => {});
+        ctx.log('load-retry: hierarchy', await ctx.shell('cat /sdcard/wg-ui.xml').catch((e) => String(e)));
+        throw new Error(opening ? 'no Switch account by 38 s' : 'no Opening… by 15 s');
+      }
     }
     ctx.log('load-retry: Opening… at', opening, 'ms, Switch account at', exit, 'ms');
     if (!opening) throw new Error('Switch account came before Opening…');
