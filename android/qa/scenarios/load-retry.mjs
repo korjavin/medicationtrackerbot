@@ -7,10 +7,11 @@
 // at ~10 s, Switch account at ~30 s. First-ever open: N4 only after the third retry failed.
 import { join } from 'node:path';
 
+// The cover's mark is an ImageView UiAutomator does not report (run 44312948936), so the cover is
+// proven by its "Opening…" / "Switch account" lines and by the shots; every step watches that
+// neither N4 nor Chromium's error page shows when it must not.
 const N4 = 'Can\'t reach your account';
-const COVER = { desc: 'Opening Med Tracker' };
-const has = (ctx, sel, timeout = 300) =>
-  ctx.device.wait(typeof sel === 'string' ? { text: sel } : sel, { timeout }).then(() => true, () => false);
+const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, () => false);
 
 /** launch() with the QA failure count: Switch account (the flag cleared), local mode with F1. */
 async function fresh(ctx, n) {
@@ -22,16 +23,17 @@ async function fresh(ctx, n) {
 /** A cold start onto the stored account with the QA failure count. */
 const reopen = (ctx, n) => ctx.coldStart(`-n ${ctx.pkg}/com.example.medtracker.MainActivity --ei wgQAFailLoads ${n}`);
 
-/** The cover shows, then: 'page' once it is gone with no N4, or 'n4'. Never the WebView error page. */
-async function cycle(ctx, ms) {
-  if (!(await has(ctx, COVER, 10_000))) throw new Error('the retry cover never showed');
+/** Watches `ms`: throws on Chromium's error page, and on N4 unless `n4` (then returns once it shows). */
+async function watch(ctx, ms, { n4 = false } = {}) {
   const end = Date.now() + ms;
-  for (;;) {
-    if (await has(ctx, N4)) return 'n4';
+  while (Date.now() < end) {
     if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-    if (!(await has(ctx, COVER))) return 'page';
-    if (Date.now() > end) throw new Error(`still retrying after ${ms} ms`);
+    if (await has(ctx, N4)) {
+      if (n4) return true;
+      throw new Error('N4 showed');
+    }
   }
+  return false;
 }
 
 /** The WebView holds a loaded page of the account. */
@@ -62,19 +64,9 @@ export default async function loadRetry(ctx) {
 
   await ctx.step('known, one failed load: the mark, then the page; never N4', async () => {
     await reopen(ctx, 1);
-    // The cover is up for ~0.5 s plus one load: too short to wait on, so watch for 8 s that nothing
-    // else shows (the long steps below assert the cover itself), shooting it if it is caught.
-    const end = Date.now() + 8_000;
-    let shot = false;
-    while (Date.now() < end) {
-      if (await has(ctx, N4)) throw new Error('N4 on a known account');
-      if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-      if (!shot && await has(ctx, COVER, 100)) {
-        shot = true;
-        await ctx.device.screenshot({ path: join(ctx.out, 'screenshots', `${ctx.scenario}-known-retrying.png`) });
-      }
-    }
-    ctx.log('load-retry: cover caught on the one-blink retry:', shot);
+    await ctx.sleep(300);
+    await ctx.device.screenshot({ path: join(ctx.out, 'screenshots', `${ctx.scenario}-known-retrying.png`) }); // the cycle is ~1 s
+    await watch(ctx, 8_000);
     await onAccount(ctx, host);
     const diag = await prefs(ctx, 'diag');
     if (!diag.includes('shell load retry 1 error -1 net::ERR_FAILED (qa)')) throw new Error('diag lacks the retry line');
@@ -84,7 +76,6 @@ export default async function loadRetry(ctx) {
   await ctx.step('known, every load fails: Opening… by 12 s, Switch account at 28–33 s, never N4', async () => {
     await reopen(ctx, 99);
     const t0 = Date.now(); // am start -W returned: the first load is under way
-    if (!(await has(ctx, COVER, 10_000))) throw new Error('the retry cover never showed');
     let opening = 0, exit = 0;
     while (!exit) {
       const t = Date.now() - t0;
@@ -120,12 +111,11 @@ export default async function loadRetry(ctx) {
     await fresh(ctx, 4);
     await ctx.openLink(url);
     const t0 = Date.now();
-    if (!(await has(ctx, COVER, 8_000))) throw new Error('the retry cover never showed');
-    await ctx.shot('first-retrying');
-    const r = await cycle(ctx, 15_000);
+    await ctx.sleep(1_500);
+    await ctx.shot('first-retrying'); // mid-cycle: the mark, no text
+    if (!(await watch(ctx, 15_000, { n4: true }))) throw new Error('no N4 by 15 s');
     const ms = Date.now() - t0;
     ctx.log('load-retry: N4 after', ms, 'ms');
-    if (r !== 'n4') throw new Error(`ended on ${r}`);
     if (ms < 4_500 || ms > 10_000) throw new Error(`N4 after ${ms} ms, want 4.5–10 s`);
     await ctx.waitFor({ text: /^error -1 · net::ERR_FAILED \(qa\) · \d\d:\d\d$/ }, 5_000);
     const diag = await prefs(ctx, 'diag');
@@ -137,8 +127,7 @@ export default async function loadRetry(ctx) {
 
   await ctx.step('Try again (failures used up): the page commits', async () => {
     await ctx.device.tap({ text: 'Try again' });
-    const end = Date.now() + 30_000;
-    while ((await has(ctx, N4)) || (await has(ctx, COVER))) if (Date.now() > end) throw new Error('Try again did not open the page');
+    await watch(ctx, 5_000);
     await onAccount(ctx, host);
   });
 }

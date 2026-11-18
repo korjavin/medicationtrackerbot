@@ -1307,7 +1307,7 @@ class MainActivity : Activity() {
             addView(Space(this@MainActivity), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(ImageView(this@MainActivity).apply {
                 setImageResource(R.drawable.wg_mark_lg)
-                contentDescription = "Opening Med Tracker" // also android-qa load-retry's handle on the cover
+                contentDescription = "Opening Med Tracker"
             }, LinearLayout.LayoutParams(96.dp, 96.dp).apply { gravity = Gravity.CENTER_HORIZONTAL })
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
