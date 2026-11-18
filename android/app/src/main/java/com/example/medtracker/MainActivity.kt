@@ -104,6 +104,8 @@ class MainActivity : Activity() {
     private val coverExit = Runnable { coverSwitch.visibility = View.VISIBLE; diag("shell load cover exit") }
     /** The QA hook's forced main-frame failures left (`--ei wgQAFailLoads <n>`; 0 in release). */
     private var qaFailLoads = 0
+    /** The current load is one the QA hook stopped and already counted: its own late error is not a second failure. */
+    private var qaStopped = false
     /** Set by open/forget: the previous account's pages must not stay reachable by Back. */
     private var clearHistory = false
     /** The committed page is an account ceremony (/unlock, /claim, /recover; the web draws its exit bar). */
@@ -785,7 +787,8 @@ class MainActivity : Activity() {
             updateBack()
             // QA (bd med-wcpg, debug + qa.test only): fail this account load as the field's ERR_FAILED did.
             // loadFailed is set here, synchronously, so the stopped load's onPageFinished never marks the account shown.
-            if (qaFailLoads > 0 && !local && url != null && Uri.parse(url).host?.lowercase() == host) {
+            qaStopped = qaFailLoads > 0 && !local && url != null && Uri.parse(url).host?.lowercase() == host
+            if (qaStopped) {
                 qaFailLoads--
                 view.stopLoading()
                 loadFailure(url, -1, "net::ERR_FAILED (qa)")
@@ -845,6 +848,7 @@ class MainActivity : Activity() {
          */
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (!request.isForMainFrame) return
+            if (qaStopped) return diag("shell load qa-stopped error ${error.errorCode} ignored")
             if (bundled(request, "error ${error.errorCode}")) return
             val why = error.description?.toString()?.takeIf { it.isNotBlank() } ?: "not loaded"
             loadFailure(request.url.toString(), error.errorCode, why)
