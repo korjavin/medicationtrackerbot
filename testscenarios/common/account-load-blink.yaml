@@ -1,5 +1,5 @@
 id: account-load-blink
-title: A failed load of a known account retries quietly and opens the app, not the error screen
+title: An account the phone has opened before never shows the error screen on a failed load
 platforms: [web, android, ios]
 preconditions:
   - Account mode, opened before on this phone
@@ -9,7 +9,8 @@ steps:
 invariants:
   - The app opens from the phone within seconds
   - The mark stays on screen during the retry, never a browser error page or a blank
-  - An account opened before on this phone never shows "Can't reach your account" for a failed load; after about 10 s "Opening…" shows under the mark, after about 30 s Switch account
+  - An account opened before on this phone never shows "Can't reach your account" for a failed load; after about 10 s "Opening…" shows under the mark, after about 30 s Switch account and Copy diagnostics
+  - Switch account from there lands in local mode, and that account still counts as opened before
   - A first-ever open with no network still reaches "Can't reach your account" with Try again, after the quiet retries failed
 covered_by:
   web: manual  # the web sibling bead (med-x2jc) replaces this line

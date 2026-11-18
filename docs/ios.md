@@ -1060,11 +1060,13 @@ changes for it.
   account load (no page of the account showing) retries quietly under the
   launch mark instead (bd med-si05, twin of Android med-wcpg): after 0.5 /
   1.5 / 3 s, then N4 with the last error on a cold host; a warm host (a page
-  of it finished here: `wgAccountShown`, removed by every forget, another
-  host and local.reset) retries every 10 s and never shows N4, with
-  "Opening…" under the mark after 10 s and Switch account after 30 s. A
-  committed account page ends the cycle, Try again starts a fresh one, a
-  WebContent crash cancels it; diag lines `shell load retry <n>` and `shell
+  of it finished here: `wgAccountShown:<host>`, removed only when the
+  account is dropped — X-Account-Gone, account.leave `{then: "local",
+  forget: true}` — and kept on a plain Switch account) retries every 10 s
+  and never shows N4, with "Opening…" under the mark after 10 s and ghost
+  Switch account + Copy diagnostics after 30 s. A committed account page
+  ends the cycle (a commit that then fails drops the cover), Try again
+  starts a fresh one, a WebContent crash cancels it; diag lines `shell load retry <n>` and `shell
   load retry gave up`. Debug `-wgQAFailLoads <n>` (qa.test base) fails the
   first n account loads (FlowQALoadRetryTests). Try again keeps an invite link's `#claim=` fragment (in memory
   only). A 404 carrying the server's `X-Account-Gone: 1` marker (an unknown

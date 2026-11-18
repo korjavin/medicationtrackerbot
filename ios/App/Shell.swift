@@ -72,15 +72,18 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     @Published private(set) var retryingSince: Date?
     private static let retryDelays: [Double] = [0.5, 1.5, 3]
     private static let warmDelay: Double = 10
-    /// The account host whose page finished loading on this phone (the warm
-    /// flag): its Service Worker can answer a failed load, so it never gets
-    /// N4 for one (HTTP errors still do). Removed by forget() (X-Account-Gone
-    /// included), another host and local.reset (Erase). If WebKit dropped the
-    /// worker's cache meanwhile, an offline warm open waits under the mark
-    /// until the network is back; its Switch account is the way out (Miles 27076).
-    static let shownKey = "wgAccountShown"
+    /// Per account host, the warm flag: a page of it finished loading on this
+    /// phone, so its Service Worker can answer a failed load and it never gets
+    /// N4 for one (HTTP errors still do). It says "shown once", not "cache
+    /// present": if WebKit evicted the worker's cache, an offline warm open
+    /// waits under the mark until the network is back, Switch account being
+    /// the way out (Miles 27076). Removed only when the account is dropped
+    /// (X-Account-Gone, account.leave {then: "local", forget: true}); a plain
+    /// Switch account keeps it, as WebKit keeps the origin's data (Miles 27084).
+    static func shownKey(_ host: String) -> String { "wgAccountShown:" + host }
     private var warm: Bool {
-        !local && host != nil && UserDefaults.standard.string(forKey: Shell.shownKey) == host
+        guard !local, let host else { return false }
+        return UserDefaults.standard.bool(forKey: Shell.shownKey(host))
     }
     /// Failures in the running cycle, and its scheduled next try.
     private var retries = 0
@@ -292,7 +295,6 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         defaults.set(host, forKey: Shell.hostKey)
         defaults.set(false, forKey: LocalOrigin.modeKey)
         defaults.removeObject(forKey: Shell.leaveHostKey)
-        if defaults.string(forKey: Shell.shownKey) != host { defaults.removeObject(forKey: Shell.shownKey) } // a new host starts cold
         JoinErase.clear() // opening any account drops a pending join's erase; local.leave {erase} re-arms it
         setInvite(nil) // whatever invite was waiting, this open consumed or superseded it
         self.host = host
@@ -343,8 +345,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         let defaults = UserDefaults.standard
         if to == .local, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
         else { defaults.removeObject(forKey: Shell.leaveHostKey) }
+        if to == .forgetLocal, let host { defaults.removeObject(forKey: Shell.shownKey(host)) } // dropped, not just left
         defaults.removeObject(forKey: Shell.hostKey)
-        defaults.removeObject(forKey: Shell.shownKey)
         defaults.set(true, forKey: LocalOrigin.modeKey)
         host = nil
         local = true
@@ -577,6 +579,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             // screen with Try again.
             if let h = http.url?.host?.lowercased(), h == host, AccountURL.accountGone(http.statusCode, http.allHeaderFields) {
                 diag("shell account gone")
+                UserDefaults.standard.removeObject(forKey: Shell.shownKey(h))
                 forget()
                 return .cancel
             }
@@ -602,7 +605,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         painted = true
         retryingSince = nil
         if local { LocalOrigin.includeInBackup() }
-        else if showingAccount, let host { UserDefaults.standard.set(host, forKey: Shell.shownKey) }
+        else if showingAccount, let host { UserDefaults.standard.set(true, forKey: Shell.shownKey(host)) }
     }
 
     /// Offline with a Service Worker in control rarely gets here: the worker
@@ -638,6 +641,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         retries = 0
         loadError = local ? LoadError(.local, "local · bundle failed to load · \(e.code)")
             : LoadError(.network, "error \(e.code) · " + e.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
+    }
+
+    /// A committed page whose load then failed (a worker's response erroring
+    /// mid-body): the cycle ended at commit, so the cover goes and the page
+    /// shows what it got, as before the cycle existed.
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let e = error as NSError
+        if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
+        retryingSince = nil
+        diag("shell load failed after commit \(e.domain) \(e.code)")
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -755,7 +768,6 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
             // A stale account must not come back on a later leave.clear {back} (bd med-w6gx.28, Android #1217).
             UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
-            UserDefaults.standard.removeObject(forKey: Shell.shownKey) // Erase: no account counts as warm after it
             move.clear()
             leaveStash.clear()
             setInvite(nil) // no claim token left behind after Erase

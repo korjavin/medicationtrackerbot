@@ -29,8 +29,9 @@ final class FlowQALoadRetryTests: XCTestCase {
         let app = XCUIApplication()
         let markers = ["shell load retry 1 ", "shell load retry 2 ", "shell load retry 3 ", "shell load retry 4 ", "shell load retry gave up"]
         let since = Date()
-        // wgAccountShown pinned empty (NSArgumentDomain): cold whatever an earlier flow left.
-        launch(app, try host(), ["-wgAccountShown", "", "-wgQAFailLoads", "4"])
+        // The host's flag pinned off (NSArgumentDomain): cold whatever an earlier flow left.
+        let host = try host()
+        launch(app, host, ["-wgAccountShown:" + host, "NO", "-wgQAFailLoads", "4"])
         XCTAssertFalse(app.staticTexts[error].waitForExistence(timeout: 3), "N4 showed before the retries ran")
         shot("load-retry", "cold-cycle")
         XCTAssertTrue(app.staticTexts[error].waitForExistence(timeout: 30), "four failed loads never reached N4; on screen: \(texts(app))")
@@ -46,18 +47,19 @@ final class FlowQALoadRetryTests: XCTestCase {
         app.terminate()
     }
 
-    /// Warm host (a page of it finished here before): never N4, "Opening…"
-    /// after 10 s, Switch account after 30 s, and the page once a retry works.
-    /// Six failures: the 6th retry, ~35 s in, is the first real load.
+    /// Warm host (a page of it finished here before): never N4. (a) One
+    /// blink opens the page. Six failures: "Opening…" after 10 s, Switch
+    /// account + Copy diagnostics after 30 s, the page on the 6th retry (~35 s
+    /// in, the first real load). (b) n=99: no N4 by 35 s; Switch account
+    /// lands in local mode on F1 and the host's flag stays (Miles 27084).
     func testWarmHostNeverShowsError() throws {
         continueAfterFailure = false
         let host = try host()
+        let flag = "wgAccountShown:" + host
         let app = XCUIApplication()
         launch(app, host, [])
         XCTAssertTrue(page(app).waitForExistence(timeout: 60), "the account page never showed; on screen: \(texts(app))")
-        let end = Date().addingTimeInterval(15)
-        while QA.appDefaults()?["wgAccountShown"] as? String != host, Date() < end { Thread.sleep(forTimeInterval: 0.5) }
-        XCTAssertEqual(QA.appDefaults()?["wgAccountShown"] as? String, host, "a finished page did not mark the host warm")
+        XCTAssertTrue(waitFlag(flag), "a finished page did not mark the host warm (\(flag))")
 
         // One blink: the first retry (0.5 s) opens the page, no error screen at any point.
         let one = ["shell load retry 1 ", "shell load retry 2 "]
@@ -77,6 +79,7 @@ final class FlowQALoadRetryTests: XCTestCase {
         shot("load-retry", "warm-opening")
         let switchAccount = app.buttons["Switch account"]
         XCTAssertTrue(switchAccount.waitForExistence(timeout: 30), "no Switch account after 30 s; on screen: \(texts(app))")
+        XCTAssertTrue(app.buttons["Copy diagnostics"].exists, "no Copy diagnostics beside Switch account")
         XCTAssertFalse(app.staticTexts[error].exists, "a warm host showed N4")
         shot("load-retry", "warm-switch-account")
         XCTAssertTrue(page(app).waitForExistence(timeout: 40), "the page never opened once the loads worked; on screen: \(texts(app))")
@@ -86,7 +89,27 @@ final class FlowQALoadRetryTests: XCTestCase {
         XCTAssertFalse(app.staticTexts[error].exists, "a warm host showed N4")
         XCTAssertEqual(waitDiag(six, since: sixSince, [1, 0]), [1, 0],"a warm host retried a sixth time and never gave up (counts of \(six))")
         shot("load-retry", "warm-opened")
+
+        // (b) It never works: no N4 by 35 s, and Switch account is the way out.
+        launch(app, host, ["-wgQAFailLoads", "99"])
+        let start = Date()
+        XCTAssertTrue(app.buttons["Switch account"].waitForExistence(timeout: 40), "n=99: no Switch account; on screen: \(texts(app))")
+        let rest = 35 - Date().timeIntervalSince(start)
+        if rest > 0 { XCTAssertFalse(app.staticTexts[error].waitForExistence(timeout: rest), "n=99: a warm host showed N4") }
+        XCTAssertFalse(app.staticTexts[error].exists, "n=99: a warm host showed N4")
+        shot("load-retry", "warm-stuck")
+        app.buttons["Switch account"].tap()
+        XCTAssertTrue(QA.inviteSheetShows(app, timeout: 60), "Switch account did not land on local mode's \"Have an invite?\"; on screen: \(texts(app))")
+        XCTAssertEqual(QA.appDefaults()?[flag] as? Bool, true, "Switch account dropped the host's warm flag")
+        shot("load-retry", "warm-switched")
         app.terminate()
+    }
+
+    /// Polls the persisted defaults until `key` is true (cfprefsd writes a moment later).
+    private func waitFlag(_ key: String) -> Bool {
+        let end = Date().addingTimeInterval(15)
+        while QA.appDefaults()?[key] as? Bool != true, Date() < end { Thread.sleep(forTimeInterval: 0.5) }
+        return QA.appDefaults()?[key] as? Bool == true
     }
 
     /// A cold launch on this account, lock and local mode off.

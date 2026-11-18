@@ -134,8 +134,9 @@ struct LaunchCover: View {
 
 /// The launch cover while the shell retries a failed account load (bd
 /// med-si05, twin of Android med-wcpg): the mark where the launch screen has
-/// it, after 10 s a quiet "Opening…" under it, after 30 s Switch account (the
-/// error screen's action): a warm account retries for as long as it takes.
+/// it, after 10 s a quiet "Opening…" under it, after 30 s two ghost buttons,
+/// the error screen's Switch account and Copy diagnostics: a warm account
+/// retries for as long as it takes.
 struct RetryCover: View {
     @ObservedObject var shell: Shell
     let since: Date
@@ -155,8 +156,11 @@ struct RetryCover: View {
                 // An overlay, not a safe-area inset: the mark must not move when it appears.
                 if waited >= 30 {
                     WgShellFoot {
-                        Button { shell.forget() } label: { Text("Switch account").frame(maxWidth: .infinity) }
-                            .buttonStyle(WgButtonStyle())
+                        Button("Switch account") { shell.forget() }.buttonStyle(WgGhostButtonStyle())
+                        Button { shell.copyDiagnostics() } label: {
+                            Label("Copy diagnostics", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(WgGhostButtonStyle(small: true))
                     }
                 }
             }
