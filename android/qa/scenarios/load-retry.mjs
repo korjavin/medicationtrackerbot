@@ -96,11 +96,8 @@ export default async function loadRetry(ctx) {
       }
       // Both timers start at the first failure, which a cold start reaches a few seconds after
       // am start returns: Opening… by 15 s of it, Switch account ~20 s after Opening….
-      if ((!opening && t > 15_000) || t > 38_000) {
-        await ctx.shell('uiautomator dump /sdcard/wg-ui.xml').catch(() => {});
-        ctx.log('load-retry: hierarchy', await ctx.shell('cat /sdcard/wg-ui.xml').catch((e) => String(e)));
-        throw new Error(opening ? 'no Switch account by 38 s' : 'no Opening… by 15 s');
-      }
+      if (!opening && t > 15_000) throw new Error('no Opening… by 15 s');
+      if (t > 38_000) throw new Error('no Switch account by 38 s');
     }
     ctx.log('load-retry: Opening… at', opening, 'ms, Switch account at', exit, 'ms');
     if (!opening) throw new Error('Switch account came before Opening…');

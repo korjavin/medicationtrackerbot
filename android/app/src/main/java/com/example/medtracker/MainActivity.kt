@@ -599,6 +599,8 @@ class MainActivity : Activity() {
             coverNote.visibility = View.GONE
             coverSwitch.visibility = View.GONE
             coverView.visibility = View.VISIBLE // before Chromium commits its error page
+            // TalkBack (and UiAutomator) must not read the page or error page hidden under the cover.
+            web.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             if (warm) {
                 root.postDelayed(coverOpening, COVER_NOTE_MS)
                 root.postDelayed(coverExit, COVER_EXIT_MS)
@@ -619,6 +621,7 @@ class MainActivity : Activity() {
         root.removeCallbacks(coverOpening)
         root.removeCallbacks(coverExit)
         coverView.visibility = View.GONE
+        web.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
         updateChrome()
     }
 
