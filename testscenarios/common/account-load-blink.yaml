@@ -1,0 +1,18 @@
+id: account-load-blink
+title: A failed load of a known account retries quietly and opens the app, not the error screen
+platforms: [web, android, ios]
+preconditions:
+  - Account mode, opened before on this phone
+  - The app is fully closed
+steps:
+  - Interrupt the first load (a network blink while opening)
+invariants:
+  - The app opens from the phone within seconds
+  - The mark stays on screen during the retry, never a browser error page
+  - "\"Can't reach your account\" appears only after every retry failed, with Try again"
+  - A first-ever open with no network still reaches the error screen
+covered_by:
+  web: manual  # partial: web/cloud/js/tests/sw.fetch-cache.test.js#Cache Storage failure (med-x2jc) asserts only the worker response (a failed cache lookup on a navigation serves the network document, else the retry document; never a rejected respondWith = net::ERR_FAILED); missing: the interrupted cold open opening the app, no browser error page during the retry, the error screen only after every retry, a first-ever offline open
+  android: manual  # med-wcpg replaces this line with android/qa/scenarios/load-retry.mjs
+  ios: manual  # med-si05 replaces this line
+source: [med-wcpg, med-x2jc, med-si05]
