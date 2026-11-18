@@ -63,8 +63,11 @@ struct RootView: View {
         .overlay {
             // Before the app-switcher snapshot (taken after inactive): no data
             // in it, the teal and the mark (N3). Not under the lock's own
-            // prompt: the lock screen shows there, dimmed.
-            if launchMark || (phase != .active && shell.local && shell.lock.on && shell.lock.state != .unlocking) {
+            // prompt: the lock screen shows there, dimmed. A quiet load retry
+            // (bd med-si05) keeps the mark up, with its own late lines.
+            if let since = shell.retryingSince {
+                RetryCover(shell: shell, since: since)
+            } else if launchMark || (phase != .active && shell.local && shell.lock.on && shell.lock.state != .unlocking) {
                 LaunchCover()
             }
         }
@@ -126,6 +129,44 @@ struct LaunchCover: View {
             .background(Wg.screen)
             .ignoresSafeArea()
             .allowsHitTesting(false)
+    }
+}
+
+/// The launch cover while the shell retries a failed account load (bd
+/// med-si05, twin of Android med-wcpg): the mark where the launch screen has
+/// it, after 10 s a quiet "Opening…" under it, after 30 s two ghost buttons,
+/// the error screen's Switch account and Copy diagnostics: a warm account
+/// retries for as long as it takes.
+struct RetryCover: View {
+    @ObservedObject var shell: Shell
+    let since: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: since, by: 1)) { context in
+            let waited = context.date.timeIntervalSince(since)
+            ZStack(alignment: Alignment(horizontal: .center, vertical: .markCenter)) {
+                Color.clear
+                VStack(spacing: 16) {
+                    WgLaunchMark().alignmentGuide(.markCenter) { $0[VerticalAlignment.center] }
+                    if waited >= 10 { Text("Opening…").font(Wg.ui(14)).foregroundStyle(Wg.fg3) }
+                }
+            }
+            .ignoresSafeArea()
+            .overlay(alignment: .bottom) {
+                // An overlay, not a safe-area inset: the mark must not move when it appears.
+                if waited >= 30 {
+                    WgShellFoot {
+                        Button("Switch account") { shell.forget() }.buttonStyle(WgGhostButtonStyle())
+                        Button { shell.copyDiagnostics() } label: {
+                            Label("Copy diagnostics", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(WgGhostButtonStyle(small: true))
+                    }
+                }
+            }
+        }
+        .background(Wg.screen.ignoresSafeArea())
+        .preferredColorScheme(.dark)
     }
 }
 

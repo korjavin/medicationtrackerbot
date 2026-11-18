@@ -17,5 +17,4 @@ covered_by:
   # The QA failure is synthetic (the shell's own wgQAFailLoads hook): a navigation the Service Worker
   # answers cannot be failed from the network side.
   android: android/qa/scenarios/load-retry.mjs#loadRetry  # known n=1 (mark, then the page), known n=99 (Opening… / Switch account + Copy diagnostics timing, never N4, Switch account keeps the flag), first-ever n=4 (N4 at 4.5–10 s, diag lines, Try again)
-  ios: manual  # med-si05 replaces this line
-source: [med-wcpg, med-x2jc, med-si05]
+  ios: ios/UITests/FlowQALoadRetryTests.swift#testWarmHostNeverShowsError  # the Simulator has no airplane mode: -wgQAFailLoads fails loads synthetically; the first-ever open is #testColdHostGivesUpAfterThreeRetriessource: [med-wcpg, med-x2jc, med-si05]
