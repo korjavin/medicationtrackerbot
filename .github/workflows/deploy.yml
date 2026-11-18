@@ -25,15 +25,6 @@ on:
   pull_request:
     branches:
       - master
-    paths:
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'docs/privacy-policy.md'
-      - 'Dockerfile'
-      - 'entrypoint.sh'
-      - 'web/**'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 env:
