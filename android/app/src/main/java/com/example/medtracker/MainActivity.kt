@@ -80,6 +80,32 @@ class MainActivity : Activity() {
     /** A page of this account finished loading: later load failures leave it usable. */
     private var showingAccount = false
     private var loadFailed = false
+    /**
+     * bd med-wcpg: the failed main-frame loads of the running quiet-retry cycle (0 = none). The cycle
+     * retries under the mark ([coverView]); see [loadFailure].
+     */
+    private var loadTries = 0
+    /** The URL the posted retry loads; dropped if something else loaded meanwhile. */
+    private var retryUrl: String? = null
+    /**
+     * The load under the cover is one of ours (its first `chrome` sample: Chromium's error page commits
+     * on the same URL but runs no bridge) and has a visible frame (onPageCommitVisible). The cover drops
+     * only when both are true: the sample comes at document start, before the page paints, so hiding on it
+     * alone showed a bare wg_screen frame (Argus 27463, QA 44331858604). Reset per load in onPageStarted.
+     */
+    private var retrySampled = false
+    private var retryDrawn = false
+    private fun endRetryIfDrawn() {
+        if (loadTries > 0 && !loadFailed && retrySampled && retryDrawn) endRetry()
+    }
+    private val retryLoad = Runnable { if (!isDestroyed && loadTries > 0 && lastUrl == retryUrl) load(lastUrl ?: home) }
+    // Diag lines say how long the user sat on the cover (field reports; QA times the cover by them).
+    private val coverOpening = Runnable { coverNote.visibility = View.VISIBLE; diag("shell load cover opening") }
+    private val coverExit = Runnable { coverSwitch.visibility = View.VISIBLE; diag("shell load cover exit") }
+    /** The QA hook's forced main-frame failures left (`--ei wgQAFailLoads <n>`; 0 in release). */
+    private var qaFailLoads = 0
+    /** The current load is one the QA hook stopped and already counted: its own late error is not a second failure. */
+    private var qaStopped = false
     /** Set by open/forget: the previous account's pages must not stay reachable by Back. */
     private var clearHistory = false
     /** The committed page is an account ceremony (/unlock, /claim, /recover; the web draws its exit bar). */
@@ -101,6 +127,10 @@ class MainActivity : Activity() {
     private lateinit var errorMeta: TextView
     private lateinit var errorPrimary: Button
     private lateinit var errorSecondary: Button
+    private lateinit var coverView: View
+    private lateinit var coverNote: View
+    private lateinit var coverSwitch: View
+    private lateinit var coverFoot: View
     private lateinit var lockView: View
     private lateinit var lockNote: View
     private lateinit var lockFoot: View
@@ -220,6 +250,7 @@ class MainActivity : Activity() {
         holdSplash()
         publishShortcut()
 
+        if (savedInstanceState == null) qaFailLoads = DebugHooks.qaFailLoads(this)
         if (intent?.action == ACTION_DIAG && savedInstanceState == null) copyDiagnostics()
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
@@ -500,7 +531,9 @@ class MainActivity : Activity() {
         prefs.edit().apply { if (thenLocal && !drop && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
         setLocal(true)
         Notifications.clear(this)
-        prefs.edit().remove(HOST_KEY).apply()
+        // The known-account flag (bd med-wcpg) goes only with the account itself (drop); a plain switch
+        // keeps it, as WebView keeps the origin's data.
+        prefs.edit().remove(HOST_KEY).apply { if (drop && left != null) remove(shownKey(left)) }.apply()
         host = null
         reopen(if (thenLocal) home else Invite.withInvite(home))
     }
@@ -527,6 +560,7 @@ class MainActivity : Activity() {
         clearHistory = true
         onCeremony = false
         errorView.visibility = View.GONE
+        endRetry() // a fresh cycle for the new load
         load(url)
         updateChrome()
     }
@@ -548,7 +582,62 @@ class MainActivity : Activity() {
         updateChrome()
     }
 
-    private fun retry() = load(lastUrl ?: home)
+    /** Try again, and a renderer restart: a fresh retry cycle. */
+    private fun retry() {
+        endRetry()
+        load(lastUrl ?: home)
+    }
+
+    /**
+     * A main-frame load of the account failed (onReceivedError, or the QA hook): bd med-wcpg. A
+     * known account's cached app is reachable only by navigating again (the Service Worker answers
+     * the navigation), so the shell retries quietly under the mark ([coverView]) after 0.5, 1.5 and
+     * 3 s. Known (this host showed on this phone before, [shownKey]): then every 10 s until a page
+     * draws or the user leaves, never N4; "Opening…" shows after 10 s, Switch account and Copy
+     * diagnostics after 30 s (the way out when the flag outlived WebView's cache offline). First-ever open: N4 with the last
+     * error once the third retry failed. The posted timers keep running while the activity is stopped.
+     */
+    private fun loadFailure(url: String, code: Int, why: String) {
+        loadFailed = true
+        if (showingAccount) lastUrl = url
+        if (local) return showError(LoadError.LOCAL, "error $code · $why")
+        val warm = host?.let { prefs.getBoolean(shownKey(it), false) } == true
+        if (!warm && loadTries >= RETRY_MS.size) {
+            diag("shell load retry gave up")
+            return showError(LoadError.NETWORK, "error $code · $why")
+        }
+        loadTries++
+        if (loadTries <= DIAG_TRIES) diag("shell load retry $loadTries error $code $why")
+        else if (loadTries == DIAG_TRIES + 1) diag("shell load retry … retrying")
+        if (coverView.visibility != View.VISIBLE) {
+            coverNote.visibility = View.GONE
+            coverSwitch.visibility = View.GONE
+            coverView.visibility = View.VISIBLE // before Chromium commits its error page
+            // TalkBack (and UiAutomator) must not read the page or error page hidden under the cover.
+            web.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            if (warm) {
+                root.postDelayed(coverOpening, COVER_NOTE_MS)
+                root.postDelayed(coverExit, COVER_EXIT_MS)
+            }
+            updateChrome()
+        }
+        retryUrl = lastUrl
+        root.removeCallbacks(retryLoad)
+        root.postDelayed(retryLoad, RETRY_MS.getOrElse(loadTries - 1) { WARM_RETRY_MS })
+    }
+
+    /** Ends the retry cycle: the page showed, N4 showed, or a fresh load (Try again, reopen, renderer restart). */
+    private fun endRetry() {
+        if (loadTries == 0 && coverView.visibility != View.VISIBLE) return
+        loadTries = 0
+        retryUrl = null
+        root.removeCallbacks(retryLoad)
+        root.removeCallbacks(coverOpening)
+        root.removeCallbacks(coverExit)
+        coverView.visibility = View.GONE
+        web.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        updateChrome()
+    }
 
     /** N4's three variants (screens-native.html; twin of iOS LoadErrorView). */
     private enum class LoadError { NETWORK, NOT_FOUND, LOCAL }
@@ -559,6 +648,7 @@ class MainActivity : Activity() {
      * local mode never offers Switch account.
      */
     private fun showError(kind: LoadError, what: String) {
+        endRetry()
         val h = host ?: "your account"
         val warn = kind == LoadError.NOT_FOUND
         errorIcon.setBackgroundResource(if (warn) R.drawable.wg_shell_icon_warn else R.drawable.wg_shell_icon)
@@ -690,9 +780,20 @@ class MainActivity : Activity() {
 
         override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
             loadFailed = false
+            retrySampled = false
+            retryDrawn = false
             loadGen++
             pageCanStep = null
             updateBack()
+            // QA (bd med-wcpg, debug + qa.test only): fail this account load as the field's ERR_FAILED did.
+            // loadFailed is set here, synchronously, so the stopped load's onPageFinished never marks the account shown.
+            qaStopped = false
+            if (qaFailLoads > 0 && !local && url != null && Uri.parse(url).host?.lowercase() == host) {
+                qaStopped = true
+                qaFailLoads--
+                view.stopLoading()
+                loadFailure(url, -1, "net::ERR_FAILED (qa)")
+            }
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
@@ -701,7 +802,11 @@ class MainActivity : Activity() {
                 view.clearHistory()
             }
             val v = vaultHost
-            if (!loadFailed && v != null && url?.let { Uri.parse(it).host?.lowercase() } == v) showingAccount = true
+            if (!loadFailed && v != null && url?.let { Uri.parse(it).host?.lowercase() } == v) {
+                showingAccount = true
+                // The warm flag (bd med-wcpg): this account opened on this phone, so a failed load retries, never N4.
+                if (!local && !prefs.getBoolean(shownKey(v), false)) prefs.edit().putBoolean(shownKey(v), true).apply()
+            }
             updateBack()
         }
 
@@ -731,21 +836,23 @@ class MainActivity : Activity() {
 
         /** N6: the page's first visible frame ends the splash hold. */
         override fun onPageCommitVisible(view: WebView, url: String?) {
+            retryDrawn = true
+            endRetryIfDrawn()
             releaseSplash()
         }
 
         /**
-         * Offline with a Service Worker in control never gets here: the worker answers.
-         * Unlike WKWebView, WebView replaces the page with its own error page, so a
-         * later failure gets the screen too, and Try again reloads that URL.
+         * Offline with a Service Worker in control rarely gets here: the worker answers. It does when
+         * the worker settles the navigation with a network error (error -1 · net::ERR_FAILED, e.g. a
+         * Cache Storage failure) or on a real blink: [loadFailure] retries under the mark. Unlike
+         * WKWebView, WebView replaces the page with its own error page; the cover hides it.
          */
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (!request.isForMainFrame) return
+            if (qaStopped) return diag("shell load qa-stopped error ${error.errorCode} ignored")
             if (bundled(request, "error ${error.errorCode}")) return
-            loadFailed = true
-            if (showingAccount) lastUrl = request.url.toString()
             val why = error.description?.toString()?.takeIf { it.isNotBlank() } ?: "not loaded"
-            showError(if (local) LoadError.LOCAL else LoadError.NETWORK, "error ${error.errorCode} · $why")
+            loadFailure(request.url.toString(), error.errorCode, why)
         }
 
         /** An HTTP error before any page of this account showed — a mistyped or deleted account is a 404. */
@@ -768,6 +875,7 @@ class MainActivity : Activity() {
             // error screen and Try again.
             if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
                 diag("shell account gone")
+                prefs.edit().remove(shownKey(h)).apply() // the account is gone: no longer known (bd med-wcpg)
                 forget()
                 return
             }
@@ -793,6 +901,7 @@ class MainActivity : Activity() {
             if (!concealed) root.addView(web, 0) // else the unlock attaches it
             layoutBars()
             showingAccount = false
+            endRetry() // the fresh WebView starts a fresh cycle
             if (url != null) load(url) else retry()
             return true
         }
@@ -882,6 +991,10 @@ class MainActivity : Activity() {
                 val args = msg.optJSONObject("args") ?: return
                 cssColor(args.optString("top"))?.let { topColor = it }
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
+                // bd med-wcpg: a page of the vault is loading; the cycle ends once it also has a visible
+                // frame ([endRetryIfDrawn]). !loadFailed there: the QA hook's stopped document may still sample.
+                retrySampled = true
+                endRetryIfDrawn()
                 updateChrome()
                 releaseSplash() // N6: the page's first sample says it is ready
 
@@ -1048,6 +1161,8 @@ class MainActivity : Activity() {
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
         errorView = buildError()
         lockView = buildLock()
+        coverView = buildCover()
+        root.addView(coverView, MATCH_PARENT, MATCH_PARENT)
         root.addView(errorView, MATCH_PARENT, MATCH_PARENT)
         root.addView(lockView, MATCH_PARENT, MATCH_PARENT)
         root.setOnApplyWindowInsetsListener { _, insets ->
@@ -1071,12 +1186,14 @@ class MainActivity : Activity() {
         // The lock fills the window so its mark sits at the window's centre, where the splash put
         // it (N6); only its foot clears the navigation bar. The lock hides the keyboard.
         lockView.setPadding(sys.left, 0, sys.right, 0)
+        coverView.setPadding(sys.left, 0, sys.right, 0) // the mark where the lock's (and the splash's) is
+        coverFoot.setPadding(0, 0, 0, 16.dp + sys.bottom)
         lockFoot.setPadding(24.dp, 12.dp, 24.dp, 16.dp + sys.bottom)
     }
 
     /** Bands and bar icons follow the page, or wg_screen while a native screen is up. */
     private fun updateChrome() {
-        val native = errorView.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE
+        val native = errorView.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE || coverView.visibility == View.VISIBLE
         if (native) releaseSplash() // N6: a native screen is ready to show at once
         val top = if (native) SCREEN else topColor
         val bottom = if (native) SCREEN else bottomColor
@@ -1101,7 +1218,8 @@ class MainActivity : Activity() {
      * the app — walks the web view's history; at the root no callback, so predictive back peeks the launcher.
      */
     private fun updateBack() {
-        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && (pageCanStep ?: web.canGoBack())
+        val want = lockView.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && coverView.visibility != View.VISIBLE &&
+            (pageCanStep ?: web.canGoBack())
         if (want == backRegistered) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val cb = back as OnBackInvokedCallback? ?: OnBackInvokedCallback { stepBack() }.also { back = it }
@@ -1195,6 +1313,44 @@ class MainActivity : Activity() {
                 addView(wgScroll(text), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
                 addView(wgRule(R.color.wg_line))
                 addView(lockFoot)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            visibility = View.GONE
+        }
+    }
+
+    /**
+     * The quiet-retry cover (bd med-wcpg): the 96dp mark tile at the window's centre, where the splash
+     * and the lock put it, on wg_screen; a known account's "Opening…" below it and, in the foot, Switch
+     * account and Copy diagnostics, shown late.
+     */
+    private fun buildCover(): View {
+        coverNote = wgText(R.style.Widget_Wg_Text_Meta, "Opening…").apply { gravity = Gravity.CENTER }
+        // The ~30 s way out and the field evidence (Miles 27084): two ghosts side by side, as N4's actions.
+        coverSwitch = wgStack(
+            8,
+            wgButton(R.style.Widget_Wg_Button_Ghost_Sm, "Switch account") { forget() },
+            wgButton(R.style.Widget_Wg_Button_Ghost_Sm, "Copy diagnostics") { copyDiagnostics() },
+            horizontal = true,
+        ).apply {
+            val wrap = LinearLayout.LayoutParams.WRAP_CONTENT
+            layoutParams = LinearLayout.LayoutParams(wrap, wrap).apply { gravity = Gravity.CENTER_HORIZONTAL }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.color.wg_screen)
+            addView(Space(this@MainActivity), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.wg_mark_lg)
+                contentDescription = "Opening Med Tracker"
+            }, LinearLayout.LayoutParams(96.dp, 96.dp).apply { gravity = Gravity.CENTER_HORIZONTAL })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                coverNote.setPadding(24.dp, 20.dp, 24.dp, 0)
+                addView(coverNote, LinearLayout.LayoutParams(MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+                addView(Space(this@MainActivity), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+                coverFoot = this
+                addView(coverSwitch)
             }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             visibility = View.GONE
         }
@@ -1354,7 +1510,20 @@ class MainActivity : Activity() {
         )
         /** N4's meta line time. */
         val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+        /** bd med-wcpg's quiet retries before N4 (cold) or before the warm 10 s rhythm. */
+        val RETRY_MS = longArrayOf(500, 1_500, 3_000)
+        const val WARM_RETRY_MS = 10_000L
+        const val COVER_NOTE_MS = 10_000L
+        const val COVER_EXIT_MS = 30_000L
         const val HOST_KEY = "accountHost"
+        /** Per-cycle cap on "shell load retry <n>" diag lines (a known account retries indefinitely). */
+        const val DIAG_TRIES = 10
+        /**
+         * The known-account flag (bd med-wcpg): a page of this host showed on this phone. Cleared only
+         * when the account is dropped (X-Account-Gone, forget(drop = true)); a plain switch or opening
+         * another host keeps it, like WebView keeps the origin's data.
+         */
+        fun shownKey(host: String) = "accountShown:$host"
         const val LEAVE_HOST_KEY = "leaveHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
         const val ACTION_DIAG = "com.example.medtracker.COPY_DIAGNOSTICS"

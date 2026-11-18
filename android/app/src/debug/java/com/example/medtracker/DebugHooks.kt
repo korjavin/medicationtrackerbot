@@ -53,5 +53,12 @@ internal object DebugHooks {
     fun qaLocalError(activity: Activity): Boolean =
         qa() && activity.intent?.getBooleanExtra("wgQALocalError", false) == true
 
+    /**
+     * `--ei wgQAFailLoads <n>` (bd med-wcpg, android-qa load-retry): the next n main-frame loads of the
+     * account fail as error -1 · net::ERR_FAILED, so the shell's quiet-retry cycle runs on demand.
+     */
+    fun qaFailLoads(activity: Activity): Int =
+        if (qa()) activity.intent?.getIntExtra("wgQAFailLoads", 0) ?: 0 else 0
+
     fun qa() = BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE
 }

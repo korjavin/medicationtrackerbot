@@ -231,16 +231,31 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   load-error screen (N4, bd med-ckm5.16: "Can't reach your account" with Try
   again / Switch account / Copy diagnostics and a mono status line; a bare 404
   is "We can't find this account" with Use another invite first) appears only
-  when the very first load fails with nothing cached, or the host answers an
-  HTTP error. Only the server's own "no such account" 404 — marked
+  on a first-ever open of the account once the shell's quiet retries (0.5 / 1.5 /
+  3 s under the mark) failed, or when the host answers an HTTP error. A failed
+  main-frame load (`onReceivedError`: a blink, DNS, TLS, or the Service Worker
+  settling the navigation with `error -1 · net::ERR_FAILED`) never shows N4 at once
+  (bd med-wcpg): the shell covers the window with the mark on wg_screen and loads
+  again. On a known account (prefs `shell` key `accountShown:<host>`, set when a
+  page of the host finished loading) it keeps retrying every 10 s and never shows
+  N4: "Opening…" under the mark at ~10 s, ghost Switch account and Copy diagnostics
+  at ~30 s (the way out when the flag outlived WebView's cache offline). The flag
+  survives a plain switch (Switch account, Use another invite, account.leave, another
+  host opened: WebView keeps the origin's data) and is dropped only with the
+  account: X-Account-Gone and `account.leave {then: "local", forget: true}`. The
+  cycle ends when a page of the vault has both sampled (its first `chrome` sample:
+  Chromium's error page commits on the same URL but runs no bridge) and committed
+  a visible frame (`onPageCommitVisible`); the sample alone comes at document start,
+  before the page paints, and would leave a bare wg_screen frame. Diag lines `shell load retry <n> error <code> <why>`
+  (10 per cycle) and `shell load retry gave up`; QA lever `--ei wgQAFailLoads <n>`
+  (android-qa `load-retry`). Only the server's own "no such account" 404 — marked
   `X-Account-Gone: 1` by `internal/cloudserver/router.go` (a mistyped account,
   or one deleted here, on another device or by the operator) — on the stored
   host before any page of the account showed forgets the host and opens local
   mode with F1 (bd med-nt9p.32.14, med-ta2n.12; `AccountUrl.accountGone`). A bare 404 (the proxy's while the server
   redeploys, or an older server) keeps the account and this screen. Try again keeps an
   invite link's `#claim=` fragment (in memory only). Unlike WKWebView, WebView
-  replaces the page on a failed navigation, so a later page load that fails
-  with no Service Worker answer gets the same screen (Try again reloads it).
+  replaces the page on a failed navigation; the retry cover hides it.
 - **Switch account:** long-press the launcher icon → *Switch account*; also on
   the load-error screen. WebView data is per origin and is kept, so switching
   back still finds offline data and warm unlock.

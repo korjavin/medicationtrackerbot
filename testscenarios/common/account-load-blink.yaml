@@ -1,18 +1,22 @@
 id: account-load-blink
-title: A failed load of a known account retries quietly and opens the app, not the error screen
+title: An account the phone has opened before never shows the error screen on a failed load
 platforms: [web, android, ios]
 preconditions:
   - Account mode, opened before on this phone
   - The app is fully closed
 steps:
-  - Interrupt the first load (a network blink while opening)
+  - Open the app while the network blinks, so the first load is interrupted
+  - Keep the connection off for a minute, then turn it back on
 invariants:
-  - The app opens from the phone within seconds
-  - The mark stays on screen during the retry, never a browser error page
-  - "\"Can't reach your account\" appears only after every retry failed, with Try again"
-  - A first-ever open with no network still reaches the error screen
+  - The app opens from the phone within seconds once a load succeeds
+  - The mark stays on screen while it retries; never a browser error page and never "Can't reach your account"
+  - After about ten seconds a quiet "Opening…" line shows under the mark; after about thirty an unobtrusive Switch account and Copy diagnostics
+  - A first-ever open with no network still reaches the error screen after a few seconds, with Try again
 covered_by:
   web: manual  # partial: web/cloud/js/tests/sw.fetch-cache.test.js#Cache Storage failure (med-x2jc) asserts only the worker response (a failed cache lookup on a navigation serves the network document, else the retry document; never a rejected respondWith = net::ERR_FAILED); missing: the interrupted cold open opening the app, no browser error page during the retry, the error screen only after every retry, a first-ever offline open
-  android: manual  # med-wcpg replaces this line with android/qa/scenarios/load-retry.mjs
+  # The QA failure is synthetic (the shell's own wgQAFailLoads hook): a navigation the Service Worker
+  # answers cannot be failed from the network side.
+  android: android/qa/scenarios/load-retry.mjs#loadRetry  # known n=2 (a shot burst: the mark, then the page, no bare frame), known n=99 (Opening… / Switch account + Copy diagnostics timing, never N4, Switch account keeps the flag), first-ever n=4 (N4 at 4.5–10 s, diag lines, Try again)
   ios: ios/UITests/FlowQALoadRetryTests.swift#testWarmHostNeverShowsError  # the Simulator has no airplane mode: -wgQAFailLoads fails loads synthetically; the first-ever open is #testColdHostGivesUpAfterThreeRetries
 source: [med-wcpg, med-x2jc, med-si05]
+
