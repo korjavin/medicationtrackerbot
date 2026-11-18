@@ -88,8 +88,9 @@ class MainActivity : Activity() {
     /** The URL the posted retry loads; dropped if something else loaded meanwhile. */
     private var retryUrl: String? = null
     private val retryLoad = Runnable { if (!isDestroyed && loadTries > 0 && lastUrl == retryUrl) load(lastUrl ?: home) }
-    private val coverOpening = Runnable { coverNote.visibility = View.VISIBLE }
-    private val coverExit = Runnable { coverSwitch.visibility = View.VISIBLE }
+    // Diag lines say how long the user sat on the cover (field reports; QA times the cover by them).
+    private val coverOpening = Runnable { coverNote.visibility = View.VISIBLE; diag("shell load cover opening") }
+    private val coverExit = Runnable { coverSwitch.visibility = View.VISIBLE; diag("shell load cover exit") }
     /** The QA hook's forced main-frame failures left (`--ei wgQAFailLoads <n>`; 0 in release). */
     private var qaFailLoads = 0
     /** Set by open/forget: the previous account's pages must not stay reachable by Back. */

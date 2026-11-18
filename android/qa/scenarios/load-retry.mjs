@@ -12,6 +12,7 @@ import { join } from 'node:path';
 // that neither N4 nor Chromium's error page shows when it must not.
 const N4 = 'Can\'t reach your account';
 const OPENING = 'Opening…';
+const LONG = 5_000; // a UiAutomator query under the reloading cover takes seconds (see step (b))
 const seen = new Set();
 const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, (e) => {
   const msg = String(e?.message || e).split('\n')[0];
@@ -33,8 +34,9 @@ const reopen = (ctx, n) => ctx.coldStart(`-n ${ctx.pkg}/com.example.medtracker.M
 async function watch(ctx, ms, { n4 = false } = {}) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-    if (await has(ctx, N4)) {
+    const wait = Math.max(300, Math.min(LONG, end - Date.now())); // short waits miss under the cover
+    if (await has(ctx, 'Webpage not available', wait)) throw new Error('the WebView error page showed');
+    if (await has(ctx, N4, wait)) {
       if (n4) return true;
       throw new Error('N4 showed');
     }
@@ -81,44 +83,39 @@ export default async function loadRetry(ctx) {
 
   await ctx.step('known, every load fails: Opening… ~10 s, Switch account + Copy diagnostics ~30 s, never N4', async () => {
     await reopen(ctx, 99);
-    // The cover's clocks start at the first failure, which a cold start reaches a second or two after
-    // am start returns, so times are taken from that failure's diag line (the emulator's clock is the
-    // host's). Runs 44314911268..44326800563 timed from am start and failed at the bound; probe run
-    // 44328334839 showed the cover's nodes present (text, desc, bounds) once due.
+    // One UiAutomator query under the reloading cover takes over 2 s (runs 44314911268..44329931145:
+    // every ≤2 s wait timed out, a 3 s one in probe run 44328334839 found the nodes), so each wait
+    // here is 5 s and the timings come from the cover's own diag lines, measured from this cycle's
+    // first failure; UiAutomator proves the lines and buttons are real nodes.
     const t0 = Date.now();
-    let opening = 0, exit = 0;
-    while (!exit) {
+    let opening = false;
+    for (;;) {
       const t = Date.now() - t0;
-      if (await has(ctx, N4)) throw new Error(`N4 on a known account at ${t} ms`);
-      if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-      if (!opening && await has(ctx, OPENING, 1_000)) opening = Date.now();
-      if (opening && await has(ctx, 'Switch account', 1_000)) {
-        exit = Date.now();
-        if (!(await has(ctx, 'Copy diagnostics', 1_000))) throw new Error('Switch account without Copy diagnostics');
-      }
-      if (!opening && t > 25_000) throw new Error('no Opening… 25 s after am start');
-      if (t > 45_000) throw new Error('no Switch account 45 s after am start');
-      if (opening && !exit && !seen.has('opening-shot')) { seen.add('opening-shot'); await ctx.shot('known-opening'); }
+      if (await has(ctx, N4, LONG)) throw new Error(`N4 on a known account at ${t} ms`);
+      if (await has(ctx, 'Webpage not available', LONG)) throw new Error('the WebView error page showed');
+      if (!opening && (opening = await has(ctx, OPENING, LONG))) await ctx.shot('known-opening');
+      if (opening && await has(ctx, 'Switch account', LONG)) break;
+      if (t > 60_000) throw new Error(opening ? 'no Switch account in 60 s' : 'no Opening… in 60 s');
     }
-    const fails = [...(await prefs(ctx, 'diag')).matchAll(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load retry 1 error/g)];
-    if (!fails.length) throw new Error('diag lacks this cycle\'s retry 1');
-    const first = Date.parse(fails[fails.length - 1][1]);
-    const since = (at) => at - first;
-    ctx.log('load-retry: since the first failure: Opening…', since(opening), 'ms, Switch account', since(exit), 'ms');
-    if (since(opening) > 12_000) throw new Error(`Opening… at ${since(opening)} ms, want by 12 s`);
-    if (since(exit) < 28_000 || since(exit) > 33_000) throw new Error(`Switch account at ${since(exit)} ms, want 28–33 s`);
+    if (!(await has(ctx, 'Copy diagnostics', LONG))) throw new Error('Switch account without Copy diagnostics');
     await ctx.shot('known-switch');
-    await ctx.sleep(3_000); // past 35 s since the first failure
-    if (await has(ctx, N4)) throw new Error('N4 on a known account');
-    const diag = await prefs(ctx, 'diag');
-    if (!diag.includes('shell load retry 3 error -1')) throw new Error('diag lacks retry 3');
+    const diagXml = await prefs(ctx, 'diag');
+    const at = (re) => [...diagXml.matchAll(re)].map((m) => Date.parse(m[1])).pop();
+    const first = at(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load retry 1 error/g);
+    const note = at(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load cover opening/g) - first;
+    const exit = at(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load cover exit/g) - first;
+    ctx.log('load-retry: since the first failure: Opening…', note, 'ms, Switch account', exit, 'ms');
+    if (!(note <= 12_000)) throw new Error(`Opening… at ${note} ms, want by 12 s`);
+    if (!(exit >= 28_000 && exit <= 33_000)) throw new Error(`Switch account at ${exit} ms, want 28–33 s`);
+    if (await has(ctx, N4, LONG)) throw new Error('N4 on a known account'); // well past 35 s by now
+    if (!diagXml.includes('shell load retry 3 error -1')) throw new Error('diag lacks retry 3');
   });
 
   await ctx.step('Copy diagnostics stays on the cover', async () => {
     await ctx.device.tap({ text: 'Copy diagnostics' });
     await ctx.sleep(1_000);
-    for (const t of [OPENING, 'Switch account']) if (!(await has(ctx, t, 3_000))) throw new Error(`left the cover: no ${t}`);
-    await watch(ctx, 1_000);
+    for (const t of [OPENING, 'Switch account']) if (!(await has(ctx, t, LONG))) throw new Error(`left the cover: no ${t}`);
+    if (await has(ctx, N4, LONG)) throw new Error('N4 after Copy diagnostics');
   });
 
   await ctx.step('Switch account on the cover: local mode with F1, the flag kept', async () => {
@@ -134,18 +131,17 @@ export default async function loadRetry(ctx) {
     await ctx.shell(`pm clear ${ctx.pkg}`); // nothing known: the flag (kept by the switch) and the origin's data go
     await fresh(ctx, 4);
     await ctx.openLink(url);
-    const t0 = Date.now();
     await ctx.sleep(1_500);
     await ctx.shot('first-retrying'); // mid-cycle: the mark, no text
-    if (!(await watch(ctx, 15_000, { n4: true }))) throw new Error('no N4 by 15 s');
-    const ms = Date.now() - t0;
-    ctx.log('load-retry: N4 after', ms, 'ms');
-    if (ms < 4_500 || ms > 10_000) throw new Error(`N4 after ${ms} ms, want 4.5–10 s`);
+    if (!(await watch(ctx, 20_000, { n4: true }))) throw new Error('no N4 in 20 s');
     await ctx.waitFor({ text: /^error -1 · net::ERR_FAILED \(qa\) · \d\d:\d\d$/ }, 5_000);
+    // When N4 showed, from the diag (as step (b)): "gave up" is written just before showError.
     const diag = await prefs(ctx, 'diag');
-    for (const line of ['shell load retry 3 error -1', 'shell load retry gave up']) {
-      if (!diag.includes(line)) throw new Error(`diag lacks "${line}"`);
-    }
+    const at = (re) => [...diag.matchAll(re)].map((m) => Date.parse(m[1])).pop();
+    const ms = at(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load retry gave up/g) - at(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load retry 1 error/g);
+    ctx.log('load-retry: N4', ms, 'ms after the first failure');
+    if (!(ms >= 4_500 && ms <= 10_000)) throw new Error(`N4 after ${ms} ms, want 4.5–10 s`);
+    if (!diag.includes('shell load retry 3 error -1')) throw new Error('diag lacks retry 3');
   });
   await ctx.shot('first-n4');
 
