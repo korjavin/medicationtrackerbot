@@ -14,9 +14,14 @@ const N4 = 'Can\'t reach your account';
 const OPENING = 'Opening…';
 const LONG = 5_000; // a UiAutomator query under the reloading cover takes seconds (see step (b))
 const seen = new Set();
-const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, (e) => {
+const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, async (e) => {
   const msg = String(e?.message || e).split('\n')[0];
   if (!seen.has(msg)) { seen.add(msg); ctx.log('load-retry: wait', String(text), '->', msg); }
+  // The emulator's launcher ANRs over the cover (run 44337246551: "Pixel Launcher isn't responding"); as ctx.waitFor does.
+  if (await ctx.device.wait({ text: /.*isn['’]t responding.*/ }, { timeout: 300 }).then(() => true, () => false)) {
+    ctx.log('load-retry: dismissing an ANR dialog');
+    await ctx.device.tap({ text: 'Wait' }).catch(() => {});
+  }
   return false;
 });
 
