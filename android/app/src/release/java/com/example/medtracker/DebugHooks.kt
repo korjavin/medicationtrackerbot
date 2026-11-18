@@ -22,4 +22,7 @@ internal object DebugHooks {
 
     @Suppress("UNUSED_PARAMETER")
     fun qaLocalError(activity: Activity) = false
+
+    @Suppress("UNUSED_PARAMETER")
+    fun qaFailLoads(activity: Activity) = 0
 }

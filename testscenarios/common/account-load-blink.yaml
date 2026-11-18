@@ -1,0 +1,21 @@
+id: account-load-blink
+title: An account the phone has opened before never shows the error screen on a failed load
+platforms: [web, android, ios]
+preconditions:
+  - Account mode, opened before on this phone
+  - The app is fully closed
+steps:
+  - Open the app while the network blinks, so the first load is interrupted
+  - Keep the connection off for a minute, then turn it back on
+invariants:
+  - The app opens from the phone within seconds once a load succeeds
+  - The mark stays on screen while it retries; never a browser error page and never "Can't reach your account"
+  - After about ten seconds a quiet "Opening…" line shows under the mark; after about thirty an unobtrusive Switch account
+  - A first-ever open with no network still reaches the error screen after a few seconds, with Try again
+covered_by:
+  web: manual  # the web sibling bead med-x2jc replaces this line
+  # The QA failure is synthetic (the shell's own wgQAFailLoads hook): a navigation the Service Worker
+  # answers cannot be failed from the network side.
+  android: android/qa/scenarios/load-retry.mjs#loadRetry  # known n=1 (mark, then the page), known n=99 (Opening… / Switch account timing, never N4, Switch account forgets), first-ever n=4 (N4 at 4.5–10 s, diag lines, Try again)
+  ios: manual  # the iOS sibling bead med-si05 replaces this line
+source: [med-wcpg, med-x2jc, med-si05]
