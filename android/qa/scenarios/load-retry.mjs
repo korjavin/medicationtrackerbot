@@ -105,6 +105,16 @@ export default async function loadRetry(ctx) {
         for (const [f, cmd] of [['dumpsys-top.txt', 'dumpsys activity top'], ['dumpsys-a11y.txt', 'dumpsys accessibility']]) {
           await writeFile(join(ctx.out, f), await ctx.shell(cmd).catch((e) => String(e)));
         }
+        const pkg = ctx.pkg;
+        for (const sel of [{ pkg }, { pkg, clazz: 'android.widget.TextView' }, { pkg, clazz: 'android.widget.ImageView' },
+          { pkg, clazz: 'android.webkit.WebView' }, { desc: 'Opening Med Tracker' }, { text: 'Opening…' }]) {
+          const ok = await ctx.device.wait(sel, { timeout: 3_000 }).then(() => true, (e) => String(e?.message || e).split('\n')[0]);
+          ctx.log('load-retry: probe', JSON.stringify(sel), '->', ok);
+        }
+        for (const sel of [{ pkg, clazz: 'android.widget.TextView' }]) {
+          const info = await ctx.device.info(sel).catch((e) => String(e?.message || e).split('\n')[0]);
+          ctx.log('load-retry: info', JSON.stringify(info));
+        }
         throw new Error(opening ? 'no Switch account by 33 s' : 'no Opening… by 12 s');
       }
     }
