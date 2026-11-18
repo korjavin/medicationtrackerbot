@@ -54,10 +54,47 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
     @Published private(set) var loadError: LoadError? {
-        didSet { if loadError != nil { painted = true } }
+        didSet {
+            if loadError != nil {
+                painted = true
+                retryingSince = nil
+            }
+        }
     }
     /// The first page reported ready (N6): RootView fades the launch mark out.
     @Published private(set) var painted = false
+    /// A quiet retry cycle runs since then (bd med-si05, twin of Android
+    /// med-wcpg): a failed load with no account page showing is tried again
+    /// under the launch mark (RootView's RetryCover) — after retryDelays, then
+    /// N4 on a cold host; a warm one (shownKey) keeps trying every warmDelay
+    /// and never shows N4. Cleared once a page finishes, N4 shows, or the
+    /// mode or account changes.
+    @Published private(set) var retryingSince: Date?
+    private static let retryDelays: [Double] = [0.5, 1.5, 3]
+    private static let warmDelay: Double = 10
+    /// Per account host, the warm flag: a page of it finished loading on this
+    /// phone, so its Service Worker can answer a failed load and it never gets
+    /// N4 for one (HTTP errors still do). It says "shown once", not "cache
+    /// present": if WebKit evicted the worker's cache, an offline warm open
+    /// waits under the mark until the network is back, Switch account being
+    /// the way out (Miles 27076). Removed only when the account is dropped
+    /// (X-Account-Gone, account.leave {then: "local", forget: true}); a plain
+    /// Switch account keeps it, as WebKit keeps the origin's data (Miles 27084).
+    static func shownKey(_ host: String) -> String { "wgAccountShown:" + host }
+    private var warm: Bool {
+        guard !local, let host else { return false }
+        return UserDefaults.standard.bool(forKey: Shell.shownKey(host))
+    }
+    /// Failures in the running cycle, and its scheduled next try.
+    private var retries = 0
+    private var retryWork: Task<Void, Never>?
+    #if DEBUG
+    /// `-wgQAFailLoads <n>` (FlowQALoadRetryTests): the first n account loads
+    /// fail at once with a synthetic connection error. Debug builds for the
+    /// qa.test base only, as qaSoftAuthn.
+    private var qaFailLoads = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String)?.lowercased() == "qa.test"
+        ? UserDefaults.standard.integer(forKey: "wgQAFailLoads") : 0
+    #endif
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
@@ -308,6 +345,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         let defaults = UserDefaults.standard
         if to == .local, let host { defaults.set(host, forKey: Shell.leaveHostKey) }
         else { defaults.removeObject(forKey: Shell.leaveHostKey) }
+        if to == .forgetLocal, let host { defaults.removeObject(forKey: Shell.shownKey(host)) } // dropped, not just left
         defaults.removeObject(forKey: Shell.hostKey)
         defaults.set(true, forKey: LocalOrigin.modeKey)
         host = nil
@@ -441,13 +479,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
         lastURL = nil
         committedHost = nil
         loadError = nil
+        retryingSince = nil // the old mode's or account's cycle: its cover must not sit over a lock screen
         deferredURL = nil
         deferredReminder = nil
         if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
         if let target = url ?? home { load(target) } else { webView.loadHTMLString("", baseURL: nil) }
     }
 
-    private func load(_ url: URL) {
+    /// `fresh`: every load but the retry cycle's own starts a new cycle (Try again included).
+    private func load(_ url: URL, fresh: Bool = true) {
+        if fresh { cancelRetries() }
         loadError = nil
         lastURL = url
         if erasing {
@@ -458,7 +499,22 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             deferredURL = url
             return
         }
+        #if DEBUG
+        if !local, qaFailLoads > 0 {
+            qaFailLoads -= 1
+            let e = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+                            userInfo: [NSLocalizedDescriptionKey: "qa fail load"])
+            Task { [weak self] in self?.loadFailed(e) } // after this load() returns, as WebKit's callback would be
+            return
+        }
+        #endif
         webView.load(URLRequest(url: url))
+    }
+
+    private func cancelRetries() {
+        retryWork?.cancel()
+        retryWork = nil
+        retries = 0
     }
 
     /// An account page: never in local mode, whatever host is still stored.
@@ -523,6 +579,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
             // screen with Try again.
             if let h = http.url?.host?.lowercased(), h == host, AccountURL.accountGone(http.statusCode, http.allHeaderFields) {
                 diag("shell account gone")
+                UserDefaults.standard.removeObject(forKey: Shell.shownKey(h))
                 forget()
                 return .cancel
             }
@@ -546,26 +603,60 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loadError = nil
         painted = true
+        retryingSince = nil
         if local { LocalOrigin.includeInBackup() }
+        else if showingAccount, let host { UserDefaults.standard.set(true, forKey: Shell.shownKey(host)) }
     }
 
-    /// Offline with a Service Worker in control never gets here: the worker
-    /// answers. This is the first-ever load failing (no network, no cache yet).
+    /// Offline with a Service Worker in control rarely gets here: the worker
+    /// answers. A first-ever load failing (no network, no cache yet), or a
+    /// worker answer that failed (a Cache Storage read: Android med-wcpg).
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let e = error as NSError
         // -999 superseded by another load; 102 interrupted by policy (external link, download).
         if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
-        // A page of this account already showing stays usable.
-        if !showingAccount {
-            loadError = local ? LoadError(.local, "local · bundle failed to load · \(e.code)")
-                : LoadError(.network, "error \(e.code) · " + e.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
-        }
+        loadFailed(e)
+    }
+
+    /// A failed main-frame load (or the QA lever's). A page of this account
+    /// already showing stays usable. Account mode retries quietly under the
+    /// mark (retryingSince): a cold host gets N4 with the last error after
+    /// the third retry failed, a warm one keeps trying. Local mode: N4 at once.
+    private func loadFailed(_ e: NSError) {
         diag("shell load failed \(e.domain) \(e.code)")
+        guard !showingAccount else { return }
+        if !local, let url = lastURL ?? home, warm || retries < Shell.retryDelays.count {
+            let delay = retries < Shell.retryDelays.count ? Shell.retryDelays[retries] : Shell.warmDelay
+            retries += 1
+            if retryingSince == nil { retryingSince = Date() }
+            diag("shell load retry \(retries) \(e.domain) \(e.code)")
+            retryWork = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                self?.load(url, fresh: false)
+            }
+            return
+        }
+        if !local { diag("shell load retry gave up") }
+        retries = 0
+        loadError = local ? LoadError(.local, "local · bundle failed to load · \(e.code)")
+            : LoadError(.network, "error \(e.code) · " + e.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
+    }
+
+    /// A committed page whose load then failed (a worker's response erroring
+    /// mid-body): the cycle ended at commit, so the cover goes and the page
+    /// shows what it got, as before the cycle existed.
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let e = error as NSError
+        if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
+        retryingSince = nil
+        diag("shell load failed after commit \(e.domain) \(e.code)")
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedHost = webView.url?.host?.lowercased()
         edgeBack.isEnabled = true // a new page: swipe on until its back.state says otherwise
+        if showingAccount { cancelRetries() } // the cycle is over; the cover goes once the page finishes
     }
 
     // MARK: Left-edge swipe (bd med-y7b4.4)
@@ -591,6 +682,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        cancelRetries() // a running cycle ends; the reload below may start a fresh one
         if concealed, let url = webView.url {
             deferredURL = url
             return
@@ -623,6 +715,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegat
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: String] else { return }
         painted = true // the page's first sample: it has painted
+        retryingSince = nil
         if let c = body["top"].flatMap(Shell.color) { top = Color(uiColor: c) }
         if let c = body["bottom"].flatMap(Shell.color) { bottom = Color(uiColor: c) }
     }

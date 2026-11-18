@@ -14,5 +14,5 @@ invariants:
 covered_by:
   web: manual  # partial: web/cloud/js/tests/sw.fetch-cache.test.js#Cache Storage failure (med-x2jc) asserts only the worker response (a failed cache lookup on a navigation serves the network document, else the retry document; never a rejected respondWith = net::ERR_FAILED); missing: the interrupted cold open opening the app, no browser error page during the retry, the error screen only after every retry, a first-ever offline open
   android: manual  # med-wcpg replaces this line with android/qa/scenarios/load-retry.mjs
-  ios: manual  # med-si05 replaces this line
+  ios: ios/UITests/FlowQALoadRetryTests.swift#testWarmHostNeverShowsError  # the Simulator has no airplane mode: -wgQAFailLoads fails loads synthetically; the first-ever open is #testColdHostGivesUpAfterThreeRetries
 source: [med-wcpg, med-x2jc, med-si05]
