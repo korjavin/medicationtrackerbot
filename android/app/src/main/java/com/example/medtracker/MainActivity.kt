@@ -87,6 +87,17 @@ class MainActivity : Activity() {
     private var loadTries = 0
     /** The URL the posted retry loads; dropped if something else loaded meanwhile. */
     private var retryUrl: String? = null
+    /**
+     * The load under the cover is one of ours (its first `chrome` sample: Chromium's error page commits
+     * on the same URL but runs no bridge) and has a visible frame (onPageCommitVisible). The cover drops
+     * only when both are true: the sample comes at document start, before the page paints, so hiding on it
+     * alone showed a bare wg_screen frame (Argus 27463, QA 44331858604). Reset per load in onPageStarted.
+     */
+    private var retrySampled = false
+    private var retryDrawn = false
+    private fun endRetryIfDrawn() {
+        if (loadTries > 0 && !loadFailed && retrySampled && retryDrawn) endRetry()
+    }
     private val retryLoad = Runnable { if (!isDestroyed && loadTries > 0 && lastUrl == retryUrl) load(lastUrl ?: home) }
     // Diag lines say how long the user sat on the cover (field reports; QA times the cover by them).
     private val coverOpening = Runnable { coverNote.visibility = View.VISIBLE; diag("shell load cover opening") }
@@ -767,6 +778,8 @@ class MainActivity : Activity() {
 
         override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
             loadFailed = false
+            retrySampled = false
+            retryDrawn = false
             loadGen++
             pageCanStep = null
             updateBack()
@@ -819,6 +832,8 @@ class MainActivity : Activity() {
 
         /** N6: the page's first visible frame ends the splash hold. */
         override fun onPageCommitVisible(view: WebView, url: String?) {
+            retryDrawn = true
+            endRetryIfDrawn()
             releaseSplash()
         }
 
@@ -971,10 +986,10 @@ class MainActivity : Activity() {
                 val args = msg.optJSONObject("args") ?: return
                 cssColor(args.optString("top"))?.let { topColor = it }
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
-                // bd med-wcpg: a page of the vault drew, so the retry cycle is over. Not onPageCommitVisible:
-                // Chromium's error page commits on the same URL too, but only our pages run chrome.js.
-                // !loadFailed: the QA hook's stopped document may still sample.
-                if (loadTries > 0 && !loadFailed) endRetry()
+                // bd med-wcpg: a page of the vault is loading; the cycle ends once it also has a visible
+                // frame ([endRetryIfDrawn]). !loadFailed there: the QA hook's stopped document may still sample.
+                retrySampled = true
+                endRetryIfDrawn()
                 updateChrome()
                 releaseSplash() // N6: the page's first sample says it is ready
 

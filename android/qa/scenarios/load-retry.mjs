@@ -70,14 +70,19 @@ export default async function loadRetry(ctx) {
     if (!(await flagged(ctx, host))) throw new Error(`no accountShown:${host} in shell.xml`);
   });
 
-  await ctx.step('known, one failed load: the mark, then the page; never N4', async () => {
-    await reopen(ctx, 1);
-    await ctx.sleep(300);
-    await ctx.device.screenshot({ path: join(ctx.out, 'screenshots', `${ctx.scenario}-known-retrying.png`) }); // the cycle is ~1 s
+  await ctx.step('known, two failed loads: the mark, then the page; never a bare frame, never N4', async () => {
+    // n=2: a ~2 s cycle (retries at 0.5 and 1.5 s), long enough to be shot inside. A burst of device
+    // shots spans the cycle and the hand-off to the page: each is the mark or the page, never bare
+    // wg_screen (the cover must not drop before the page paints; Argus 27463).
+    await reopen(ctx, 2);
+    const end = Date.now() + 6_000;
+    for (let i = 1; Date.now() < end; i++) {
+      await ctx.device.screenshot({ path: join(ctx.out, 'screenshots', `${ctx.scenario}-known-burst-${String(i).padStart(2, '0')}.png`) });
+    }
     await watch(ctx, 8_000);
     await onAccount(ctx, host);
     const diag = await prefs(ctx, 'diag');
-    if (!diag.includes('shell load retry 1 error -1 net::ERR_FAILED (qa)')) throw new Error('diag lacks the retry line');
+    if (!diag.includes('shell load retry 2 error -1 net::ERR_FAILED (qa)')) throw new Error('diag lacks retry 2');
   });
   await ctx.shot('known-page');
 

@@ -243,8 +243,10 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   survives a plain switch (Switch account, Use another invite, account.leave, another
   host opened: WebView keeps the origin's data) and is dropped only with the
   account: X-Account-Gone and `account.leave {then: "local", forget: true}`. The
-  cycle ends when a page of the vault draws (its first `chrome` sample: Chromium's
-  error page commits on the same URL but runs no bridge). Diag lines `shell load retry <n> error <code> <why>`
+  cycle ends when a page of the vault has both sampled (its first `chrome` sample:
+  Chromium's error page commits on the same URL but runs no bridge) and committed
+  a visible frame (`onPageCommitVisible`); the sample alone comes at document start,
+  before the page paints, and would leave a bare wg_screen frame. Diag lines `shell load retry <n> error <code> <why>`
   (10 per cycle) and `shell load retry gave up`; QA lever `--ei wgQAFailLoads <n>`
   (android-qa `load-retry`). Only the server's own "no such account" 404 — marked
   `X-Account-Gone: 1` by `internal/cloudserver/router.go` (a mistyped account,
