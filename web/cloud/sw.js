@@ -242,21 +242,32 @@ self.addEventListener('activate', (event) => {
 // guarantee). An exact cached copy from a prior online visit still wins above.
 const CEREMONY_PATHS = new Set(['/unlock', '/claim', '/recover', '/devices', '/connectors']);
 
+// A fetch-path cache lookup where a Cache Storage failure (Chromium "Unexpected
+// internal error", eviction, a busy backend) is a miss, never a rejection: an
+// uncaught one rejects respondWith and the navigation dies with net::ERR_FAILED
+// (med-x2jc). The miss then takes the network / retry-document path.
+function cacheMatch(request, options) {
+  return caches.match(request, options).catch((err) => {
+    console.warn('sw: cache lookup failed, treating as a miss', err);
+    return undefined;
+  });
+}
+
 // The cached document to serve for a navigation, or undefined when nothing is
 // servable: an exact cached copy wins; otherwise a non-ceremony navigation may
 // fall back to the cached '/' app shell (ignoreSearch), but a ceremony page
 // never gets the '/' shell (anti-ping-pong, above).
 function cachedNavigationDoc(request) {
-  return caches.match(request).then((cached) => {
+  return cacheMatch(request).then((cached) => {
     if (cached) return cached;
     if (CEREMONY_PATHS.has(new URL(request.url).pathname)) return undefined;
-    return caches.match('/', { ignoreSearch: true });
+    return cacheMatch('/', { ignoreSearch: true });
   });
 }
 
 function offlineFallback(request, surface) {
   if (request.mode !== 'navigate') {
-    return caches.match(request).then((cached) => cached || surface());
+    return cacheMatch(request).then((cached) => cached || surface());
   }
   return cachedNavigationDoc(request).then((doc) => doc || surface());
 }
@@ -400,7 +411,7 @@ self.addEventListener('fetch', (event) => {
 
   // Static assets: cache-first — a hit serves with zero network wait.
   event.respondWith(
-    caches.match(request).then((cached) => cached || fetchAndCache(event, request))
+    cacheMatch(request).then((cached) => cached || fetchAndCache(event, request))
   );
 });
 

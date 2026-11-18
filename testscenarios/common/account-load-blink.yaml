@@ -1,5 +1,5 @@
 id: account-load-blink
-title: An account the phone has opened before never shows the error screen on a failed load
+title: A failed load of a known account retries quietly and opens the app, not the error screen
 platforms: [web, android, ios]
 preconditions:
   - Account mode, opened before on this phone
@@ -8,12 +8,11 @@ steps:
   - Interrupt the first load (a network blink while opening)
 invariants:
   - The app opens from the phone within seconds
-  - The mark stays on screen during the retry, never a browser error page or a blank
-  - An account opened before on this phone never shows "Can't reach your account" for a failed load; after about 10 s "Opening…" shows under the mark, after about 30 s Switch account and Copy diagnostics
-  - Switch account from there lands in local mode, and that account still counts as opened before
-  - A first-ever open with no network still reaches "Can't reach your account" with Try again, after the quiet retries failed
+  - The mark stays on screen during the retry, never a browser error page
+  - "\"Can't reach your account\" appears only after every retry failed, with Try again"
+  - A first-ever open with no network still reaches the error screen
 covered_by:
-  web: manual  # the web sibling bead (med-x2jc) replaces this line
-  android: manual  # the Android bead (med-wcpg) replaces this line with load-retry.mjs
-  ios: ios/UITests/FlowQALoadRetryTests.swift#testWarmHostNeverShowsError  # the Simulator has no airplane mode: -wgQAFailLoads fails loads synthetically; the cold case is #testColdHostGivesUpAfterThreeRetries
+  web: manual  # partial: web/cloud/js/tests/sw.fetch-cache.test.js#Cache Storage failure (med-x2jc) asserts only the worker response (a failed cache lookup on a navigation serves the network document, else the retry document; never a rejected respondWith = net::ERR_FAILED); missing: the interrupted cold open opening the app, no browser error page during the retry, the error screen only after every retry, a first-ever offline open
+  android: manual  # med-wcpg replaces this line with android/qa/scenarios/load-retry.mjs
+  ios: ios/UITests/FlowQALoadRetryTests.swift#testWarmHostNeverShowsError  # the Simulator has no airplane mode: -wgQAFailLoads fails loads synthetically; the first-ever open is #testColdHostGivesUpAfterThreeRetries
 source: [med-wcpg, med-x2jc, med-si05]

@@ -186,6 +186,41 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         await expect(promise).rejects.toBe(err);
     });
 
+    // med-x2jc — a Cache Storage failure is a miss, never a rejected
+    // respondWith (which the page sees as net::ERR_FAILED).
+    describe('Cache Storage failure (med-x2jc)', () => {
+        beforeEach(() => { allowConsoleNoise(); }); // the cache-lookup warning logs by design
+
+        it('a navigation whose cache lookup rejects is served the network document, and caches it', async () => {
+            caches.match.mockRejectedValueOnce(new Error('Unexpected internal error.'));
+            const fresh = networkResponse();
+            fetchMock.mockResolvedValue(fresh);
+
+            const { response } = await fireFetch(listeners, navigate('/'));
+            expect(response).toBe(fresh);
+            expect(caches.store.get(SHELL_CACHE).get('/')).toBe(fresh.__clone);
+        });
+
+        it('a navigation whose cache lookup rejects with the network down too gets the retry document, never a rejection', async () => {
+            caches.match.mockRejectedValue(new Error('Unexpected internal error.'));
+            fetchMock.mockRejectedValue(new TypeError('network down'));
+
+            const { promise } = fireFetchRaw(listeners, navigate('/'));
+            const response = await promise;
+            expect(response.status).toBe(503);
+            expect(await response.text()).toContain("Can't reach the server.");
+        });
+
+        it('an asset whose cache lookup rejects is served from the network', async () => {
+            caches.match.mockRejectedValueOnce(new Error('Unexpected internal error.'));
+            const fresh = networkResponse();
+            fetchMock.mockResolvedValue(fresh);
+
+            const { response } = await fireFetch(listeners, req('/static/js/app.js?v=9'));
+            expect(response).toBe(fresh);
+        });
+    });
+
     it('online: returns the network response and refreshes the versioned cache for / and /static/*', async () => {
         const docResp = networkResponse();
         const assetResp = networkResponse();
