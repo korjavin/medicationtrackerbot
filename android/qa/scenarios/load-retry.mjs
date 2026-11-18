@@ -6,16 +6,12 @@
 // Known (shown on this phone before, accountShown:<host>): every 10 s after that, never N4; "Opening…"
 // at ~10 s, Switch account + Copy diagnostics at ~30 s; a plain switch keeps the flag. First-ever
 // open (after pm clear): N4 only after the third retry failed.
-import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-// The cover's mark is an ImageView UiAutomator does not report (run 44312948936), so the cover is
-// proven by its "Opening…" / "Switch account" lines and by the shots; every step watches that
-// neither N4 nor Chromium's error page shows when it must not.
+// The cover is proven by its lines and buttons (real a11y nodes) and by the shots; every step watches
+// that neither N4 nor Chromium's error page shows when it must not.
 const N4 = 'Can\'t reach your account';
-// A string text selector missed the on-screen "Opening…" twice (runs 44314911268, 44316587038; the
-// FAILED shot shows it), so the ellipsis line is matched by a regex.
-const OPENING = /Opening.*/; // UiAutomator matches the whole text (cf. run.mjs's ANR regex)
+const OPENING = 'Opening…';
 const seen = new Set();
 const has = (ctx, text, timeout = 300) => ctx.device.wait({ text }, { timeout }).then(() => true, (e) => {
   const msg = String(e?.message || e).split('\n')[0];
@@ -85,44 +81,34 @@ export default async function loadRetry(ctx) {
 
   await ctx.step('known, every load fails: Opening… ~10 s, Switch account + Copy diagnostics ~30 s, never N4', async () => {
     await reopen(ctx, 99);
-    const t0 = Date.now(); // am start -W returned: the first load is under way
+    // The cover's clocks start at the first failure, which a cold start reaches a second or two after
+    // am start returns, so times are taken from that failure's diag line (the emulator's clock is the
+    // host's). Runs 44314911268..44326800563 timed from am start and failed at the bound; probe run
+    // 44328334839 showed the cover's nodes present (text, desc, bounds) once due.
+    const t0 = Date.now();
     let opening = 0, exit = 0;
     while (!exit) {
       const t = Date.now() - t0;
       if (await has(ctx, N4)) throw new Error(`N4 on a known account at ${t} ms`);
       if (await has(ctx, 'Webpage not available')) throw new Error('the WebView error page showed');
-      // 2 s, not 300 ms: UiAutomator's idle wait runs long while the WebView reloads every 10 s.
-      if (!opening && await has(ctx, OPENING, 2_000)) {
-        opening = t;
-        await ctx.shot('known-opening');
-      }
-      if (opening && await has(ctx, 'Switch account', 2_000)) {
-        exit = t;
+      if (!opening && await has(ctx, OPENING, 1_000)) opening = Date.now();
+      if (opening && await has(ctx, 'Switch account', 1_000)) {
+        exit = Date.now();
         if (!(await has(ctx, 'Copy diagnostics', 1_000))) throw new Error('Switch account without Copy diagnostics');
       }
-      if ((!opening && t > 12_000) || t > 33_000) {
-        // The live view tree and the a11y state without UiAutomation: why the cover is not a node.
-        for (const [f, cmd] of [['dumpsys-top.txt', 'dumpsys activity top'], ['dumpsys-a11y.txt', 'dumpsys accessibility']]) {
-          await writeFile(join(ctx.out, f), await ctx.shell(cmd).catch((e) => String(e)));
-        }
-        const pkg = ctx.pkg;
-        for (const sel of [{ pkg }, { pkg, clazz: 'android.widget.TextView' }, { pkg, clazz: 'android.widget.ImageView' },
-          { pkg, clazz: 'android.webkit.WebView' }, { desc: 'Opening Med Tracker' }, { text: 'Opening…' }]) {
-          const ok = await ctx.device.wait(sel, { timeout: 3_000 }).then(() => true, (e) => String(e?.message || e).split('\n')[0]);
-          ctx.log('load-retry: probe', JSON.stringify(sel), '->', ok);
-        }
-        for (const sel of [{ pkg, clazz: 'android.widget.TextView' }]) {
-          const info = await ctx.device.info(sel).catch((e) => String(e?.message || e).split('\n')[0]);
-          ctx.log('load-retry: info', JSON.stringify(info));
-        }
-        throw new Error(opening ? 'no Switch account by 33 s' : 'no Opening… by 12 s');
-      }
+      if (!opening && t > 25_000) throw new Error('no Opening… 25 s after am start');
+      if (t > 45_000) throw new Error('no Switch account 45 s after am start');
+      if (opening && !exit && !seen.has('opening-shot')) { seen.add('opening-shot'); await ctx.shot('known-opening'); }
     }
-    ctx.log('load-retry: Opening… at', opening, 'ms, Switch account at', exit, 'ms');
-    if (!opening) throw new Error('Switch account came before Opening…');
-    if (exit < 28_000) throw new Error(`Switch account already at ${exit} ms`);
+    const fails = [...(await prefs(ctx, 'diag')).matchAll(/(\d{4}-\d\d-\d\dT[\d:.]+Z) shell load retry 1 error/g)];
+    if (!fails.length) throw new Error('diag lacks this cycle\'s retry 1');
+    const first = Date.parse(fails[fails.length - 1][1]);
+    const since = (at) => at - first;
+    ctx.log('load-retry: since the first failure: Opening…', since(opening), 'ms, Switch account', since(exit), 'ms');
+    if (since(opening) > 12_000) throw new Error(`Opening… at ${since(opening)} ms, want by 12 s`);
+    if (since(exit) < 28_000 || since(exit) > 33_000) throw new Error(`Switch account at ${since(exit)} ms, want 28–33 s`);
     await ctx.shot('known-switch');
-    await ctx.sleep(2_000); // past 35 s
+    await ctx.sleep(3_000); // past 35 s since the first failure
     if (await has(ctx, N4)) throw new Error('N4 on a known account');
     const diag = await prefs(ctx, 'diag');
     if (!diag.includes('shell load retry 3 error -1')) throw new Error('diag lacks retry 3');
