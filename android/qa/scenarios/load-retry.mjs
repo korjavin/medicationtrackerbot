@@ -6,6 +6,7 @@
 // Known (shown on this phone before, accountShown:<host>): every 10 s after that, never N4; "Opening…"
 // at ~10 s, Switch account + Copy diagnostics at ~30 s; a plain switch keeps the flag. First-ever
 // open (after pm clear): N4 only after the third retry failed.
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // The cover's mark is an ImageView UiAutomator does not report (run 44312948936), so the cover is
@@ -99,14 +100,17 @@ export default async function loadRetry(ctx) {
         exit = t;
         if (!(await has(ctx, 'Copy diagnostics', 1_000))) throw new Error('Switch account without Copy diagnostics');
       }
-      // Both timers start at the first failure, which a cold start reaches a few seconds after
-      // am start returns: Opening… by 15 s of it, Switch account ~20 s after Opening….
-      if (!opening && t > 15_000) throw new Error('no Opening… by 15 s');
-      if (t > 38_000) throw new Error('no Switch account by 38 s');
+      if ((!opening && t > 12_000) || t > 33_000) {
+        // The live view tree and the a11y state without UiAutomation: why the cover is not a node.
+        for (const [f, cmd] of [['dumpsys-top.txt', 'dumpsys activity top'], ['dumpsys-a11y.txt', 'dumpsys accessibility']]) {
+          await writeFile(join(ctx.out, f), await ctx.shell(cmd).catch((e) => String(e)));
+        }
+        throw new Error(opening ? 'no Switch account by 33 s' : 'no Opening… by 12 s');
+      }
     }
     ctx.log('load-retry: Opening… at', opening, 'ms, Switch account at', exit, 'ms');
     if (!opening) throw new Error('Switch account came before Opening…');
-    if (exit - opening < 17_000 || exit - opening > 23_000) throw new Error(`Switch account ${exit - opening} ms after Opening…, want ~20 s`);
+    if (exit < 28_000) throw new Error(`Switch account already at ${exit} ms`);
     await ctx.shot('known-switch');
     await ctx.sleep(2_000); // past 35 s
     if (await has(ctx, N4)) throw new Error('N4 on a known account');
