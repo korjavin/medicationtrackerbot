@@ -27,6 +27,8 @@ final class FlowQALoadRetryTests: XCTestCase {
     func testColdHostGivesUpAfterThreeRetries() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
+        let markers = ["shell load retry 1 ", "shell load retry 2 ", "shell load retry 3 ", "shell load retry 4 ", "shell load retry gave up"]
+        let since = Date()
         // wgAccountShown pinned empty (NSArgumentDomain): cold whatever an earlier flow left.
         launch(app, try host(), ["-wgAccountShown", "", "-wgQAFailLoads", "4"])
         XCTAssertFalse(app.staticTexts[error].waitForExistence(timeout: 3), "N4 showed before the retries ran")
@@ -35,11 +37,8 @@ final class FlowQALoadRetryTests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'error -1004 · qa fail load'")).firstMatch.exists,
                       "N4's meta line is not the last error's")
         shot("load-retry", "cold-n4")
-        let log = diagLog()
-        for line in ["shell load retry 1 ", "shell load retry 2 ", "shell load retry 3 ", "shell load retry gave up"] {
-            XCTAssertTrue(log.contains(line), "the diag log has no \"\(line)\": \(log.suffix(800))")
-        }
-        XCTAssertFalse(log.contains("shell load retry 4 "), "a cold host retried a fourth time")
+        let want = [1, 1, 1, 0, 1]
+        XCTAssertEqual(waitDiag(markers, since: since, want), want,"the cycle's diag lines (retry 1-3, no retry 4, gave up) per \(markers)")
         app.buttons["Try again"].tap()
         XCTAssertTrue(page(app).waitForExistence(timeout: 60), "Try again did not open the page; on screen: \(texts(app))")
         XCTAssertFalse(app.staticTexts[error].exists, "N4 still shows after Try again opened the page")
@@ -60,6 +59,17 @@ final class FlowQALoadRetryTests: XCTestCase {
         while QA.appDefaults()?["wgAccountShown"] as? String != host, Date() < end { Thread.sleep(forTimeInterval: 0.5) }
         XCTAssertEqual(QA.appDefaults()?["wgAccountShown"] as? String, host, "a finished page did not mark the host warm")
 
+        // One blink: the first retry (0.5 s) opens the page, no error screen at any point.
+        let one = ["shell load retry 1 ", "shell load retry 2 "]
+        let blinkSince = Date()
+        launch(app, host, ["-wgQAFailLoads", "1"])
+        XCTAssertTrue(page(app).waitForExistence(timeout: 60), "one failed load did not end on the page; on screen: \(texts(app))")
+        XCTAssertFalse(app.staticTexts[error].exists, "a warm host showed N4 after one failed load")
+        XCTAssertEqual(waitDiag(one, since: blinkSince, [1, 0]), [1, 0],"one blink is one retry (counts of \(one))")
+        shot("load-retry", "warm-blink")
+
+        let six = ["shell load retry 6 ", "shell load retry gave up"]
+        let sixSince = Date()
         launch(app, host, ["-wgQAFailLoads", "6"])
         let opening = app.staticTexts["Opening…"]
         XCTAssertTrue(opening.waitForExistence(timeout: 25), "no \"Opening…\" under the mark; on screen: \(texts(app))")
@@ -74,7 +84,7 @@ final class FlowQALoadRetryTests: XCTestCase {
         while opening.exists, Date() < gone { Thread.sleep(forTimeInterval: 0.5) }
         XCTAssertFalse(opening.exists, "the retry cover still shows over the page")
         XCTAssertFalse(app.staticTexts[error].exists, "a warm host showed N4")
-        XCTAssertTrue(diagLog().contains("shell load retry 6 "), "the diag log has no sixth retry")
+        XCTAssertEqual(waitDiag(six, since: sixSince, [1, 0]), [1, 0],"a warm host retried a sixth time and never gave up (counts of \(six))")
         shot("load-retry", "warm-opened")
         app.terminate()
     }
@@ -90,16 +100,25 @@ final class FlowQALoadRetryTests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60), "the app did not reach the foreground")
     }
 
-    /// The shell's diag log (Diag.key), as persisted; polled briefly, cfprefsd writes it a moment later.
-    private func diagLog() -> String {
+    /// How many lines of the shell's persisted diag log (Diag.key) since `since`
+    /// contain each marker. The log outlives launches (and QA.reset) and is
+    /// capped, so only lines stamped from `since` on count (ISO 8601 UTC sorts as text).
+    private func diagCounts(_ markers: [String], since: Date) -> [Int] {
+        let from = ISO8601DateFormatter().string(from: since)
+        let lines = (QA.appDefaults()?["wgDiagLog"] as? String ?? "").split(separator: "\n")
+            .filter { String($0.prefix(from.count)) >= from }
+        return markers.map { m in lines.filter { $0.contains(m) }.count }
+    }
+
+    /// Polls until the counts are `want` (cfprefsd writes a moment later); the last counts.
+    private func waitDiag(_ markers: [String], since: Date, _ want: [Int]) -> [Int] {
         let end = Date().addingTimeInterval(10)
-        var log = ""
-        repeat {
-            log = QA.appDefaults()?["wgDiagLog"] as? String ?? ""
-            if log.contains("gave up") || log.contains("retry 6 ") { break }
+        var now = diagCounts(markers, since: since)
+        while now != want, Date() < end {
             Thread.sleep(forTimeInterval: 0.5)
-        } while Date() < end
-        return log
+            now = diagCounts(markers, since: since)
+        }
+        return now
     }
 
     /// Any rendered element of the account's web page (its unlock page: this invite is never claimed).
