@@ -5,7 +5,8 @@
 // internal/domain/food.go.
 
 import { offsetMsAt, dayStartMs } from './bp.js';
-import { foodKey, isStaple, keyDistance, offDisplayName } from './foodname.js';
+import { foodKey, isStaple, keyDistance, offDisplayName, packSizeG } from './foodname.js';
+import { portionsFor, typicalServingG } from './foodportion.js';
 import { macroWarnings, withMacroWarnings } from './foodmacros.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
@@ -1004,10 +1005,47 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     return toProductResponse(product);
   }
 
-  // search mirrors handleSearchFoodProducts (food_handlers.go:946): local
+  // search returns the matches below, each with its `portions` (med-8npm.1):
+  // the starting portion and three chips the add sheet renders. One read of
+  // the food logs per call; no write.
+  async function search(q, opts) {
+    const results = await searchProducts(q, opts);
+    if (!results.length) return results;
+    const byProduct = new Map();
+    const logs = (await records.list(LOG_RECORD_TYPE))
+      .filter((r) => !r.deleted && r.weight > 0 && r.product_id)
+      .sort((a, b) => logInstantMs(b) - logInstantMs(a));
+    for (const r of logs) {
+      if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
+      byProduct.get(r.product_id).push(r.weight);
+    }
+    // A food-DB hit has no id: read the product a "+" on it would log onto
+    // (create()'s resolveProduct), so the shown start and the write agree.
+    let products;
+    const out = [];
+    for (const p of results) {
+      let productId = p.id;
+      if (!productId) {
+        products ??= await records.list(PRODUCT_RECORD_TYPE);
+        productId = resolveProduct(p.name, products, { barcode: p.barcode }).product?.recordId;
+      }
+      out.push({
+        ...p,
+        portions: portionsFor({
+          product: p,
+          history: byProduct.get(productId) || [],
+          packG: p.id ? null : packSizeG(p.name),
+          typicalG: typicalServingG(p.name),
+        }),
+      });
+    }
+    return out;
+  }
+
+  // searchProducts mirrors handleSearchFoodProducts (food_handlers.go:946): local
   // products always searched; `remote` additionally merges the injected
   // foodDb port (Task 5 supplies the real browser implementation).
-  async function search(q, { remote = false } = {}) {
+  async function searchProducts(q, { remote = false } = {}) {
     const query = (q || '').trim();
     if (query.length < 2) return [];
 
