@@ -114,6 +114,10 @@ describe('packSizeG — the quantity segment of a food-DB name', () => {
 });
 
 describe('food.search() annotates every result', () => {
+  // Fake of the records port createFoodDomain takes (web/domain/food.js header:
+  // { list(type), put(type, record), del(type, id) }); the real one is
+  // recordsPort() in web/cloud/js/sync.js, wired by apishim.js. Search is
+  // read-only, so put/del throw.
   function memoryRecords(seed) {
     const rows = seed.map((r) => ({ ...r }));
     return {
@@ -124,19 +128,28 @@ describe('food.search() annotates every result', () => {
   }
 
   it('a Mine product with two logs and a remote hit in one call', async () => {
+    // Seeded rows mirror what food.js createProduct()/create() write (the
+    // 'foodproduct' / 'foodlog' record types): same field names and defaults.
     const product = (id, name, extra = {}) => ({
-      type: 'foodproduct', recordId: id, name, usage_count: 2, energy_kcal_100g: 165, carbs_100g: 0, protein_100g: 31, fat_100g: 4, ...extra,
+      type: 'foodproduct', recordId: id, clientTs: 0, deleted: false, name, name_key: name.toLowerCase(), barcode: null,
+      carbs_100g: 0, protein_100g: 31, fat_100g: 4, energy_kcal_100g: 165, usage_count: 2, is_meal: false, total_weight_g: 0,
+      created_at: '2026-11-01T00:00:00.000Z', last_used_at: '2026-11-19T12:00:00.000Z', ...extra,
     });
-    const log = (id, productId, weight, at) => ({ type: 'foodlog', recordId: id, product_id: productId, weight, eaten_at: at });
+    const log = (id, productId, weight, at) => ({
+      type: 'foodlog', recordId: id, clientTs: 0, deleted: false, eaten_at: at, weight, carbs: 0, protein: 0, fat: 0, calories: 0,
+      name: 'Chicken breast', product_id: productId,
+    });
     const records = memoryRecords([
       product('p-chicken', 'Chicken breast'),
       log('l1', 'p-chicken', 180, '2026-11-18T12:00:00Z'),
       log('l2', 'p-chicken', 220, '2026-11-19T12:00:00Z'),
       { ...log('l3', 'p-chicken', 999, '2026-11-19T13:00:00Z'), deleted: true },
     ]);
+    // Fake of the foodDb port ({ search(query) => Promise<product[]> }); the hit
+    // has the shape of mapFastFoodProduct() in web/cloud/js/fooddb.js.
     const foodDb = {
       async search() {
-        return [{ name: 'Chicken nuggets - Brand - 250 g', barcode: '4000000000001', energy_kcal_100g: 250, carbs_100g: 15, protein_100g: 15, fat_100g: 15 }];
+        return [{ name: 'Chicken nuggets - Brand - 250 g', barcode: '4000000000001', energy_kcal_100g: 250, carbs_100g: 15, protein_100g: 15, fat_100g: 15, usage_count: 0, is_meal: false }];
       },
     };
     const food = createFoodDomain({ records, now: () => Date.parse('2026-11-19T14:00:00Z'), timeZone: 'UTC', foodDb });
