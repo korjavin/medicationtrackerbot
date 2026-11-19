@@ -485,3 +485,10 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-code--wrap{height:auto;min-height:48px;padding:10px 6px 10px 14px;align-items:flex-start}.wg-code--wrap>span{white-space:normal;overflow:visible;line-height:1.6;letter-spacing:.04em;word-spacing:.25em}
 .wg-input--code{height:auto;min-height:0;padding:10px 14px;font:500 var(--wg-fs-lg)/1.5 var(--wg-font-mono);letter-spacing:.04em;word-spacing:.25em;text-transform:uppercase;resize:none}
 .wg-pick{white-space:nowrap;flex-shrink:0}
+/* pick field — an inline number field that sits in a .wg-picks row (food portions, PS2–PS5) */
+.wg-pickfield{display:inline-flex;align-items:center;gap:4px;height:var(--wg-h-sm);min-width:76px;padding:0 10px;border-radius:var(--wg-r-sm);border:1px solid var(--wg-line-strong);background:var(--wg-inset);box-shadow:var(--wg-sh-inset);color:var(--wg-fg-1);font:600 var(--wg-fs-sm)/1 var(--wg-font-mono);flex-shrink:0;cursor:text}
+.wg-pickfield input{width:5ch;min-width:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:center;outline:0}
+.wg-pickfield input::placeholder{color:var(--wg-fg-4)}
+.wg-pickfield small{font:600 10px var(--wg-font-ui);opacity:.75}
+.wg-pickfield--on{background:var(--wg-warn-bg);border-color:rgba(251,189,13,.55);color:var(--wg-sun-soft)}
+.wg-pickfield:focus-within,.wg-pickfield--focus{border-color:rgba(251,189,13,.6);box-shadow:var(--wg-sh-inset),var(--wg-focus)}
