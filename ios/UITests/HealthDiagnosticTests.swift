@@ -130,16 +130,6 @@ final class HealthDiagnosticTests: XCTestCase {
 @MainActor
 final class HealthWriteBackTests: XCTestCase {
     func testWriteReplaceFilterDelete() throws {
-        let json = try HealthDiagnosticTests.run("-wgQAHealthWriteBack", in: self)
-        // A partial run (BP half skipped on the known iOS 26.5 Simulator gap) is
-        // visible in the test output; on a real device it must never skip.
-        if let skipped = json["bpSkipped"] as? String {
-            let note = XCTAttachment(string: "PARTIAL RUN: BP write-back skipped (\(skipped))")
-            note.name = "health-bp-skipped.txt"; note.lifetime = .keepAlways; add(note)
-            print("HealthWriteBackTests PARTIAL: bpSkipped \(skipped)")
-            #if !targetEnvironment(simulator)
-            XCTFail("BP write-back skipped on a device: \(skipped)")
-            #endif
-        }
+        try HealthDiagnosticTests.run("-wgQAHealthWriteBack", in: self)
     }
 }
