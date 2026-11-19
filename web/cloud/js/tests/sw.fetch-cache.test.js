@@ -221,6 +221,18 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         });
     });
 
+    it('a cache.put that rejects after a good fetch still serves the network response, and its waitUntil promise resolves (med-2wig)', async () => {
+        const fresh = networkResponse();
+        fetchMock.mockResolvedValue(fresh);
+        // Mirrors the real contract: Cache.put rejects (e.g. QuotaExceededError) when Cache Storage fails (MDN / SW spec).
+        caches.open.mockResolvedValueOnce({ match: async () => undefined, put: async () => { throw new Error('quota'); } });
+
+        const { evt, response } = await fireFetch(listeners, req('/static/js/app.js?v=9'));
+        expect(response).toBe(fresh);
+        expect(evt.waitUntil).toHaveBeenCalledTimes(1);
+        await expect(evt.waitUntil.mock.calls[0][0]).resolves.toBeUndefined();
+    });
+
     it('online: returns the network response and refreshes the versioned cache for / and /static/*', async () => {
         const docResp = networkResponse();
         const assetResp = networkResponse();
