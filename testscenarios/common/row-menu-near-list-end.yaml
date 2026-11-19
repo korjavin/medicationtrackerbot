@@ -11,10 +11,11 @@ invariants:
   - Every menu item, Delete included, is fully visible above the tab bar and the home indicator, and tappable
   - A row with room below still opens its menu downward, as before
 covered_by:
-  # Partial evidence: web/static/js/tests/weight.history.test.js ("the last row's menu opens above
-  # the row": flip logic on stubbed geometry, a row with room stays down, Delete reaches its handler)
-  # and tests/visual/scenes.json weight/bp/food-last-row-menu (real layout at phone size, inView
-  # probe: the open menu sits wholly above the tab bar). Missing: a real finger tap on Delete.
-  web: manual  # tap Delete on the last row's menu at phone size; layout is covered by the scenes above
-  ios: manual  # same, on an iPhone with a home indicator
+  # Invariant 1: tests/visual/scenes.json weight/bp/food-last-row-menu (real layout at phone size,
+  # inView probe: the open menu sits wholly above the tab bar) and #weight-last-row-delete (a real
+  # tap on the last row's Delete: XCUITest tap / Playwright hit-tested click, then the "Weight
+  # deleted" toast's Undo must show and is tapped). Invariant 2 and the flip logic:
+  # web/static/js/tests/weight.history.test.js ("the last row's menu opens above the row").
+  web: tests/visual/scenes.json#weight-last-row-delete
+  ios: tests/visual/scenes.json#weight-last-row-delete
 source: [bd med-l578]
