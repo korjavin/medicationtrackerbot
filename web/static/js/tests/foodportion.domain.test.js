@@ -17,6 +17,12 @@ describe('portionsFor — sources in order', () => {
     expect(p.start_g).toBe(175);
   });
 
+  it('history [100,101,200,300]: 101 collapses with 100 on the grid, the next logged portion fills', () => {
+    const p = portionsFor({ history: [100, 101, 200, 300] });
+    expect(grams(p)).toEqual([100, 200, 300]);
+    expect(p.start_g).toBe(100);
+  });
+
   it('history [170]: ½× and 1.5× fill around the last, snapped to the 10 g grid', () => {
     const p = portionsFor({ history: [170] });
     expect(grams(p)).toEqual([90, 170, 260]);

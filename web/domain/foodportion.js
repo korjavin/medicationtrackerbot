@@ -82,9 +82,9 @@ export function portionsFor({ product = {}, history = [], packG = null, typicalG
     const counts = new Map();
     for (const w of weights) counts.set(w, (counts.get(w) || 0) + 1);
     const used = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
-    candidates = used.length >= 3
-      ? used.filter((w) => w !== start).slice(0, 2)
-      : [...used, roundPortion(start / 2), roundPortion(start * 1.5)];
+    // Every ranked logged value before the ½×/1.5× fill, so a real portion
+    // fills a slot a grid-duplicate (100 vs 101) left open (Argus 29501).
+    candidates = [...used, roundPortion(start / 2), roundPortion(start * 1.5)];
   } else if (packG >= 5 && packG <= 400) {
     // A pack is a serving only within the typical table's bounds: a 1 kg bag
     // of rice is not a start (never absurd); it falls to the next source.
