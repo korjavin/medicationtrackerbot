@@ -1,0 +1,16 @@
+id: row-menu-near-list-end
+title: A row's ⋮ menu near the end of a list stays fully visible above the tab bar
+platforms: [web, ios]
+preconditions:
+  - A phone-size screen (390x844) with the bottom tab bar showing
+  - Health → Weight (or BP, or any list with ⋮ row menus) has enough entries to scroll
+steps:
+  - Scroll to the end of the list
+  - Tap ⋮ on the last row
+invariants:
+  - Every menu item, Delete included, is fully visible above the tab bar and the home indicator, and tappable
+  - A row with room below still opens its menu downward, as before
+covered_by:
+  web: web/static/js/tests/weight.history.test.js  # "the last row's menu opens above the row"
+  ios: tests/visual/scenes.json  # scene weight-last-row-menu, its inView probe
+source: [bd med-l578]
