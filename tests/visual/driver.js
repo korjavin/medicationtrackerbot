@@ -596,6 +596,12 @@
             const el = firstVisible(step.tag);
             if (!el.id) el.id = step.id;
             el.setAttribute('aria-label', step.id);
+        } else if (step.holdUndo) {
+            // A row delete's Undo window (deleteWithUndo, 5 s) outlives a slow
+            // native tap: this load's deletes wait 10 min, so the scene can tap
+            // Undo and later scenes keep the seeded rows (med-l578).
+            const orig = window.deleteWithUndo;
+            window.deleteWithUndo = (o) => orig({ ...o, duration: 600000 });
         } else if (step.consent) {
             // The trial consent sheet has no tap path on CI (no App Attest on
             // the Simulator, no trial keys in the cloud tier): open it directly.
