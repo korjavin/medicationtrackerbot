@@ -313,7 +313,7 @@ function fetchAndCache(event, request) {
     (response) => {
       if (response.ok) {
         const clone = response.clone();
-        event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)));
+        event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)).catch(() => {}));
         return response;
       }
       if (response.status >= 500) return offlineFallback(request, () => response);

@@ -221,6 +221,15 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         });
     });
 
+    it('a cache.put that rejects after a good fetch still serves the network response, and its waitUntil promise resolves (med-2wig)', async () => {
+        const fresh = networkResponse();
+        fetchMock.mockResolvedValue(fresh);
+        caches.open.mockResolvedValueOnce({ match: async () => undefined, put: async () => { throw new Error('quota'); } });
+
+        const { response } = await fireFetch(listeners, req('/static/js/app.js?v=9'));
+        expect(response).toBe(fresh);
+    });
+
     it('online: returns the network response and refreshes the versioned cache for / and /static/*', async () => {
         const docResp = networkResponse();
         const assetResp = networkResponse();
