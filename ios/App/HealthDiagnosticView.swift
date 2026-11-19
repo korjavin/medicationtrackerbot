@@ -221,8 +221,13 @@ struct HealthDiagnosticView: View {
             // report names the skip. Drop the gate once a runtime grants BP share.
             let bpOn = granted.contains("bp")
             if !bpOn {
-                result["bpSkipped"] = "sys/dia/corr " + ([Health.systolic, Health.diastolic, bpType] as [HKObjectType])
-                    .map { "\(store.authorizationStatus(for: $0).rawValue)" }.joined(separator: "/")
+                let bpStatus = ([Health.systolic, Health.diastolic, bpType] as [HKObjectType]).map { store.authorizationStatus(for: $0) }
+                result["bpSkipped"] = "sys/dia/corr " + bpStatus.map { "\($0.rawValue)" }.joined(separator: "/")
+                // Only the known Simulator pattern may skip (HKAuthorizationStatus:
+                // .notDetermined 0, .sharingDenied 1, .sharingAuthorized 2);
+                // any other missing BP grant is an authorization regression.
+                let knownSimGap = bpStatus == [.notDetermined, .notDetermined, .sharingAuthorized]
+                check("bp skipped only for the known simulator pattern", knownSimGap, "\(granted) status sys/dia/corr \(bpStatus.map(\.rawValue))")
                 var refused = false
                 do { _ = try await Health.handle("health.write", ["type": "bp", "id": "bp-qa-gate", "version": 1, "at": 0.0, "systolic": 120.0, "diastolic": 80.0]) }
                 catch { refused = error.localizedDescription == "denied" }
