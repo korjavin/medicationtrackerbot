@@ -1281,8 +1281,8 @@ function _unlogRepairWrite(ids) {
         else localStorage.removeItem(UNLOG_REPAIR_KEY);
     } catch (_) { /* storage blocked: the next stock write rewrites the mirror */ }
 }
-let _unlogRepairRun = null;
-let _unlogRepairTimer = null;
+let _unlogRepairRun = null; // module-state: single-flight handle of the Undo mirror repair
+let _unlogRepairTimer = null; // module-state: the one re-arm timer of the Undo mirror repair
 function repairUnlogMirrors() {
     if (_unlogRepairRun) return _unlogRepairRun;
     clearTimeout(_unlogRepairTimer);
