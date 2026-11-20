@@ -3,8 +3,11 @@
 // ====================================
 //
 // Owns #food-add-sheet, the one place food gets logged from:
-//   - home: search (local foods first, the food database on request) with
-//     inline portion picks and a "Add 150 g · 248 kcal" primary; Scan /
+//   - home: search (local foods first, the food database on request); each
+//     result shows its starting portion and a + that logs it, a row tap
+//     opens three portion chips + a grams field (kit PS1–PS6, med-8npm.2;
+//     the chips are food.search's `portions`) and an "Add 150 g · 248 kcal"
+//     primary; Scan /
 //     Photo / Describe tiles; Recent items that re-log in one tap;
 //     "Enter manually" hands off to the manual form (#food-modal, log.js)
 //   - describe: free text + a meal pick preset from the time → Estimate
@@ -29,7 +32,6 @@
 
 (function () {
     const MEAL_HOURS = { Breakfast: 8, Lunch: 13, Dinner: 19, Snack: 22 };
-    const PORTIONS = [100, 150, 200];
     const RECENT_DAYS = 14;
     const RECENT_MAX = 5;
     const SEARCH_DEBOUNCE_MS = 300;
@@ -161,7 +163,11 @@
         const discard = $('food-add-discard-btn');
         if (!foot || !primary) return;
         let label = '';
-        if (st.view === 'home' && st.picked) {
+        // PS3: an empty or 0 grams field leaves nothing to add.
+        const noGrams = st.view === 'home' && !!st.picked && !(st.picked.grams > 0);
+        if (noGrams) {
+            label = 'Enter grams';
+        } else if (st.view === 'home' && st.picked) {
             label = `Add ${st.picked.grams} g · ${pickedTotals().calories} kcal`;
         } else if (st.view === 'describe') {
             label = 'Estimate';
@@ -172,7 +178,7 @@
         foot.classList.toggle('hidden', !label);
         primary.textContent = label;
         if (!primary.hasAttribute('data-submit-in-flight')) {
-            primary.disabled = st.view === 'review' && !(st.review && st.review.length);
+            primary.disabled = noGrams || (st.view === 'review' && !(st.review && st.review.length));
         }
         if (discard) discard.classList.toggle('hidden', st.view !== 'review');
     }
@@ -345,71 +351,114 @@
         return decodeFoodDisplayText(p.name) || 'Food';
     }
 
+    // The domain decides the portions (food.search → portions, med-8npm.1):
+    // the sheet only renders them. A payload without them (an older search)
+    // starts at 100 g with that one chip.
+    function startGrams(p) {
+        return p.portions && p.portions.start_g > 0 ? p.portions.start_g : 100;
+    }
+
+    function portionChips(p) {
+        const chips = p.portions && Array.isArray(p.portions.chips) ? p.portions.chips.filter((c) => c && c.g > 0) : [];
+        return chips.length ? chips : [{ g: startGrams(p) }];
+    }
+
+    // PS1: a result reads like a Recent row — its starting portion and a +
+    // that logs exactly that; a row tap opens the portion row (PS2–PS6).
     function resultRow(p) {
         const isPicked = st.picked && st.picked.product === p;
-        const row = el(isPicked ? 'div' : 'button', isPicked ? 'wg-row wg-row--pad wg-food-add__result' : 'wg-row wg-food-add__result');
-        if (!isPicked) row.type = 'button';
+        const row = el('div', isPicked ? 'wg-row wg-row--pad wg-food-add__result' : 'wg-row wg-food-add__result');
         const body = el('span', 'wg-row__body');
         body.appendChild(el('span', 'wg-row__title', productName(p)));
-        const meta = el('span', 'wg-row__meta', `${Math.round(kcal100(p))} kcal / 100 g`);
+        const start = startGrams(p);
+        const meta = el('span', 'wg-row__meta', isPicked
+            ? `${Math.round(kcal100(p))} kcal / 100 g`
+            : `${start} g · ${Math.round((kcal100(p) * start) / 100)} kcal`);
         if (p.id) meta.appendChild(el('span', 'wg-tag', p.is_meal ? 'Meal' : 'Mine'));
         else meta.appendChild(document.createTextNode(' · Food database'));
         body.appendChild(meta);
         row.appendChild(body);
         if (isPicked) {
             body.appendChild(portionPicks(p));
-        } else {
-            const chev = icon('chev-r');
-            chev.classList.add('wg-row__chev');
-            row.appendChild(chev);
-            row.addEventListener('click', () => pick(p));
+            return row;
         }
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.addEventListener('click', () => pick(p));
+        row.addEventListener('keydown', (e) => {
+            if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(p); }
+        });
+        const trail = el('span', 'wg-row__trail');
+        const add = el('button', 'wg-btn wg-btn--icon wg-btn--sm');
+        add.type = 'button';
+        add.setAttribute('aria-label', `Add ${productName(p)} ${start} g`);
+        add.appendChild(icon('plus'));
+        // One write at the starting portion, Recent's toast (submitWrite).
+        // The pick re-renders this row without its +, so a second tap misses.
+        add.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pick(p);
+            logPicked();
+        });
+        trail.appendChild(add);
+        row.appendChild(trail);
         return row;
     }
 
+    // PS2–PS6: the payload's three chips (the starting one selected) and an
+    // inline grams field, no dialog. Typing deselects the chips; a chip tap
+    // re-selects it and the field keeps its text until the sheet closes.
     function portionPicks(p) {
         const picks = el('span', 'wg-picks wg-food-add__portions');
         picks.setAttribute('role', 'group');
         picks.setAttribute('aria-label', 'Portion');
-        const grams = PORTIONS.slice();
-        if (p.is_meal && p.total_weight_g > 0 && grams.indexOf(p.total_weight_g) === -1) grams.unshift(p.total_weight_g);
-        const custom = grams.indexOf(st.picked.grams) === -1;
-        for (const g of grams) {
-            const b = el('button', 'wg-pick', String(g));
+        for (const c of portionChips(p)) {
+            const b = el('button', 'wg-pick', String(c.g));
             b.type = 'button';
-            b.dataset.grams = String(g);
-            b.appendChild(el('small', '', 'g'));
-            b.setAttribute('aria-pressed', st.picked.grams === g ? 'true' : 'false');
-            b.addEventListener('click', () => setGrams(g));
+            b.dataset.grams = String(c.g);
+            b.appendChild(el('small', '', c.label === 'pack' ? 'g pack' : 'g'));
+            b.setAttribute('aria-pressed', !st.picked.typed && st.picked.grams === c.g ? 'true' : 'false');
+            b.addEventListener('click', () => setGrams(c.g));
             picks.appendChild(b);
         }
-        const other = el('button', 'wg-pick', custom ? `${st.picked.grams}` : 'Other');
-        other.type = 'button';
-        other.dataset.grams = 'other';
-        if (custom) other.appendChild(el('small', '', 'g'));
-        other.setAttribute('aria-pressed', custom ? 'true' : 'false');
-        other.addEventListener('click', async () => {
-            const v = await safePrompt('', {
-                title: 'How many grams?', label: 'Grams', value: String(st.picked.grams),
-                inputMode: 'decimal', confirmLabel: 'Use', emptyError: 'Enter the grams.',
-            });
-            const g = Math.round(parseDecimal(v));
-            if (g > 0 && st.picked) setGrams(g);
+        const field = el('label', st.picked.typed ? 'wg-pickfield wg-pickfield--on' : 'wg-pickfield');
+        const input = el('input');
+        input.type = 'text';
+        input.inputMode = 'decimal';
+        input.autocomplete = 'off';
+        input.placeholder = 'other';
+        input.setAttribute('aria-label', 'Other amount in grams');
+        input.value = st.picked.field || '';
+        // Updated in place: a re-render would drop the focus and the pad.
+        input.addEventListener('input', () => {
+            if (!st.picked) return;
+            const g = Math.round(parseDecimal(input.value));
+            st.picked.field = input.value;
+            st.picked.typed = true;
+            st.picked.grams = g > 0 ? g : 0;
+            field.classList.add('wg-pickfield--on');
+            picks.querySelectorAll('.wg-pick').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+            renderFoot();
         });
-        picks.appendChild(other);
+        // Enter / the pad's Done only closes the pad; typing never logs.
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        });
+        field.append(input, el('small', '', 'g'));
+        picks.appendChild(field);
         return picks;
     }
 
     function setGrams(g) {
         if (!st.picked) return;
         st.picked.grams = g;
+        st.picked.typed = false;
         renderResults();
         renderFoot();
     }
 
     function pick(p) {
-        const grams = p.is_meal && p.total_weight_g > 0 ? p.total_weight_g : 100;
-        st.picked = { product: p, grams };
+        st.picked = { product: p, grams: startGrams(p), typed: false, field: '' };
         renderResults();
         renderFoot();
     }
@@ -561,6 +610,8 @@
         b.addEventListener('click', () => {
             if (!st.picked) return;
             st.picked.product = p;
+            // The chips follow the choice; a typed amount stays.
+            if (!st.picked.typed) st.picked.grams = startGrams(p);
             renderResults();
             renderFoot();
         });
@@ -583,11 +634,22 @@
     async function stapleOffer(hit) {
         const s = window.CloudFoodSearch;
         if (hit.id || !s || typeof s.stapleOffer !== 'function') return null;
-        try { return (await s.stapleOffer(hit.name, hit.barcode)) || null; } catch (_) { return null; }
+        let mine = null;
+        try { mine = (await s.stapleOffer(hit.name, hit.barcode)) || null; } catch (_) { return null; }
+        if (!mine || mine.portions) return mine;
+        // stapleOffer carries no portions: the same food from a local search
+        // does (food.search), so "Your food" gets its own chips (PS, FC1).
+        try {
+            const rows = await s.search(mine.name, { remote: false });
+            const row = (rows || []).find((r) => r && r.id === mine.id);
+            return row && row.portions ? { ...mine, portions: row.portions } : mine;
+        } catch (_) {
+            return mine;
+        }
     }
 
     function logPicked() {
-        if (!st.picked) return null;
+        if (!st.picked || !(st.picked.grams > 0)) return null;
         const p = st.picked.product;
         const t = pickedTotals();
         const payload = {

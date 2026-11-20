@@ -586,6 +586,20 @@
             });
             window.showAddFoodModal();
             await window.FoodLog.addSheet.onScan(scanned.barcode, scanned.barcode);
+        } else if (step.foodSearch) {
+            // Food portions PS1–PS6 (med-8npm.2) without a food DB on CI: the
+            // seeded foods come from the real food.search (portions included);
+            // step.foodSearch.hits stand in for the food DB's rows, each with
+            // the portions food.search gives that row (foodportion.js portionsFor).
+            const { q, hits = [] } = step.foodSearch;
+            const real = window.CloudFoodSearch.search;
+            window.CloudFoodSearch = Object.assign({}, window.CloudFoodSearch, {
+                remoteConfigured: async () => true,
+                search: async (query, o) => [...(await real(query, { remote: false })), ...(o && o.remote ? hits.map((h) => ({ ...h })) : [])],
+            });
+            window.showAddFoodModal();
+            document.getElementById('food-add-search').value = q;
+            await window.FoodLog.addSheet.runSearch(q, true);
         } else if (step.tag) {
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.
