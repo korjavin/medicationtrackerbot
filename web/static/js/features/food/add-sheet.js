@@ -26,7 +26,8 @@
 // (today.js logKinds: BP · Weight · Med · Note) in an "Also log" row under the
 // food paths, or as the home tiles when Food is off (LS3). Med opens the med
 // pane (LS2): My meds' When needed group; Take logs a dose now through the
-// log_past write (meds-history.js logPastIntake), a row tap opens the
+// log_past write (meds-history.js logPastIntake) and its toast's Undo
+// removes that one log (unlogPastIntake, bd med-aa18.5); a row tap opens the
 // log_past sheet for another time. Opened any other way it is "Log food" with
 // no row (LS4).
 
@@ -604,7 +605,26 @@
         const fresh = (Array.isArray(medications) ? medications : []).find((m) => String(m.id) === String(med.id));
         const confirmed = fresh && Date.parse(fresh.last_taken_at) >= takenAt.getTime();
         const left = confirmed ? stockLeft(fresh) : '';
-        safeToast(`${med.name} taken`, 'success', { detail: `Logged ${hhmm(takenAt)}${left ? ` · ${left}` : ''}` });
+        // Undo (bd med-aa18.5) removes exactly this log, by the id it returned.
+        const undo = res.id ? { action: { label: 'Undo', onClick: () => untakeMed(med, res.id, takenAt) }, duration: 8000 } : {};
+        safeToast(`${med.name} taken`, 'success', { detail: `Logged ${hhmm(takenAt)}${left ? ` · ${left}` : ''}`, ...undo });
+    }
+
+    async function untakeMed(med, intakeId, takenAt) {
+        let res = null;
+        try {
+            res = await unlogPastIntake(intakeId);
+        } catch (e) {
+            console.error('Undo dose failed:', e);
+            safeToast(`Failed to undo ${med.name}: ${e && e.message ? e.message : e}`, 'error');
+            return;
+        }
+        if (!res) return;
+        // Only a count the post-undo read returned: its last dose predates this one.
+        const fresh = (Array.isArray(medications) ? medications : []).find((m) => String(m.id) === String(med.id));
+        const confirmed = fresh && !(Date.parse(fresh.last_taken_at) >= takenAt.getTime());
+        const left = confirmed ? stockLeft(fresh) : '';
+        safeToast(`${med.name} dose removed`, 'info', left ? { detail: left } : undefined);
     }
 
     // FC1: "Your food" / "New food" in place of the picked row; the portions
