@@ -70,6 +70,22 @@
         }, { capture: true, passive: true });
     }
 
+    // The menu opens below its trigger; on a row near the list end that runs
+    // under the fixed tab bar (its top already includes the safe-area inset),
+    // so it flips above the row when below is short and above has more room
+    // (med-l578).
+    function placeMenu(row, menu) {
+        menu.classList.remove('wg-swipe__menu--up');
+        const bar = document.querySelector('.wg-tabbar');
+        const barTop = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : Infinity;
+        // A bar in the upper half is not a bottom bar (no floor from it).
+        const floor = barTop > window.innerHeight / 2 ? Math.min(barTop, window.innerHeight) : window.innerHeight;
+        const r = row.getBoundingClientRect();
+        if (menu.getBoundingClientRect().bottom > floor && r.top > floor - r.bottom) {
+            menu.classList.add('wg-swipe__menu--up');
+        }
+    }
+
     function run(row, fn, e) {
         e.preventDefault();
         e.stopPropagation();
@@ -166,6 +182,7 @@
             row.classList.remove('wg-swipe--open');
             row.classList.add('wg-swipe--menu');
             menu.hidden = false;
+            placeMenu(row, menu);
             more.setAttribute('aria-expanded', 'true');
             const first = menu.querySelector('.wg-menu__item');
             if (first) first.focus();

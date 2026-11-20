@@ -179,6 +179,46 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(editSpy).toHaveBeenCalledTimes(2);
     });
 
+    it('the last row\'s menu opens above the row when it would run under the tab bar (med-l578)', () => {
+        const { document, window } = env;
+        window.deleteWeightLog = vi.fn();
+        Object.defineProperty(window, 'innerHeight', { value: 844, configurable: true });
+        let bar = document.querySelector('.wg-tabbar');
+        if (!bar) {
+            bar = document.createElement('nav');
+            bar.className = 'wg-tabbar';
+            document.body.appendChild(bar);
+        }
+        // 390x844 phone: the bar (62px + 34px home-indicator inset) starts at 748.
+        bar.getBoundingClientRect = () => ({ top: 748, bottom: 844 });
+        bar.getClientRects = () => [{}];
+        window.renderWeightLogs([
+            { id: 1, measured_at: midnight(0).toISOString(), weight: 80.1 },
+            { id: 2, measured_at: midnight(1).toISOString(), weight: 80.4 },
+        ]);
+        const [first, last] = document.querySelectorAll('#weight-list .wg-weight-history-row');
+        const stub = (row, top) => {
+            row.getBoundingClientRect = () => ({ top, bottom: top + 64 });
+            const menu = row.querySelector('.wg-swipe__menu');
+            // Opened downward the menu (Edit, separator, Delete) is ~110px tall.
+            menu.getBoundingClientRect = () => ({ top: top + 60, bottom: top + 170 });
+            return menu;
+        };
+        const lastMenu = stub(last, 660);
+        const firstMenu = stub(first, 200);
+
+        last.querySelector('.wg-swipe__more').click();
+        expect(lastMenu.hidden).toBe(false);
+        expect(lastMenu.classList.contains('wg-swipe__menu--up')).toBe(true);
+
+        first.querySelector('.wg-swipe__more').click();
+        expect(firstMenu.classList.contains('wg-swipe__menu--up')).toBe(false);
+
+        // Delete on the flipped menu still reaches the handler.
+        clickRowAction(last, 'Delete');
+        expect(window.deleteWeightLog).toHaveBeenCalledWith('2');
+    });
+
     it('sorts logs within a day newest-first', () => {
         const { document, window } = env;
         const morning = new Date(midnight(0));
