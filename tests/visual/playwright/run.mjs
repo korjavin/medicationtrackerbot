@@ -107,9 +107,12 @@ async function nativeSteps(page, steps) {
     if (s.tap) {
       target = page.locator(s.tap).or(page.getByPlaceholder(s.placeholder || '\u0000')).first();
       await target.click();
+    } else if (s.tapButton) {
+      // XCUITest app.buttons[label] / Android's tap by text: a real click on the button so named.
+      await page.getByRole('button', { name: s.tapButton, exact: true }).first().click({ timeout: 10000 });
     } else if (s.type) await page.keyboard.type(s.type);
     else if (s.clear) await target.fill('');
-    // keyboard / tapButton / waitFor: nothing to emulate in a web scene.
+    // keyboard / waitFor: nothing to emulate in a web scene.
   }
   await page.waitForTimeout(600); // the driver re-publishes 150 ms after focus/input
 }
