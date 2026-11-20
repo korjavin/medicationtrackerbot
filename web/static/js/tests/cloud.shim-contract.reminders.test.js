@@ -734,4 +734,23 @@ describe('cloud shim horizon — tracker reminders (med-1vy5.5)', () => {
         await vi.advanceTimersByTimeAsync(2100);
         expect(pushSchedule).toHaveBeenCalled();
     });
+
+    // med-s93c: Trackers switched off → no tracker slots (a hidden feature
+    // must not push); the flip itself re-pushes, and on brings them back.
+    it('the trackers switch gates the tracker slots and re-pushes on each flip', async () => {
+        const { window } = env;
+        await window.apiCall('/api/trackers', 'POST', {
+            name: 'Stretch', kind: 'count', target: { op: 'atLeast', value: 2, period: 'day' }, reminder: { time: '20:00' },
+        });
+        await vi.advanceTimersByTimeAsync(2100);
+        pushSchedule.mockClear();
+
+        await window.apiCall('/api/settings/features/trackers', 'POST', { enabled: false });
+        expect(await trackerSlots()).toEqual([]);
+        await vi.advanceTimersByTimeAsync(2100);
+        expect(pushSchedule).toHaveBeenCalled();
+
+        await window.apiCall('/api/settings/features/trackers', 'POST', { enabled: true });
+        expect(await trackerSlots()).toContain(TODAY_SLOT);
+    });
 });

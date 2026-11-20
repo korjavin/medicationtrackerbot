@@ -193,6 +193,10 @@ document.getElementById('workout-feature-toggle').addEventListener('change', asy
 document.getElementById('weekly-digest-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('weekly_digest', this.checked);
 });
+
+document.getElementById('trackers-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('trackers', this.checked);
+});
 // ED-safe mode switch — saveGamificationMode lives in features/settings.js,
 // which loads after this file (resolved at event time). The Experiments /
 // Traits / AI story switches went with the Journey screen (bd med-8xw5).

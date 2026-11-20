@@ -322,7 +322,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
 
             window.featureSettings = { bp: true, weight: true, food: false };
             window.SettingsView.updateFeatureToggles();
-            expect(summary('features')).toBe('2 of 9 on');
+            expect(summary('features')).toBe('2 of 10 on');
 
             // Bot build: no cloud delivery channel in the summary.
             document.querySelector('.wg-settings-notifications-cloud').classList.add('wg-settings-hidden');

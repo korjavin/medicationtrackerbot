@@ -109,6 +109,111 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.weekly_digest).toBe(true);
     });
 
+    // med-s93c: `trackers` is DERIVED while no stored key exists — on iff any
+    // tracker record lives (archived counts) — and only the user's own flip
+    // stores it. No read path writes the features record.
+    describe('the trackers feature flag (med-s93c)', () => {
+        const getFlags = () => env.window.apiCall('/api/settings/features', 'GET');
+        const featuresRows = () => env.records.listRaw('features');
+
+        it('derives off with no tracker, on with one (archived too); reads write nothing', async () => {
+            const { window, records } = env;
+            expect((await getFlags()).trackers).toBe(false);
+            expect((await window.apiCall('/api/bootstrap')).features.trackers).toBe(false);
+
+            // A tombstone is not a tracker.
+            await records.put('tracker', { recordId: 'gone', clientTs: 1, deleted: true, name: 'Old' });
+            expect((await getFlags()).trackers).toBe(false);
+
+            const t = await window.apiCall('/api/trackers', 'POST', { name: 'Water', kind: 'count', target: { op: 'atLeast', value: 8, period: 'day' } });
+            expect((await getFlags()).trackers).toBe(true);
+            await window.apiCall(`/api/trackers/${encodeURIComponent(t.id)}`, 'DELETE'); // archive
+            expect((await getFlags()).trackers).toBe(true);
+            expect((await window.apiCall('/api/init', 'GET')).features.trackers).toBe(true);
+
+            expect(await featuresRows()).toEqual([]);
+        });
+
+        it('a stored false beats a tracker record; a stored true holds with none', async () => {
+            const { window, records } = env;
+            window.rebuildCanonicalBottomNav = vi.fn();
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water' });
+
+            await window.toggleFeatureSetting('trackers', false);
+            expect((await getFlags()).trackers).toBe(false);
+            expect(window.featureSettings.trackers).toBe(false);
+            expect((await featuresRows())[0].flags).toEqual({ trackers: false });
+
+            await records.del('tracker', 't1');
+            await window.toggleFeatureSetting('trackers', true);
+            expect((await getFlags()).trackers).toBe(true);
+        });
+
+        it('toggling another feature on an undecided account stores no trackers key', async () => {
+            const { window, records } = env;
+            window.rebuildCanonicalBottomNav = vi.fn();
+
+            await window.toggleFeatureSetting('weight', false);
+            expect((await featuresRows())[0].flags).toEqual({ weight: false });
+
+            // So a tracker created later (e.g. on an older bundle) still flips it on.
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water' });
+            expect(await getFlags()).toMatchObject({ weight: false, trackers: true });
+        });
+
+        // Argus 30127 #1: a flag change arriving by sync reaches Today's render
+        // map (settings_bundle) AND the window.featureSettings readers (the
+        // brief) through Today's own settings-bundle refresh, in both
+        // directions, with no Settings visit. (The card itself follows the
+        // bundle's flag: today.aggregate.test.js.)
+        it('a synced tracker / synced off-flip reaches the settings bundle and the brief through loadToday', async () => {
+            allowConsoleNoise(); // loadToday touches routes this suite does not map
+            const { window, document, records } = env;
+            window.eval(fs.readFileSync(new URL('../features/today.js', import.meta.url), 'utf8'));
+            window.SettingsState.applyBootstrapFeatures((await window.apiCall('/api/bootstrap')).features);
+            const bundleFlag = async () => (await window.DataStore.getCached('settings_bundle'))?.featureSettings?.trackers;
+            const briefRowHidden = () => {
+                window.DoctorBrief.open();
+                const hidden = document.querySelector('#brief-sections input[data-section="trackers"]').closest('label').classList.contains('hidden');
+                window.DoctorBrief.close();
+                return hidden;
+            };
+            // What sync.js notifyRecordsChanged does for a pulled record: evict
+            // the record type's RECORD_TAGS row, then Today reloads.
+            const pulled = async (tags) => { await window.DataStore.invalidateTags(tags); await window.loadToday(); };
+
+            await window.loadToday();
+            expect(await bundleFlag()).toBe(false);
+            expect(briefRowHidden()).toBe(true);
+
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water', kind: 'count', step: 1, target: { op: 'atLeast', value: 8, period: 'day' } });
+            await pulled(['trackers', 'settings', 'feature_settings']);
+            expect(await bundleFlag()).toBe(true);
+            expect(window.featureSettings.trackers).toBe(true);
+            expect(briefRowHidden()).toBe(false);
+
+            await records.put('features', { recordId: 'features', clientTs: Date.now(), deleted: false, flags: { trackers: false } });
+            await pulled(['settings', 'feature_settings']);
+            expect(await bundleFlag()).toBe(false);
+            expect(window.featureSettings.trackers).toBe(false);
+            expect(briefRowHidden()).toBe(true);
+        });
+
+        // An older bundle's setFeature wrote {...OLD_DEFAULTS, ...rec.flags, [f]}:
+        // a record it left behind carries every old key but no `trackers`.
+        it('a full-map record from an older bundle (no trackers key) still derives', async () => {
+            const { records } = env;
+            await records.put('features', {
+                recordId: 'features', clientTs: 5, deleted: false,
+                flags: { food: true, bp: false, weight: true, medication: true, workout: true, health: true, gamification: true, weekly_digest: false },
+            });
+            expect(await getFlags()).toMatchObject({ bp: false, trackers: false });
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water' });
+            expect((await getFlags()).trackers).toBe(true);
+            expect((await featuresRows())[0].clientTs).toBe(5);
+        });
+    });
+
     // The cancelled live_hr flag may still sit in an old vault's features record:
     // it loads without error, never reads as enabled, and can't be toggled.
     it('a stored live_hr: true is inert: other flags load, toggle rejects it as unknown', async () => {

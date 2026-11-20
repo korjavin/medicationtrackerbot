@@ -1750,6 +1750,7 @@ function updateFeatureToggles() {
     document.getElementById('medication-feature-toggle').checked = !!flags.medication;
     document.getElementById('workout-feature-toggle').checked = !!flags.workout;
     document.getElementById('weekly-digest-feature-toggle').checked = !!flags.weekly_digest;
+    document.getElementById('trackers-feature-toggle').checked = !!flags.trackers;
     document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;
     updateWeeklyDigestVisibility(flags);
     refreshSettingsSummaries();

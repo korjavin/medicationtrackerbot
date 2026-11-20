@@ -31,9 +31,11 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
                 Array.from(s.querySelectorAll('mt-setting-toggle')).map((t) => t.getAttribute('input-id')),
             ]);
             expect(groups).toEqual([
-                ['Tracking · shown in the nav', [
+                // "· shown in the nav" dropped: Trackers lives on Today (med-s93c).
+                ['Tracking', [
                     'bp-feature-toggle', 'weight-feature-toggle', 'food-intake-toggle',
                     'medication-feature-toggle', 'workout-feature-toggle', 'health-feature-toggle',
+                    'trackers-feature-toggle',
                 ]],
                 ['Medications', []],
                 ['Goal Line', ['gamification-feature-toggle', 'weekly-digest-feature-toggle']],
@@ -58,7 +60,7 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
             for (const id of ['experiments', 'traits', 'narration']) {
                 expect(doc.getElementById(`gam-mode-${id}-toggle`)).toBeNull();
             }
-            expect(featuresPage(doc).querySelectorAll('mt-setting-toggle').length).toBe(9);
+            expect(featuresPage(doc).querySelectorAll('mt-setting-toggle').length).toBe(10);
             const pages = ['features', 'targets'].map((p) => doc.querySelector(`[data-settings-page="${p}"]`));
             for (const page of pages) expect(page.outerHTML).not.toMatch(/journey/i);
             expect(doc.querySelector('#gamification-targets-settings .wg-settings-section__title').textContent).toBe('Target bands');

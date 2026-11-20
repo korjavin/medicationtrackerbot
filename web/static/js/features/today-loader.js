@@ -444,8 +444,11 @@ function _todayGoalLineFromPastDay(swrCaches) {
 }
 
 // Same idea for the trackers list: each item carries the account-local day
-// (and zone) its progress/todayLogs describe.
+// (and zone) its progress/todayLogs describe. Never "past day" while Trackers
+// is off (med-s93c): the list is not refetched then, so a stale one would ask
+// for a loadToday on every repaint tick, forever.
 function _todayTrackersFromPastDay(swrCaches) {
+    if (window.featureSettings && window.featureSettings.trackers !== true) return false;
     const list = swrCaches && swrCaches.trackers;
     const t = Array.isArray(list) ? list.find((x) => x && typeof x.day === 'string' && x.timeZone) : null;
     if (!t) return false;
@@ -593,6 +596,12 @@ async function loadToday() {
             const refreshed = await _todayReadCaches(foodKey);
             bootstrap = refreshed.bootstrap;
             swrCaches = refreshed.swrCaches;
+            // Fresh flags reach the window.featureSettings readers too (the
+            // doctor brief's Trackers row, med-s93c), not only Today's render.
+            const fresh = await window.DataStore.getCached('settings_bundle').catch(() => null);
+            if (fresh && fresh.featureSettings && window.SettingsState) {
+                window.SettingsState.applyBootstrapFeatures(fresh.featureSettings);
+            }
         }
 
         // Prefer the per-render features map (sourced from cached settings_bundle)
@@ -662,7 +671,9 @@ async function loadToday() {
             : Promise.resolve([]);
         // A list from an earlier day refetches outright (cachedFetch would
         // repaint the stale one first and revalidate in the background).
-        const trackersPromise = _todayTrackersFromPastDay(swrCaches)
+        const trackersPromise = isFeatureDisabled('trackers')
+            ? Promise.resolve(null)
+            : _todayTrackersFromPastDay(swrCaches)
             ? window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null)
             : loadTrackersCached();
         await Promise.all([nextIntakePromise, pendingPromise, otherFetches, trackersPromise]);

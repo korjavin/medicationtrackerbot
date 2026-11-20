@@ -852,8 +852,9 @@ const RECORD_TAGS = {
   // device re-renders Today's Goal Line and the Journey.
   gamificationmode: ['gamification'],
   // med-1vy5.2: a tracker tap or edit from another device (or the agent)
-  // repaints the Today Trackers card.
-  tracker: ['trackers'],
+  // repaints the Today Trackers card. med-s93c: a tracker can also flip the
+  // derived `trackers` feature on, so it evicts the settings bundle too.
+  tracker: ['trackers', 'settings', 'feature_settings'],
   trackerlog: ['trackers'],
   // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
