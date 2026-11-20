@@ -1066,8 +1066,16 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     // Seed (pre-write state) → tombstone → mirror (post-write state), as putIntake.
     if (row.status === 'TAKEN') await stock.ensureSeed(row.medication_id);
     await records.del(INTAKE_RECORD_TYPE, row.recordId);
-    if (row.status === 'TAKEN') await stock.mirror(row.medication_id);
-    return { status: 'deleted', id: row.recordId };
+    // The tombstone is the write: once it landed the Undo succeeded, and the
+    // stock every new client derives is already right. The mirror is only the
+    // old clients' copy; a failed rewrite must not read as a failed Undo (the
+    // UI would put the dose back), and the next stock-moving write on any
+    // client rewrites it from the evidence (stock.js mirrorOne).
+    let mirrored = true;
+    if (row.status === 'TAKEN') {
+      try { await stock.mirror(row.medication_id); } catch (_) { mirrored = false; }
+    }
+    return mirrored ? { status: 'deleted', id: row.recordId } : { status: 'deleted', id: row.recordId, mirror: 'stale' };
   }
 
   // Ported from handleUpdateIntake (POST /api/intakes/update): per-row
