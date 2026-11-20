@@ -161,6 +161,44 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
             expect(await getFlags()).toMatchObject({ weight: false, trackers: true });
         });
 
+        // Argus 30127 #1: a flag change arriving by sync reaches Today's render
+        // map (settings_bundle) AND the window.featureSettings readers (the
+        // brief) through Today's own settings-bundle refresh, in both
+        // directions, with no Settings visit. (The card itself follows the
+        // bundle's flag: today.aggregate.test.js.)
+        it('a synced tracker / synced off-flip reaches the settings bundle and the brief through loadToday', async () => {
+            allowConsoleNoise(); // loadToday touches routes this suite does not map
+            const { window, document, records } = env;
+            window.eval(fs.readFileSync(new URL('../features/today.js', import.meta.url), 'utf8'));
+            window.SettingsState.applyBootstrapFeatures((await window.apiCall('/api/bootstrap')).features);
+            const bundleFlag = async () => (await window.DataStore.getCached('settings_bundle'))?.featureSettings?.trackers;
+            const briefRowHidden = () => {
+                window.DoctorBrief.open();
+                const hidden = document.querySelector('#brief-sections input[data-section="trackers"]').closest('label').classList.contains('hidden');
+                window.DoctorBrief.close();
+                return hidden;
+            };
+            // What sync.js notifyRecordsChanged does for a pulled record: evict
+            // the record type's RECORD_TAGS row, then Today reloads.
+            const pulled = async (tags) => { await window.DataStore.invalidateTags(tags); await window.loadToday(); };
+
+            await window.loadToday();
+            expect(await bundleFlag()).toBe(false);
+            expect(briefRowHidden()).toBe(true);
+
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water', kind: 'count', step: 1, target: { op: 'atLeast', value: 8, period: 'day' } });
+            await pulled(['trackers', 'settings', 'feature_settings']);
+            expect(await bundleFlag()).toBe(true);
+            expect(window.featureSettings.trackers).toBe(true);
+            expect(briefRowHidden()).toBe(false);
+
+            await records.put('features', { recordId: 'features', clientTs: Date.now(), deleted: false, flags: { trackers: false } });
+            await pulled(['settings', 'feature_settings']);
+            expect(await bundleFlag()).toBe(false);
+            expect(window.featureSettings.trackers).toBe(false);
+            expect(briefRowHidden()).toBe(true);
+        });
+
         // An older bundle's setFeature wrote {...OLD_DEFAULTS, ...rec.flags, [f]}:
         // a record it left behind carries every old key but no `trackers`.
         it('a full-map record from an older bundle (no trackers key) still derives', async () => {

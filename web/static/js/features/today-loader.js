@@ -593,6 +593,12 @@ async function loadToday() {
             const refreshed = await _todayReadCaches(foodKey);
             bootstrap = refreshed.bootstrap;
             swrCaches = refreshed.swrCaches;
+            // Fresh flags reach the window.featureSettings readers too (the
+            // doctor brief's Trackers row, med-s93c), not only Today's render.
+            const fresh = await window.DataStore.getCached('settings_bundle').catch(() => null);
+            if (fresh && fresh.featureSettings && window.SettingsState) {
+                window.SettingsState.applyBootstrapFeatures(fresh.featureSettings);
+            }
         }
 
         // Prefer the per-render features map (sourced from cached settings_bundle)
