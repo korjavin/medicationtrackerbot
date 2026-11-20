@@ -910,9 +910,16 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
     });
 
-    it('a mirror write that fails after the tombstone answers deleted/stale; the journaled repeat rewrites it after a reload', async () => {
+    it('a mirror write that fails after the tombstone answers deleted/stale; the queued repeat survives offline boots and lands after a pull', async () => {
         env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ inventory_count: 5 })] } });
         const { window } = env;
+        allowConsoleNoise(); // apiCall logs each refused (not_caught_up) repeat
+        let pulled = false;
+        // The page router with sync.js's canFloor gate: this load has not pulled yet.
+        const routerFor = (w, records) => createApiRouter({}, {
+            records, win: w, canFloor: async () => pulled, effects: { scheduleReminderRecompute: vi.fn() },
+        });
+        window.offlineAwareApiCall = routerFor(window, env.records);
         const dose = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: new Date().toISOString() });
         const mirror = async () => (await env.records.list('medication'))[0].inventory_count;
         expect(await mirror()).toBe(4);
@@ -930,18 +937,29 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         expect(res).toEqual({ status: 'deleted', id: dose.id, mirror: 'stale' });
         expect((await env.records.listRaw('intake')).find((r) => r.recordId === dose.id).deleted).toBe(true);
         expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+        // The immediate repeat met not_caught_up: still queued, mirror still stale.
+        await window.repairUnlogMirrors();
         expect(await mirror()).toBe(4);
-        const journal = JSON.parse(window.localStorage.getItem('wg-pending-deletes'));
-        expect(journal.map((e) => [e.fn, e.arg])).toEqual([['_unlogPastIntakeApi', dose.id]]);
+        const queued = window.localStorage.getItem('wg-unlog-mirror-repair');
+        expect(JSON.parse(queued)).toEqual([dose.id]);
 
-        // The tab closes before its replay; the next boot (same vault, same
-        // localStorage, the entry past its grace) replays the idempotent repeat.
+        // Three offline boots (same vault and localStorage, never pulled) keep it.
         const records = env.records;
-        env.cleanup();
-        env = loadCloudShimFrontendEnv({ records });
-        env.window.localStorage.setItem('wg-pending-deletes', JSON.stringify(journal.map((e) => ({ ...e, at: Date.now() - 60000 }))));
-        await env.window.replayPendingDeletes();
+        for (let boot = 0; boot < 3; boot++) {
+            env.cleanup();
+            env = loadCloudShimFrontendEnv({ records });
+            env.window.localStorage.setItem('wg-unlog-mirror-repair', queued);
+            env.window.offlineAwareApiCall = routerFor(env.window, records);
+            await env.window.repairUnlogMirrors();
+            expect(await mirror()).toBe(4);
+            expect(env.window.localStorage.getItem('wg-unlog-mirror-repair')).toBe(queued);
+        }
+        // Reconnected: the pull lands, the next retry rewrites the mirror and clears the queue.
+        pulled = true;
+        await env.window.repairUnlogMirrors();
         expect(await mirror()).toBe(5);
+        expect(env.window.localStorage.getItem('wg-unlog-mirror-repair')).toBeNull();
+        // The delete journal is untouched by the repair.
         expect(env.window.localStorage.getItem('wg-pending-deletes')).toBeNull();
     });
 

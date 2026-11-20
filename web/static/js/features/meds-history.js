@@ -1239,12 +1239,10 @@ async function unlogPastIntake(intakeId) {
     }
     await _commitOptimistic(handles);
     // The dose is gone but the old clients' stock copy was not rewritten:
-    // journal a repeat of the (idempotent) call, which rewrites it. The delete
-    // journal (core/utils.js) survives a reload: this tab replays it once its
-    // grace passes, and every boot retries it (three tries).
-    if (res.mirror === 'stale' && typeof _pendingDeletesAdd === 'function') {
-        _pendingDeletesAdd({ fn: '_unlogPastIntakeApi', arg: String(intakeId) }, 0);
-        replayPendingDeletes();
+    // queue a repeat of the (idempotent) call, which rewrites it.
+    if (res.mirror === 'stale') {
+        _unlogRepairWrite([..._unlogRepairRead().filter((id) => id !== String(intakeId)), String(intakeId)]);
+        repairUnlogMirrors();
     }
     try {
         if (window.DataStore) {
@@ -1260,22 +1258,47 @@ async function unlogPastIntake(intakeId) {
     return res;
 }
 
-// The delete journal's replay of an Undo whose stock mirror stayed stale
-// (PENDING_DELETE_REPLAY): the repeat answers `unchanged` once the mirror is
-// rewritten, null (apiCall's failed write, no alert) while it still fails —
-// including before this page's first pull (the domain's not_caught_up), which
-// a boot replay meets first. So one replay waits through a slow first pull.
-// ponytail: up to ~2 min inline in the boot replay loop; this entry only exists
-// after a failed mirror write, so it is rare. Move to a sync caught-up event if not.
-const UNLOG_REPAIR_TRIES = 6;
-const UNLOG_REPAIR_WAIT_MS = 20000;
-async function _unlogPastIntakeApi(intakeId) {
-    for (let i = 0; i < UNLOG_REPAIR_TRIES; i++) {
-        if (i) await new Promise((r) => setTimeout(r, UNLOG_REPAIR_WAIT_MS));
-        const res = await apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE', null, { suppressWriteAlert: true });
-        if (res) return res;
-    }
-    return null;
+// Undos whose stock mirror stayed stale (ids only; localStorage is outside the
+// vault). Each stays queued until its repeat DELETE lands: the repeat answers
+// `unchanged` once the mirror is rewritten, and null (apiCall's failed write,
+// no alert) while it still fails, including before this page's first pull
+// (the domain's not_caught_up). No try cap: an offline boot keeps it, a later
+// pull lets it land. An id gone from the vault answers not_found, which
+// apiCall reads as a done DELETE. Retried every minute while any is queued,
+// and on every boot (bootstrap.js). Its own queue, not the delete journal, so
+// a wait never holds an owed row delete.
+const UNLOG_REPAIR_KEY = 'wg-unlog-mirror-repair';
+const UNLOG_REPAIR_RETRY_MS = 60000;
+function _unlogRepairRead() {
+    try {
+        const v = JSON.parse(localStorage.getItem(UNLOG_REPAIR_KEY) || '[]');
+        return Array.isArray(v) ? v.map(String) : [];
+    } catch (_) { return []; }
+}
+function _unlogRepairWrite(ids) {
+    try {
+        if (ids.length) localStorage.setItem(UNLOG_REPAIR_KEY, JSON.stringify(ids));
+        else localStorage.removeItem(UNLOG_REPAIR_KEY);
+    } catch (_) { /* storage blocked: the next stock write rewrites the mirror */ }
+}
+let _unlogRepairRun = null;
+let _unlogRepairTimer = null;
+function repairUnlogMirrors() {
+    if (_unlogRepairRun) return _unlogRepairRun;
+    clearTimeout(_unlogRepairTimer);
+    _unlogRepairRun = (async () => {
+        for (const id of _unlogRepairRead()) {
+            let ok = false;
+            try {
+                ok = !!(await apiCall(`/api/medications/log-past/${encodeURIComponent(id)}`, 'DELETE', null, { suppressWriteAlert: true }));
+            } catch (_) { /* stays queued */ }
+            if (ok) _unlogRepairWrite(_unlogRepairRead().filter((x) => x !== id));
+        }
+    })().finally(() => {
+        _unlogRepairRun = null;
+        if (_unlogRepairRead().length) _unlogRepairTimer = setTimeout(repairUnlogMirrors, UNLOG_REPAIR_RETRY_MS);
+    });
+    return _unlogRepairRun;
 }
 
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their

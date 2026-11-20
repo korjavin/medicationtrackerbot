@@ -170,6 +170,8 @@ checkAuth().then(async authorized => {
 
         // Deletes a previous page owed (killed inside the Undo window).
         if (typeof replayPendingDeletes === 'function') replayPendingDeletes();
+        // Stock mirrors a Log sheet Undo still owes (meds-history.js, bd med-aa18.5).
+        if (typeof repairUnlogMirrors === 'function') repairUnlogMirrors();
 
         // Mount the tab bar once (before the first switchTab so
         // it can receive the AppKernel.onTabSwitch('today') notification).
