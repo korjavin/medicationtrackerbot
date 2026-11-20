@@ -909,30 +909,34 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
     });
 
-    it('a mirror write that fails after the tombstone still answers deleted; the derived stock is right and the next write heals the mirror', async () => {
+    it('a mirror write that fails after the tombstone answers deleted/stale; the repeat call the UI makes rewrites the mirror', async () => {
         env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ inventory_count: 5 })] } });
         const { window } = env;
         const dose = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: new Date().toISOString() });
         const mirror = async () => (await env.records.list('medication'))[0].inventory_count;
         expect(await mirror()).toBe(4);
-        // The records port rejecting the medication write (sync.js writeRecord
-        // throws on a failed IndexedDB put) right after the intake tombstone.
+        // The records port rejecting the medication write once (sync.js
+        // writeRecord throws on a failed IndexedDB put), right after the tombstone.
         const put = env.records.put;
         env.records.put = async (type, rec) => {
-            if (type === 'medication') throw new Error('write failed');
+            if (type === 'medication') {
+                env.records.put = put;
+                throw new Error('write failed');
+            }
             return put.call(env.records, type, rec);
         };
-        const res = await window.apiCall(`/api/medications/log-past/${dose.id}`, 'DELETE');
-        env.records.put = put;
+        const calls = vi.spyOn(window, 'apiCall');
+        const res = await window.MedsHistory.unlogPastIntake(dose.id);
         expect(res).toEqual({ status: 'deleted', id: dose.id, mirror: 'stale' });
         expect((await env.records.listRaw('intake')).find((r) => r.recordId === dose.id).deleted).toBe(true);
-        expect(await mirror()).toBe(4);
         expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+        expect(await mirror()).toBe(4);
 
-        await window.apiCall('/api/medications/1/restock', 'POST', { quantity: 2 });
-        expect(await mirror()).toBe(7);
-        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(7);
-    });
+        // The background repeat (5 s later) takes the idempotent path and heals it.
+        await vi.waitFor(async () => expect(await mirror()).toBe(5), { timeout: 8000, interval: 100 });
+        const deletes = calls.mock.calls.filter(([, m]) => m === 'DELETE').map(([u]) => u);
+        expect(deletes).toEqual([`/api/medications/log-past/${dose.id}`, `/api/medications/log-past/${dose.id}`]);
+    }, 15000);
 
     it('DELETE log-past/:id refuses a scheduled dose (not_manual) and writes nothing', async () => {
         const slot = new Date(Math.floor((Date.now() - HOUR_MS) / 1000) * 1000);

@@ -1238,6 +1238,9 @@ async function unlogPastIntake(intakeId) {
         return null;
     }
     await _commitOptimistic(handles);
+    // The dose is gone but the old clients' stock copy was not rewritten:
+    // repeat the (idempotent) call in the background until it is.
+    if (res.mirror === 'stale') _healUnlogMirror(intakeId, UNLOG_MIRROR_RETRIES);
     try {
         if (window.DataStore) {
             await window.DataStore.invalidateByTag('history');
@@ -1250,6 +1253,21 @@ async function unlogPastIntake(intakeId) {
         console.warn('unlog: refresh after the write failed', e);
     }
     return res;
+}
+
+// ponytail: in-memory retries only; a reload before they land leaves the
+// mirror to the next stock-moving write (persist the id if that proves rare-but-real).
+const UNLOG_MIRROR_RETRIES = 3;
+const UNLOG_MIRROR_RETRY_MS = 5000;
+function _healUnlogMirror(intakeId, left) {
+    if (left <= 0) return;
+    setTimeout(async () => {
+        let ok = false;
+        try {
+            ok = !!(await apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE', null, { suppressWriteAlert: true }));
+        } catch (_) { /* retried below */ }
+        if (!ok) _healUnlogMirror(intakeId, left - 1);
+    }, UNLOG_MIRROR_RETRY_MS);
 }
 
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their

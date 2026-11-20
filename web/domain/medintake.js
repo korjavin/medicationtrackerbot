@@ -1062,15 +1062,21 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
     const row = raw.find((i) => String(i.recordId) === String(id));
     if (!row) throw notFound('intake not found');
-    if (row.deleted) return { status: 'unchanged', id: row.recordId };
+    if (row.deleted) {
+      // A repeat is the recovery path for a mirror the first call could not
+      // rewrite: the bodyless tombstone no longer names its med, so every
+      // tracked med's mirror is checked (mirrorOne writes only one that differs).
+      await stock.mirrorMany((await loadMeds()).map((m) => m.recordId));
+      return { status: 'unchanged', id: row.recordId };
+    }
     // Seed (pre-write state) → tombstone → mirror (post-write state), as putIntake.
     if (row.status === 'TAKEN') await stock.ensureSeed(row.medication_id);
     await records.del(INTAKE_RECORD_TYPE, row.recordId);
     // The tombstone is the write: once it landed the Undo succeeded, and the
     // stock every new client derives is already right. The mirror is only the
     // old clients' copy; a failed rewrite must not read as a failed Undo (the
-    // UI would put the dose back), and the next stock-moving write on any
-    // client rewrites it from the evidence (stock.js mirrorOne).
+    // UI would put the dose back). It answers `mirror: 'stale'` and the caller
+    // repeats the call, which rewrites the mirror (above).
     let mirrored = true;
     if (row.status === 'TAKEN') {
       try { await stock.mirror(row.medication_id); } catch (_) { mirrored = false; }
