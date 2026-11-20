@@ -46,11 +46,11 @@ docker compose -f docker-compose.cloud.yml up
 
 Device/visual checks — diff review can't see device bugs, so before merging a PR that changes `ios/`, `android/` or layout, run one on its head and look at the screenshots: label the PR `ios-visual` (iOS simulator + web; [runbook](docs/ios-visual-testing.md)), `gh workflow run android-qa.yml --ref <branch>` (emulator scenarios).
 
-Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/openfoodfacts` (food-DB CSV import), `cmd/genexercisecatalog` (exercise-catalog regen).
+Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/genexercisecatalog` (exercise-catalog regen).
 
 ## Code Layout
 
-- `cmd/` — entry points. `cloud` is the product; the rest is dev/operator tooling: `feedbackpull` drains + decrypts the cloud `feedback_queue` (the only place the age private key lives; server stores ciphertext blindly), `genmcpcatalog` renders `web/cloud/js/mcp-catalog.generated.js` from the registry, `genexercisecatalog` regenerates `web/static/data/exercises-catalog.json`, `genvapid` mints VAPID keys, `mcpshim` is the local half of the MCP blind relay, `openfoodfacts` imports the food-DB CSV.
+- `cmd/` — entry points. `cloud` is the product; the rest is dev/operator tooling: `feedbackpull` drains + decrypts the cloud `feedback_queue` (the only place the age private key lives; server stores ciphertext blindly), `genmcpcatalog` renders `web/cloud/js/mcp-catalog.generated.js` from the registry, `genexercisecatalog` regenerates `web/static/data/exercises-catalog.json`, `genvapid` mints VAPID keys, `mcpshim` is the local half of the MCP blind relay.
 - `internal/store/db` — shared SQLite open/`WithTx`/time helpers used by `internal/cloudstore`.
 - `internal/domain/nxk` — Mi Band `.nxk` backup parser, used by `internal/cloudserver` (Telegram-attachment and vitals imports).
 - `internal/mcp` — `registry/` (op catalog, source of truth for the cloud catalog) + `catalogjs/` (generator + drift test: `TestCloudCatalog_GeneratedFileIsUpToDate` fails CI when the checked-in catalog is stale).
