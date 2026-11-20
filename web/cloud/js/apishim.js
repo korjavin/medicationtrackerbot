@@ -1149,8 +1149,8 @@ export function createApiRouter(ctx, {
     if (method === 'DELETE') {
       const m = /^\/api\/medications\/log-past\/([^/]+)$/.exec(path);
       if (m) {
-        const res = await intake.unlog(decodeURIComponent(m[1])).catch((err) => {
-          if (err && err.code === 'not_manual') err.status = 409;
+        const res = await intake.unlog(decodeURIComponent(m[1]), { canRepair: async () => !!portFactory || canFloor() }).catch((err) => {
+          if (err && (err.code === 'not_manual' || err.code === 'not_caught_up')) err.status = 409;
           return withDuplicateStatus(err);
         });
         scheduleReminderRecompute(ctx, { records, timeZone });

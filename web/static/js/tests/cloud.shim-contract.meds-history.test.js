@@ -12,6 +12,7 @@ import {
 } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { createApiRouter } from '../../../cloud/js/apishim.js';
 
 vi.mock('../../../cloud/js/push.js', () => ({ pushSchedule: vi.fn() }));
 // eslint-disable-next-line import/first
@@ -942,6 +943,32 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         await env.window.replayPendingDeletes();
         expect(await mirror()).toBe(5);
         expect(env.window.localStorage.getItem('wg-pending-deletes')).toBeNull();
+    });
+
+    it('the mirror repair waits for this page\'s first pull, so a stale med copy never overwrites another device\'s edit', async () => {
+        const at = new Date().toISOString();
+        const id = 'intake-manual-1700000000000-1';
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                // inventory_count 4 = the mirror a failed rewrite left behind
+                // after the Undo of the one dose below (derived stock: 5).
+                medication: [seedMedication({ inventory_count: 4 })],
+                stock: [{ recordId: 'stock-1-1-seed5', clientTs: 0, deleted: false, medication_id: 1, kind: 'audit', count: 5, at, seed: true }],
+                intake: [{ recordId: id, clientTs: Date.now(), deleted: true }]
+            }
+        });
+        let pulled = false;
+        // The page router with sync.js's canFloor gate (caught up AND pulled in this load).
+        const router = createApiRouter({}, {
+            records: env.records, win: env.window, canFloor: async () => pulled,
+            effects: { scheduleReminderRecompute: vi.fn() },
+        });
+        const mirror = async () => (await env.records.list('medication'))[0].inventory_count;
+        await expect(router(`/api/medications/log-past/${id}`, 'DELETE')).rejects.toMatchObject({ code: 'not_caught_up', status: 409 });
+        expect(await mirror()).toBe(4);
+        pulled = true;
+        expect(await router(`/api/medications/log-past/${id}`, 'DELETE')).toEqual({ status: 'unchanged', id });
+        expect(await mirror()).toBe(5);
     });
 
     it('DELETE log-past/:id refuses a scheduled dose (not_manual) and writes nothing', async () => {

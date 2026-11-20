@@ -1262,9 +1262,20 @@ async function unlogPastIntake(intakeId) {
 
 // The delete journal's replay of an Undo whose stock mirror stayed stale
 // (PENDING_DELETE_REPLAY): the repeat answers `unchanged` once the mirror is
-// rewritten, null (apiCall's failed write, no alert) while it still fails.
+// rewritten, null (apiCall's failed write, no alert) while it still fails —
+// including before this page's first pull (the domain's not_caught_up), which
+// a boot replay meets first. So one replay waits through a slow first pull.
+// ponytail: up to ~2 min inline in the boot replay loop; this entry only exists
+// after a failed mirror write, so it is rare. Move to a sync caught-up event if not.
+const UNLOG_REPAIR_TRIES = 6;
+const UNLOG_REPAIR_WAIT_MS = 20000;
 async function _unlogPastIntakeApi(intakeId) {
-    return apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE', null, { suppressWriteAlert: true });
+    for (let i = 0; i < UNLOG_REPAIR_TRIES; i++) {
+        if (i) await new Promise((r) => setTimeout(r, UNLOG_REPAIR_WAIT_MS));
+        const res = await apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE', null, { suppressWriteAlert: true });
+        if (res) return res;
+    }
+    return null;
 }
 
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their

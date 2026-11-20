@@ -1055,7 +1055,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
   // write (no floor). The tombstone is terminal in mergeIntake, every reader
   // already skips `deleted` rows, and stock derives from live TAKEN evidence,
   // so the mirror is all that moves. An already-tombstoned id is `unchanged`.
-  async function unlog(id) {
+  // `canRepair()` (the router's canFloor): this device has pulled the account
+  // in this page load, so its med records are current.
+  async function unlog(id, { canRepair = async () => true } = {}) {
     if (!String(id).startsWith(MANUAL_ID_PREFIX)) {
       throw Object.assign(new Error('only a manual log can be removed; undo a scheduled dose instead'), { code: 'not_manual' });
     }
@@ -1066,6 +1068,9 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
       // A repeat is the recovery path for a mirror the first call could not
       // rewrite: the bodyless tombstone no longer names its med, so every
       // tracked med's mirror is checked (mirrorOne writes only one that differs).
+      // It re-puts whole med records, so only once caught up: before the first
+      // pull a stale local copy would overwrite another device's med edit (LWW).
+      if (!(await canRepair())) throw Object.assign(new Error('not caught up yet'), { code: 'not_caught_up' });
       await stock.mirrorMany((await loadMeds()).map((m) => m.recordId));
       return { status: 'unchanged', id: row.recordId };
     }
