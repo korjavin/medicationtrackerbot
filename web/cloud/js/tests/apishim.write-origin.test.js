@@ -97,6 +97,19 @@ describe('write origin decides the repaint (med-dvr)', () => {
     expect(ds.requestTabRefresh).not.toHaveBeenCalled();
   });
 
+  // med-s93c: a tracker can flip the DERIVED `trackers` feature on, so a
+  // non-UI tracker write (pull, import, another writer — same RECORD_TAGS row)
+  // also evicts the settings bundle; Today then re-reads the flag and shows the
+  // card without a reload.
+  it('a non-UI tracker write evicts the settings bundle as well as the trackers list', async () => {
+    const bg = createApiRouter(ctx, { origin: ORIGIN_EXTERNAL });
+
+    await bg('/api/trackers', 'POST', { name: 'Water', kind: 'count', target: { op: 'atLeast', value: 8, period: 'day' } });
+
+    expect(ds.invalidateTags).toHaveBeenCalledWith(['trackers', 'settings', 'feature_settings']);
+    expect(await bg('/api/settings/features', 'GET')).toMatchObject({ trackers: true });
+  });
+
   it('defaults to repainting when no origin is given — stale beats silent', async () => {
     const untagged = createApiRouter(ctx, {});
 

@@ -662,7 +662,9 @@ async function loadToday() {
             : Promise.resolve([]);
         // A list from an earlier day refetches outright (cachedFetch would
         // repaint the stale one first and revalidate in the background).
-        const trackersPromise = _todayTrackersFromPastDay(swrCaches)
+        const trackersPromise = isFeatureDisabled('trackers')
+            ? Promise.resolve(null)
+            : _todayTrackersFromPastDay(swrCaches)
             ? window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null)
             : loadTrackersCached();
         await Promise.all([nextIntakePromise, pendingPromise, otherFetches, trackersPromise]);

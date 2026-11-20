@@ -244,6 +244,8 @@ const DEFAULT_FEATURES = {
   health: true,
   gamification: true,
   weekly_digest: false,
+  // Never stored by default: getFeatures derives it (med-s93c).
+  trackers: false,
 };
 
 const DEFAULT_FOOD_TARGETS = { calories: 0, carbs: 0, protein: 0, fat: 0 };
@@ -473,21 +475,31 @@ export function createSettingsDomain({ records, now, timeZone }) {
   async function getFeatures() {
     const all = await records.list(FEATURES_RECORD_TYPE);
     const rec = findSingleton(all, FEATURES_RECORD_ID);
-    return { ...DEFAULT_FEATURES, ...(rec && rec.flags) };
+    const flags = { ...DEFAULT_FEATURES, ...(rec && rec.flags) };
+    // med-s93c: an account that never flipped the Trackers switch is ON iff it
+    // holds any tracker (archived counts: there is no user-facing hard delete).
+    // Derived on every read and never written — only setFeature('trackers')
+    // stores the key (rule 12: a derived value is not persisted).
+    if (!(rec && rec.flags && 'trackers' in rec.flags)) {
+      flags.trackers = (await records.list('tracker')).some((r) => !r.deleted);
+    }
+    return flags;
   }
 
+  // Sparse write: only the stored keys plus the one the user flipped, so a
+  // toggle of any other feature never freezes a derived default (med-s93c).
   async function setFeature(feature, enabled) {
     if (!(feature in DEFAULT_FEATURES)) {
       const err = new Error(`Unknown feature: ${feature}`);
       err.code = 'unknown_feature';
       throw err;
     }
-    const flags = await getFeatures();
-    flags[feature] = !!enabled;
+    const rec = findSingleton(await records.list(FEATURES_RECORD_TYPE), FEATURES_RECORD_ID);
     await records.put(FEATURES_RECORD_TYPE, {
-      recordId: FEATURES_RECORD_ID, clientTs: now(), deleted: false, flags,
+      recordId: FEATURES_RECORD_ID, clientTs: now(), deleted: false,
+      flags: { ...(rec && rec.flags), [feature]: !!enabled },
     });
-    return flags;
+    return getFeatures();
   }
 
   async function getTabOrder() {

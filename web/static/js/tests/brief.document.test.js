@@ -510,6 +510,28 @@ describe('Doctor brief — modal + print/download', () => {
         expect(requested).toEqual(['/api/brief?days=30&sections=meds%2Cbp%2Cweight%2Cvitals%2Cfood']);
     });
 
+    // med-s93c: the Trackers row follows the `trackers` feature flag. Off hides
+    // it AND unticks it — readOptions counts ticked boxes, hidden or not.
+    it('hides and unticks the Trackers checkbox while the trackers feature is off', async () => {
+        const box = doc.querySelector('#brief-sections input[data-section="trackers"]');
+        const label = box.closest('label');
+
+        env.window.SettingsState.applyBootstrapFeatures({ trackers: true });
+        env.window.DoctorBrief.open();
+        expect(label.classList.contains('hidden')).toBe(false);
+        box.checked = true;
+
+        env.window.SettingsState.setFeature('trackers', false);
+        env.window.DoctorBrief.open();
+        expect(label.classList.contains('hidden')).toBe(true);
+        expect(box.checked).toBe(false);
+
+        doc.querySelector('#brief-sections input[data-section="notes"]').checked = false;
+        env.window.DoctorBrief.loadPrintDoc = async () => ({ downloadDoc: () => true, printDoc: () => {} });
+        await generateVia('brief-print-btn');
+        expect(requested).toEqual(['/api/brief?days=90&sections=meds%2Cbp%2Cweight%2Cvitals']);
+    });
+
     // An empty `sections` means "the default set" to web/domain/brief.js, so
     // sending it would print exactly the sections the user just unticked.
     it('refuses to generate with no section selected instead of sending an empty list', async () => {

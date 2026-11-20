@@ -150,6 +150,17 @@ describe('TodayDashboard.aggregateToday', () => {
     expect(result.sleepLastNight.value.hours).toBeCloseTo(7.8, 1);
   });
 
+  // med-s93c: the Trackers card rides the `trackers` flag, strictly true — a
+  // features map without the key (a bundle cached before the flag) keeps it off.
+  it('trackers cell: the cached list only while the trackers flag is true', () => {
+    const now = new Date('2026-04-19T09:00:00Z');
+    const caches = { trackers: [{ id: 't1', name: 'Water' }] };
+    expect(env.aggregate({ features: { trackers: true } }, caches, now).trackers).toEqual(caches.trackers);
+    expect(env.aggregate({ features: { trackers: false } }, caches, now).trackers).toBeNull();
+    expect(env.aggregate({ features: {} }, caches, now).trackers).toBeNull();
+    expect(env.aggregate({ features: { trackers: true } }, {}, now).trackers).toBeNull();
+  });
+
   it('returns missing status when bootstrap is empty and SWR caches are absent', () => {
     const now = new Date('2026-04-19T09:00:00Z');
     const result = env.aggregate({ features: {} }, {}, now);

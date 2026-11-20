@@ -648,6 +648,14 @@ ${body}
         // keeps stale note text out of the DOM between sessions.
         const list = doc.getElementById('brief-notes-list');
         if (list) list.textContent = '';
+        // Trackers switched off (med-s93c): hide the row AND untick it —
+        // readOptions counts ticked boxes, hidden or not.
+        const trackersOn = !!(window.featureSettings && window.featureSettings.trackers);
+        const trackersBox = doc.querySelector('#brief-sections input[data-section="trackers"]');
+        if (trackersBox) {
+            if (!trackersOn) trackersBox.checked = false;
+            trackersBox.closest('label').classList.toggle('hidden', !trackersOn);
+        }
         setStatus(doc, 'Everything is generated on this device.');
         if (window.ModalManager && typeof window.ModalManager.open === 'function') {
             window.ModalManager.open('brief-modal');

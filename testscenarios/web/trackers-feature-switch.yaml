@@ -1,0 +1,21 @@
+id: trackers-feature-switch
+title: Settings → Features → Trackers hides the Today Trackers card; its default follows whether the account has trackers
+platforms: [web]  # web-rendered on both shells (parity:n/a)
+preconditions:
+  - Account mode or local mode; the user never flipped the Trackers switch
+steps:
+  - On an account with no tracker, open Today, then Settings → Features
+  - Turn Trackers on, go back to Today, add a tracker from the card
+  - On an account that already has a tracker (active or archived), open Today and Settings → Features
+  - Turn Trackers off; open Today and the doctor brief
+  - Turn Trackers back on
+invariants:
+  - With no tracker and no choice made, Today shows no Trackers card, the brief has no Trackers checkbox, and the switch reads off
+  - With any tracker (archived included) and no choice made, everything shows as before and the switch reads on
+  - Opening the app never stores a Trackers choice; only the user's own flip does, and flipping another feature does not
+  - Off hides the card (with Add a tracker and Manage), the brief's Trackers checkbox, and stops tracker reminders; on restores the card with its data
+  - Tracker data and the agent's trackers.list / log / history keep working while the switch is off
+  - A first tracker arriving from another device on an undecided account shows the card on the next Today repaint, without a reload
+covered_by:
+  web: web/static/js/tests/cloud.shim-contract.settings.test.js  # also today.aggregate, brief.document, cloud.shim-contract.reminders, apishim.write-origin; visual scenes settings-features-trackers-off/-on, today-trackers-off/-on
+source: [med-s93c]

@@ -114,7 +114,8 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     tzPlan,
     weighInPushText,
     weighInPausedWeeks: weekPlans.filter((w) => !w.deleted && w.paused).map((w) => w.week),
-    trackers: trackers.filter((r) => !r.deleted),
+    // Trackers switched off (med-s93c): a hidden feature must not push.
+    trackers: features.trackers ? trackers.filter((r) => !r.deleted) : [],
     trackerLogs: trackerLogs.filter((r) => !r.deleted),
   });
 

@@ -36,6 +36,9 @@ window.SettingsState = (function () {
         // settings bundle that predates the key — the gates treat a missing flag
         // as off.
         gamification: true,
+        // Derived by the shim (on iff a tracker exists, med-s93c); off until
+        // the features map lands, so a new account never flashes the card.
+        trackers: false,
     });
 
     let _state = {

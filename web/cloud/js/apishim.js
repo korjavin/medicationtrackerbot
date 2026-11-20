@@ -462,7 +462,7 @@ export function createApiRouter(ctx, {
   // reminders.js computeDigestEntry) rather than an HTTP-served domain — it has
   // no nav tab and no /api routes, but the flag must persist + read back so the
   // Settings toggle drives the digest push.
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification', 'weekly_digest']);
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification', 'weekly_digest', 'trackers']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -822,10 +822,10 @@ export function createApiRouter(ctx, {
         // PORTED_SET would silently auto-enable it. GET/bootstrap clamp reads.
         if (enabled && !PORTED_SET.has(feature)) return null;
         await settings.setFeature(feature, enabled);
-        // workout/weekly_digest/gamification gate reminder-horizon kinds, so a
-        // toggle must re-push immediately (acceptance: "toggle on → fires"),
-        // not wait for the next unlock.
-        if (feature === 'workout' || feature === 'weekly_digest' || feature === 'gamification') {
+        // workout/weekly_digest/gamification/trackers gate reminder-horizon
+        // kinds, so a toggle must re-push immediately (acceptance: "toggle on
+        // → fires"), not wait for the next unlock.
+        if (feature === 'workout' || feature === 'weekly_digest' || feature === 'gamification' || feature === 'trackers') {
           scheduleReminderRecompute(ctx, { records, timeZone });
         }
         return { enabled };

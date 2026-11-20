@@ -511,8 +511,12 @@
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
             stepsLatest: stepsLatestCell(caches, healthEnabled),
             goalLine: goalLineCell(goalLinePayload, gamificationEnabled),
-            // GET /api/trackers as cached (no feature flag: no trackers, no card).
-            trackers: Array.isArray(caches.trackers) ? caches.trackers : null
+            // GET /api/trackers as cached, behind the `trackers` flag (med-s93c).
+            // Strictly true, not pickFeature's default-on: the shim always
+            // answers the derived value, so a missing key (a bundle cached
+            // before the flag existed) keeps the card off rather than flashing
+            // "Add a tracker" at an account that never had one.
+            trackers: features.trackers === true && Array.isArray(caches.trackers) ? caches.trackers : null
         };
         return result;
     }

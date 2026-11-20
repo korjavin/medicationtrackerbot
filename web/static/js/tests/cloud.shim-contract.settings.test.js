@@ -109,6 +109,73 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.weekly_digest).toBe(true);
     });
 
+    // med-s93c: `trackers` is DERIVED while no stored key exists — on iff any
+    // tracker record lives (archived counts) — and only the user's own flip
+    // stores it. No read path writes the features record.
+    describe('the trackers feature flag (med-s93c)', () => {
+        const getFlags = () => env.window.apiCall('/api/settings/features', 'GET');
+        const featuresRows = () => env.records.listRaw('features');
+
+        it('derives off with no tracker, on with one (archived too); reads write nothing', async () => {
+            const { window, records } = env;
+            expect((await getFlags()).trackers).toBe(false);
+            expect((await window.apiCall('/api/bootstrap')).features.trackers).toBe(false);
+
+            // A tombstone is not a tracker.
+            await records.put('tracker', { recordId: 'gone', clientTs: 1, deleted: true, name: 'Old' });
+            expect((await getFlags()).trackers).toBe(false);
+
+            const t = await window.apiCall('/api/trackers', 'POST', { name: 'Water', kind: 'count', target: { op: 'atLeast', value: 8, period: 'day' } });
+            expect((await getFlags()).trackers).toBe(true);
+            await window.apiCall(`/api/trackers/${encodeURIComponent(t.id)}`, 'DELETE'); // archive
+            expect((await getFlags()).trackers).toBe(true);
+            expect((await window.apiCall('/api/init', 'GET')).features.trackers).toBe(true);
+
+            expect(await featuresRows()).toEqual([]);
+        });
+
+        it('a stored false beats a tracker record; a stored true holds with none', async () => {
+            const { window, records } = env;
+            window.rebuildCanonicalBottomNav = vi.fn();
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water' });
+
+            await window.toggleFeatureSetting('trackers', false);
+            expect((await getFlags()).trackers).toBe(false);
+            expect(window.featureSettings.trackers).toBe(false);
+            expect((await featuresRows())[0].flags).toEqual({ trackers: false });
+
+            await records.del('tracker', 't1');
+            await window.toggleFeatureSetting('trackers', true);
+            expect((await getFlags()).trackers).toBe(true);
+        });
+
+        it('toggling another feature on an undecided account stores no trackers key', async () => {
+            const { window, records } = env;
+            window.rebuildCanonicalBottomNav = vi.fn();
+
+            await window.toggleFeatureSetting('weight', false);
+            expect((await featuresRows())[0].flags).toEqual({ weight: false });
+
+            // So a tracker created later (e.g. on an older bundle) still flips it on.
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water' });
+            expect(await getFlags()).toMatchObject({ weight: false, trackers: true });
+        });
+
+        // An older bundle's setFeature wrote {...OLD_DEFAULTS, ...rec.flags, [f]}:
+        // a record it left behind carries every old key but no `trackers`.
+        it('a full-map record from an older bundle (no trackers key) still derives', async () => {
+            const { records } = env;
+            await records.put('features', {
+                recordId: 'features', clientTs: 5, deleted: false,
+                flags: { food: true, bp: false, weight: true, medication: true, workout: true, health: true, gamification: true, weekly_digest: false },
+            });
+            expect(await getFlags()).toMatchObject({ bp: false, trackers: false });
+            await records.put('tracker', { recordId: 't1', clientTs: 1, deleted: false, name: 'Water' });
+            expect((await getFlags()).trackers).toBe(true);
+            expect((await featuresRows())[0].clientTs).toBe(5);
+        });
+    });
+
     // The cancelled live_hr flag may still sit in an old vault's features record:
     // it loads without error, never reads as enabled, and can't be toggled.
     it('a stored live_hr: true is inert: other flags load, toggle rejects it as unknown', async () => {
