@@ -372,6 +372,32 @@ describe('Today loader — features/today-loader.js', () => {
             const trackerFetches = window.DataStore.fetchFresh.mock.calls.filter((c) => c[0] === 'trackers');
             expect(trackerFetches).toHaveLength(calls);
         });
+
+        // The reported loop: online, the minute repaint tick saw the stale list
+        // as "past day" and re-ran loadToday on every tick while Trackers was off.
+        it.each([[true, true], [false, false]])('online repaint tick, trackers %s → reloads Today: %s', async (on, reloads) => {
+            setOnline(window, true);
+            window.featureSettings = { ...FEATURES_MED_ONLY, trackers: on };
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: { featureSettings: { ...FEATURES_MED_ONLY, trackers: on }, foodTargets: {}, tabOrder: ['today'], weightUnitPreference: 'kg' },
+                    timestamp: Date.now()
+                },
+                trackers: pastDayTrackers()
+            });
+            let tick = null;
+            window.setInterval = (fn) => { tick = fn; return 42; };
+
+            await window.loadToday();
+            // The tick calls the global loadToday by name: swap in a spy so a
+            // reload is counted, not run.
+            const reload = vi.fn();
+            window.loadToday = reload;
+            tick();
+            await vi.waitFor(() => expect(reload).toHaveBeenCalled(), { timeout: on ? 1000 : 200 })
+                .then(() => true, () => false)
+                .then((reloaded) => expect(reloaded).toBe(reloads));
+        });
     });
 
     describe('wall-clock repaint tick', () => {
