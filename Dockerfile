@@ -12,8 +12,7 @@ RUN go mod download
 
 COPY . .
 # Only ./cloud is shipped. The other cmd/ entries are dev/operator tooling
-# (feedbackpull, genmcpcatalog, genexercisecatalog, genvapid, mcpshim,
-# openfoodfacts) — built and tested by CI, never in the image.
+# (feedbackpull, genmcpcatalog, genexercisecatalog, genvapid, mcpshim) — built and tested by CI, never in the image.
 # CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite.
 # Only mount the go-build cache here; mounting /go/pkg/mod would shadow the
 # modules baked into the previous layer.

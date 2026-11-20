@@ -105,7 +105,7 @@ export const CATALOG = [
         },
         "name": {
           "type": "string",
-          "description": "REQUIRED unless you pass a product_id: the food's identity. Canonical English food name in generic form, intended to be reused across many log entries. Prefer a name already present in the user's catalog (food.products.search / food.products.frequent) or the open_food_facts cache. Use the singular, lowercase, ingredient-style form with no situational notes — good: \"boiled egg\", \"oatmeal\", \"chicken breast\". Bad: \"вареное яйцо\" (not English), \"boiled eggs breakfast\" (meal-time note), \"boiled eggs airline\" (context note), \"2 boiled eggs\" (quantity belongs in weight)."
+          "description": "REQUIRED unless you pass a product_id: the food's identity. Canonical English food name in generic form, intended to be reused across many log entries. Prefer a name already present in the user's catalog (food.products.search / food.products.frequent) or the food database. Use the singular, lowercase, ingredient-style form with no situational notes — good: \"boiled egg\", \"oatmeal\", \"chicken breast\". Bad: \"вареное яйцо\" (not English), \"boiled eggs breakfast\" (meal-time note), \"boiled eggs airline\" (context note), \"2 boiled eggs\" (quantity belongs in weight)."
         },
         "product_id": {
           "type": [
@@ -408,7 +408,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/products/search",
     "risk": "read",
-    "description": "Search the user's saved food products (and the open_food_facts cache) by name, match key (case, plurals and quantity/meal-time notes folded) and stored aliases. Use it before food.log.create to find an existing product_id: food.log.create without a product_id reconciles the name against the catalog (exact key, stored alias, or one unambiguous typo), but a name in another language or a synonym still creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
+    "description": "Search the user's saved food products and the food database by name, match key (case, plurals and quantity/meal-time notes folded) and stored aliases. Use it before food.log.create to find an existing product_id: food.log.create without a product_id reconciles the name against the catalog (exact key, stored alias, or one unambiguous typo), but a name in another language or a synonym still creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
     "response_summary": "JSON array of matching products with id, name, barcode, per-100g macros, and warnings when the macros look wrong. `warnings` (present only when non-empty) flags per-100 g macros that look wrong: impossible (\u003e 900 kcal, macros summing above 100 g, or a negative value), inconsistent (kcal more than 30% off 4*carbs + 4*protein + 9*fat), suspicious-low (\u003c 5 kcal with a macro of 1 g or more). Nothing is rejected: if the user's numbers are likely mistyped, ask them to check the values.",
     "params_schema": {
       "type": "object",
