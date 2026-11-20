@@ -9,6 +9,7 @@ steps:
   - On an account that already has a tracker (active or archived), open Today and Settings → Features
   - Turn Trackers off; open Today and the doctor brief
   - Turn Trackers back on
+  - Turn Trackers off again and leave Today open past midnight (a trackers list from an earlier day stays cached)
 invariants:
   - With no tracker and no choice made, Today shows no Trackers card, the brief has no Trackers checkbox, and the switch reads off
   - With any tracker (archived included) and no choice made, everything shows as before and the switch reads on
@@ -16,6 +17,7 @@ invariants:
   - Off hides the card (with Add a tracker and Manage), the brief's Trackers checkbox, and stops tracker reminders; on restores the card with its data
   - Tracker data and the agent's trackers.list / log / history keep working while the switch is off
   - A first tracker arriving from another device on an undecided account shows the card on the next Today repaint, without a reload
+  - With Trackers off, a trackers list cached on an earlier day never makes Today reload itself (no refetch every minute); with Trackers on, that stale list is refetched once
 covered_by:
-  web: web/static/js/tests/cloud.shim-contract.settings.test.js  # also today.aggregate, brief.document, cloud.shim-contract.reminders, apishim.write-origin; visual scenes settings-features-trackers-off/-on, today-trackers-off/-on
+  web: web/static/js/tests/cloud.shim-contract.settings.test.js  # also today.aggregate, brief.document, cloud.shim-contract.reminders, apishim.write-origin, today.loader ("past-day trackers list", last invariant); visual scenes settings-features-trackers-off/-on, today-trackers-off/-on
 source: [med-s93c]
