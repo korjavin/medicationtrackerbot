@@ -1048,6 +1048,47 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return toResponse(record);
   }
 
+  // The Undo of a logPast (bd med-aa18.5, the Log sheet's Take): tombstones
+  // that exact manual row by recordId — never "the last intake" — and returns
+  // its stock. Only an `intake-manual-` id: a scheduled dose's undo is act's
+  // `undo` (UNTAKEN keeps its slot). A user action at now(), not a derived
+  // write (no floor). The tombstone is terminal in mergeIntake, every reader
+  // already skips `deleted` rows, and stock derives from live TAKEN evidence,
+  // so the mirror is all that moves. An already-tombstoned id is `unchanged`.
+  // `canRepair()` (the router's canFloor): this device has pulled the account
+  // in this page load, so its med records are current.
+  async function unlog(id, { canRepair = async () => true } = {}) {
+    if (!String(id).startsWith(MANUAL_ID_PREFIX)) {
+      throw Object.assign(new Error('only a manual log can be removed; undo a scheduled dose instead'), { code: 'not_manual' });
+    }
+    const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
+    const row = raw.find((i) => String(i.recordId) === String(id));
+    if (!row) throw notFound('intake not found');
+    if (row.deleted) {
+      // A repeat is the recovery path for a mirror the first call could not
+      // rewrite: the bodyless tombstone no longer names its med, so every
+      // tracked med's mirror is checked (mirrorOne writes only one that differs).
+      // It re-puts whole med records, so only once caught up: before the first
+      // pull a stale local copy would overwrite another device's med edit (LWW).
+      if (!(await canRepair())) throw Object.assign(new Error('not caught up yet'), { code: 'not_caught_up' });
+      await stock.mirrorMany((await loadMeds()).map((m) => m.recordId));
+      return { status: 'unchanged', id: row.recordId };
+    }
+    // Seed (pre-write state) → tombstone → mirror (post-write state), as putIntake.
+    if (row.status === 'TAKEN') await stock.ensureSeed(row.medication_id);
+    await records.del(INTAKE_RECORD_TYPE, row.recordId);
+    // The tombstone is the write: once it landed the Undo succeeded, and the
+    // stock every new client derives is already right. The mirror is only the
+    // old clients' copy; a failed rewrite must not read as a failed Undo (the
+    // UI would put the dose back). It answers `mirror: 'stale'` and the caller
+    // repeats the call, which rewrites the mirror (above).
+    let mirrored = true;
+    if (row.status === 'TAKEN') {
+      try { await stock.mirror(row.medication_id); } catch (_) { mirrored = false; }
+    }
+    return mirrored ? { status: 'deleted', id: row.recordId } : { status: 'deleted', id: row.recordId, mirror: 'stale' };
+  }
+
   // Ported from handleUpdateIntake (POST /api/intakes/update): per-row
   // {updated, failed, failures[]} so the frontend can roll back only the rows
   // that failed. Cloud mode has no tz-plan gating yet (Task 4), so the only
@@ -1480,6 +1521,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     skip,
     snooze,
     logPast,
+    unlog,
     updateIntakes,
     confirmSchedule,
     act,

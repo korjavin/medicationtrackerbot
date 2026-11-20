@@ -1219,6 +1219,88 @@ async function logPastIntake(medId, takenAt, onLogged) {
     return res;
 }
 
+// The Undo of logPastIntake (Log sheet Take, bd med-aa18.5): DELETE
+// /log-past/:id tombstones that one manual intake by its id and the domain
+// returns its stock. Optimistic: the row leaves the timeline first; then meds
+// + timeline re-read as logPastIntake does. Returns the response, or null
+// when nothing was written; a thrown write rolls back and rethrows.
+async function unlogPastIntake(intakeId) {
+    const handles = [await _applyOptimisticTimeline((rows) => rows.filter((r) => String(r.occId) !== String(intakeId)))];
+    let res;
+    try {
+        res = await apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE');
+    } catch (e) {
+        await _rollbackOptimistic(handles);
+        throw e;
+    }
+    if (!res) {
+        await _rollbackOptimistic(handles);
+        return null;
+    }
+    await _commitOptimistic(handles);
+    // The dose is gone but the old clients' stock copy was not rewritten:
+    // queue a repeat of the (idempotent) call, which rewrites it.
+    if (res.mirror === 'stale') {
+        _unlogRepairWrite([..._unlogRepairRead().filter((id) => id !== String(intakeId)), String(intakeId)]);
+        repairUnlogMirrors();
+    }
+    try {
+        if (window.DataStore) {
+            await window.DataStore.invalidateByTag('history');
+            await window.DataStore.invalidateByTag('medications');
+            await window.DataStore.invalidateByTag('gamification');
+        }
+        await loadMeds();
+        if (typeof loadTimeline === 'function') await loadTimeline();
+    } catch (e) {
+        console.warn('unlog: refresh after the write failed', e);
+    }
+    return res;
+}
+
+// Undos whose stock mirror stayed stale (ids only; localStorage is outside the
+// vault). Each stays queued until its repeat DELETE lands: the repeat answers
+// `unchanged` once the mirror is rewritten, and null (apiCall's failed write,
+// no alert) while it still fails, including before this page's first pull
+// (the domain's not_caught_up). No try cap: an offline boot keeps it, a later
+// pull lets it land. An id gone from the vault answers not_found, which
+// apiCall reads as a done DELETE. Retried every minute while any is queued,
+// and on every boot (bootstrap.js). Its own queue, not the delete journal, so
+// a wait never holds an owed row delete.
+const UNLOG_REPAIR_KEY = 'wg-unlog-mirror-repair';
+const UNLOG_REPAIR_RETRY_MS = 60000;
+function _unlogRepairRead() {
+    try {
+        const v = JSON.parse(localStorage.getItem(UNLOG_REPAIR_KEY) || '[]');
+        return Array.isArray(v) ? v.map(String) : [];
+    } catch (_) { return []; }
+}
+function _unlogRepairWrite(ids) {
+    try {
+        if (ids.length) localStorage.setItem(UNLOG_REPAIR_KEY, JSON.stringify(ids));
+        else localStorage.removeItem(UNLOG_REPAIR_KEY);
+    } catch (_) { /* storage blocked: the next stock write rewrites the mirror */ }
+}
+let _unlogRepairRun = null; // module-state: single-flight handle of the Undo mirror repair
+let _unlogRepairTimer = null; // module-state: the one re-arm timer of the Undo mirror repair
+function repairUnlogMirrors() {
+    if (_unlogRepairRun) return _unlogRepairRun;
+    clearTimeout(_unlogRepairTimer);
+    _unlogRepairRun = (async () => {
+        for (const id of _unlogRepairRead()) {
+            let ok = false;
+            try {
+                ok = !!(await apiCall(`/api/medications/log-past/${encodeURIComponent(id)}`, 'DELETE', null, { suppressWriteAlert: true }));
+            } catch (_) { /* stays queued */ }
+            if (ok) _unlogRepairWrite(_unlogRepairRead().filter((x) => x !== id));
+        }
+    })().finally(() => {
+        _unlogRepairRun = null;
+        if (_unlogRepairRead().length) _unlogRepairTimer = setTimeout(repairUnlogMirrors, UNLOG_REPAIR_RETRY_MS);
+    });
+    return _unlogRepairRun;
+}
+
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their
 // own occIds; the row shows "Snoozed until HH:MM" and leaves the due list
 // until the snooze ends (the dose clock repaints it then).
@@ -1286,5 +1368,6 @@ window.MedsHistory = {
     updateIntakeHistory,
     confirmLogPast,
     logPastIntake,
+    unlogPastIntake,
     snoozeMedicationConfirm
 };

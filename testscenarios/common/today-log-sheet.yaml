@@ -8,19 +8,22 @@ steps:
   - On Today tap Log
   - Look at the sheet, then tap Med
   - Tap Take on the as-needed med
+  - Tap Undo on that toast within 8 s, then look at the Meds timeline, the stock, and the same account on a second device after it syncs
+  - Tap Take again (leave it)
   - Tap Log again, Med, then tap the med's row instead of Take
   - Close it; on the Food tab tap + (Add)
   - Turn Food off in Settings and tap Log on Today
 invariants:
   - "Log on Today opens the food sheet titled Log: search, Scan / Photo / Gallery / Describe, then an Also log row BP · Weight · Med · Note, then Recent"
   - Med lists only the as-needed med (the When needed group of My meds), not the scheduled one
-  - Take closes the sheet and shows "<Name> taken" with "Logged HH:MM · N left", N one lower than before; the toast has no Undo, and the dose appears on the Meds timeline
+  - Take closes the sheet and shows "<Name> taken" with "Logged HH:MM · N left", N one lower than before, and an Undo for 8 s; the dose appears on the Meds timeline
+  - "Undo removes exactly that logged dose: it leaves the Meds timeline, the stock is back to N+1 (\"<Name> dose removed\" · \"N+1 left\"), the med's last dose goes back to the one before, and a second device shows the same after sync; no other dose (scheduled or an earlier log) changes"
   - Tapping the med's row opens the existing log sheet with a time field to log another time
   - Food's + opens the same sheet titled Log food, with no Also log row
   - With Food off, Log shows BP · Weight · Med · Note as tiles with no search; with only one kind left, Log opens that kind's form directly
   - A kind whose feature is off is not offered; Med is not offered without an active as-needed med
-source: [med-aa18.4]
+source: [med-aa18.4, med-aa18.5]
 covered_by:
-  web: web/static/js/tests/food.add-sheet.test.js  # Today side (kinds, flags, one-kind direct): web/static/js/tests/today.render.test.js
+  web: web/static/js/tests/food.add-sheet.test.js  # Today side (kinds, flags, one-kind direct): web/static/js/tests/today.render.test.js; Undo over the real domain: web/static/js/tests/cloud.shim-contract.meds-history.test.js
   android: manual
   ios: manual

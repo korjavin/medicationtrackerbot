@@ -11,6 +11,8 @@ import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
+import { createApiRouter } from '../../../cloud/js/apishim.js';
 
 vi.mock('../../../cloud/js/push.js', () => ({ pushSchedule: vi.fn() }));
 // eslint-disable-next-line import/first
@@ -884,6 +886,145 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
 
         const meds = await window.apiCall('/api/medications');
         expect(meds[0].inventory_count).toBe(4);
+    });
+
+    // bd med-aa18.5: the Log sheet Take's Undo.
+    it('DELETE log-past/:id tombstones that manual intake and returns its stock; a repeat is unchanged', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ inventory_count: 5 })] } });
+        const { window } = env;
+        const takenAt = new Date().toISOString();
+        const first = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: takenAt });
+        const kept = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: takenAt });
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(3);
+
+        const res = await window.apiCall(`/api/medications/log-past/${first.id}`, 'DELETE');
+        expect(res).toEqual({ status: 'deleted', id: first.id });
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
+        const ids = (await window.apiCall(`/api/doses?from=${new Date(Date.now() - DAY_MS).toISOString()}`)).map((r) => r.occId);
+        expect(ids).toContain(kept.id);
+        expect(ids).not.toContain(first.id);
+        const raw = (await env.records.listRaw('intake')).find((r) => r.recordId === first.id);
+        expect(raw.deleted).toBe(true);
+
+        expect(await window.apiCall(`/api/medications/log-past/${first.id}`, 'DELETE')).toEqual({ status: 'unchanged', id: first.id });
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
+    });
+
+    it('a mirror write that fails after the tombstone answers deleted/stale; the queued repeat survives offline boots and lands after a pull', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ inventory_count: 5 })] } });
+        const { window } = env;
+        allowConsoleNoise(); // apiCall logs each refused (not_caught_up) repeat
+        let pulled = false;
+        // The page router with sync.js's canFloor gate: this load has not pulled yet.
+        const routerFor = (w, records) => createApiRouter({}, {
+            records, win: w, canFloor: async () => pulled, effects: { scheduleReminderRecompute: vi.fn() },
+        });
+        window.offlineAwareApiCall = routerFor(window, env.records);
+        const dose = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: new Date().toISOString() });
+        const mirror = async () => (await env.records.list('medication'))[0].inventory_count;
+        expect(await mirror()).toBe(4);
+        // The records port rejecting the medication write once (sync.js
+        // writeRecord throws on a failed IndexedDB put), right after the tombstone.
+        const put = env.records.put;
+        env.records.put = async (type, rec) => {
+            if (type === 'medication') {
+                env.records.put = put;
+                throw new Error('write failed');
+            }
+            return put.call(env.records, type, rec);
+        };
+        const res = await window.MedsHistory.unlogPastIntake(dose.id);
+        expect(res).toEqual({ status: 'deleted', id: dose.id, mirror: 'stale' });
+        expect((await env.records.listRaw('intake')).find((r) => r.recordId === dose.id).deleted).toBe(true);
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+        // The immediate repeat met not_caught_up: still queued, mirror still stale.
+        await window.repairUnlogMirrors();
+        expect(await mirror()).toBe(4);
+        const queued = window.localStorage.getItem('wg-unlog-mirror-repair');
+        expect(JSON.parse(queued)).toEqual([dose.id]);
+
+        // Three offline boots (same vault and localStorage, never pulled) keep it.
+        const records = env.records;
+        for (let boot = 0; boot < 3; boot++) {
+            env.cleanup();
+            env = loadCloudShimFrontendEnv({ records });
+            env.window.localStorage.setItem('wg-unlog-mirror-repair', queued);
+            env.window.offlineAwareApiCall = routerFor(env.window, records);
+            await env.window.repairUnlogMirrors();
+            expect(await mirror()).toBe(4);
+            expect(env.window.localStorage.getItem('wg-unlog-mirror-repair')).toBe(queued);
+        }
+        // Reconnected: the pull lands, the next retry rewrites the mirror and clears the queue.
+        pulled = true;
+        await env.window.repairUnlogMirrors();
+        expect(await mirror()).toBe(5);
+        expect(env.window.localStorage.getItem('wg-unlog-mirror-repair')).toBeNull();
+        // The delete journal is untouched by the repair.
+        expect(env.window.localStorage.getItem('wg-pending-deletes')).toBeNull();
+    });
+
+    it('the mirror repair waits for this page\'s first pull, so a stale med copy never overwrites another device\'s edit', async () => {
+        const at = new Date().toISOString();
+        const id = 'intake-manual-1700000000000-1';
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                // inventory_count 4 = the mirror a failed rewrite left behind
+                // after the Undo of the one dose below (derived stock: 5).
+                medication: [seedMedication({ inventory_count: 4 })],
+                stock: [{ recordId: 'stock-1-1-seed5', clientTs: 0, deleted: false, medication_id: 1, kind: 'audit', count: 5, at, seed: true }],
+                intake: [{ recordId: id, clientTs: Date.now(), deleted: true }]
+            }
+        });
+        let pulled = false;
+        // The page router with sync.js's canFloor gate (caught up AND pulled in this load).
+        const router = createApiRouter({}, {
+            records: env.records, win: env.window, canFloor: async () => pulled,
+            effects: { scheduleReminderRecompute: vi.fn() },
+        });
+        const mirror = async () => (await env.records.list('medication'))[0].inventory_count;
+        await expect(router(`/api/medications/log-past/${id}`, 'DELETE')).rejects.toMatchObject({ code: 'not_caught_up', status: 409 });
+        expect(await mirror()).toBe(4);
+        pulled = true;
+        expect(await router(`/api/medications/log-past/${id}`, 'DELETE')).toEqual({ status: 'unchanged', id });
+        expect(await mirror()).toBe(5);
+    });
+
+    it('DELETE log-past/:id refuses a scheduled dose (not_manual) and writes nothing', async () => {
+        const slot = new Date(Math.floor((Date.now() - HOUR_MS) / 1000) * 1000);
+        const id = `intake-1-${slot.getTime() / 1000}`;
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ inventory_count: 5 })],
+                intake: [seedIntake({ recordId: id, scheduled_at: slot.toISOString(), status: 'TAKEN', taken_at: slot.toISOString() })]
+            }
+        });
+        const { window } = env;
+        allowConsoleNoise(); // apiCall logs the refused write before its alert-and-null path
+        window.safeAlert = vi.fn();
+        expect(await window.apiCall(`/api/medications/log-past/${id}`, 'DELETE')).toBeNull();
+        const row = (await env.records.listRaw('intake')).find((r) => r.recordId === id);
+        expect(row.deleted).toBe(false);
+        expect(row.status).toBe('TAKEN');
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+    });
+
+    it('Log sheet Take → toast Undo: the row leaves the timeline and the stock comes back', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ name: 'Ibuprofen', inventory_count: 5 })] } });
+        const { window, document } = env;
+        const toast = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+        await window.loadMeds();
+        window.showAddFoodModal({ from: 'today', food: false, kinds: [{ id: 'med', icon: 'pill', label: 'Med' }], view: 'med' });
+        document.querySelector('#food-add-med-list .wg-row[data-med-id="1"] .wg-btn').click();
+        await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Ibuprofen taken', 'success', expect.any(Object)));
+        const [logged] = (await env.records.list('intake'));
+        expect(window.medications[0].inventory_count).toBe(4);
+        expect((await window.loadTimeline()).map((r) => String(r.occId))).toContain(logged.recordId);
+
+        toast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2].action.onClick();
+        await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Ibuprofen dose removed', 'info', { detail: '5 left' }));
+        expect(window.medications[0].inventory_count).toBe(5);
+        expect((await window.loadTimeline()).map((r) => String(r.occId))).not.toContain(logged.recordId);
+        expect(await env.records.list('intake')).toEqual([]);
     });
 
     it('cancel-intake reverts a TAKEN intake back to PENDING and restores inventory', async () => {
