@@ -387,7 +387,7 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'plaintext',
     retention: 'Not stored by the app; provider retention applies',
     activation: 'opt-in-consent',
-    activationNote: 'shares the `tg` consent scope with the Telegram assistant; refusal degrades to the deterministic card',
+    activationNote: 'shares the `tg` consent scope with the Telegram assistant; refusal degrades to the deterministic card; not reachable while the Journey screen is hidden (med-8xw5)',
     byo: 'With your own OpenAI key the summary goes browser-direct',
     evidence: [
       'web/cloud/js/gamification-narrator.js:68',
@@ -397,10 +397,12 @@ export const PRIVACY_MANIFEST = [
     ],
     code: { go: [], hosts: [] },
     docSignal: null,
+    // bd med-8xw5: the Journey screen and its AI story switch are hidden from
+    // the UI; mode.narration is kept, its only caller (journey.js) never runs.
     userCopy: {
       category: 'visible',
-      title: 'Journey narration, if you turn it on',
-      detail: 'The Journey screen can turn its already-computed numbers into a few written sentences — for the weekly recap, your weight-goal progress (how far along you are, the week\'s trend change and remaining distance in kg, weigh-in days, milestones), workouts done vs scheduled, your week\'s average blood pressure vs your target, and the intention you picked for next week; experiment suggestions also carry your revealed discoveries and trial results as written, which can include how your weight trend moved in kg per week. Those summary numbers go to your own AI provider, or, with no key of your own, through the operator\'s trial account under the same consent as the Telegram assistant. Raw records are never sent, and declining just leaves the plain deterministic card in place.',
+      title: 'Journey narration (hidden for now)',
+      detail: 'The Journey screen and its AI story switch are hidden from the app for now, so no narration is sent while they are hidden; your setting is kept as it was. When available, the Journey screen can turn its already-computed numbers into a few written sentences — for the weekly recap, your weight-goal progress (how far along you are, the week\'s trend change and remaining distance in kg, weigh-in days, milestones), workouts done vs scheduled, your week\'s average blood pressure vs your target, and the intention you picked for next week; experiment suggestions also carry your revealed discoveries and trial results as written, which can include how your weight trend moved in kg per week. Those summary numbers go to your own AI provider, or, with no key of your own, through the operator\'s trial account under the same consent as the Telegram assistant. Raw records are never sent, and declining just leaves the plain deterministic card in place.',
     },
   },
   {

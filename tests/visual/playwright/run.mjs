@@ -268,7 +268,7 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
       // Leave the last scene's document through about:blank: Playwright's
       // WebKit dies on a libstdc++ assertion (std::optional, not engaged) when
       // the app navigates straight to itself from some states (after
-      // meds-timeline-pending, earlier after journey); the hop never crashes.
+      // meds-timeline-pending); the hop never crashes.
       await page.goto('about:blank');
       await page.goto(`${appBase}/?qa=${encodeURIComponent(scene.name)}${scene.clock ? `&clock=${encodeURIComponent(scene.clock)}` : ''}`);
       const ready = page.locator('#wg-qa-ready');

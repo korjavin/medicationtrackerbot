@@ -95,7 +95,8 @@ function currentNavItems() {
 // window; after a longer absence we reopen Today. The timestamp is written by
 // switchTab (app.js) on every navigation. Restorable: any enabled section a
 // visible tab owns (bp / weight / health via the Health tab) plus the
-// Settings / Journey pages (switchTab's own guard bounces a disabled Journey).
+// Settings / Journey pages (switchTab sends the hidden Journey to Today, bd
+// med-8xw5).
 const ACTIVE_TAB_TTL_MS = 30 * 60 * 1000;
 function readSavedActiveTab() {
     try {

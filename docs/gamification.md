@@ -1,5 +1,10 @@
 # Gamification: HealthPoints & the Journey
 
+> **Journey screen hidden from the UI since 2026-11-20 (bd med-8xw5); engine,
+> records and MCP ops live on.** The Goal Line (Health → Weight card, weigh-in
+> goal text, Today adherence alert), the weekly digest and the Settings target
+> bands stay on the `gamification` flag, whose toggle is now titled "Goal Line".
+
 > **Status: MVP shipped; deeper vision still design-only. The live implementation
 > is `web/domain/gamification.js`** (cloud vault records + `/api/gamification/*`
 > routes through the shim). §14.1–§14.12 below are the **historical Go

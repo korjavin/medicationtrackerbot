@@ -1691,17 +1691,15 @@ function countToggles(selector) {
 // page above it closes, so refreshing on load, on flag/mode application and
 // on every page close keeps them right.
 function refreshSettingsSummaries() {
-    const features = countToggles('[data-settings-page="features"] .wg-toggle__input, [data-settings-page="journey-extras"] .wg-toggle__input');
+    const features = countToggles('[data-settings-page="features"] .wg-toggle__input');
     if (features.total) setSettingsSummary('features', `${features.on} of ${features.total} on`);
-    const extras = countToggles('[data-settings-page="journey-extras"] .wg-toggle__input');
-    if (extras.total) setSettingsSummary('journey-extras', `${extras.on} of ${extras.total} on`);
 
     const targets = [];
     const food = document.getElementById('food-target-settings');
     const calories = window.FoodLog && window.FoodLog.targets && window.FoodLog.targets.calories;
     if (food && !isSettingsSectionHidden(food)) targets.push(calories ? `Food ${calories} kcal` : 'Food not set');
     const gam = document.getElementById('gamification-targets-settings');
-    if (gam && !isSettingsSectionHidden(gam)) targets.push('Journey bands');
+    if (gam && !isSettingsSectionHidden(gam)) targets.push('Target bands');
     setSettingsSummary('targets', targets.join(' · '));
 
     const parts = [];
@@ -1758,28 +1756,19 @@ function updateFeatureToggles() {
 }
 
 // The weekly-digest toggle drives a gamification-summary push, so it's only
-// meaningful when gamification is on (both-on gate). The Journey mode switches
-// (med-8tur.12) share the same gate — except ED-safe: it hides weight numbers
-// on Today and BMI with Journey off too (med-njny), so its Safety group stays
-// reachable.
+// meaningful when gamification is on (both-on gate). ED-safe is not gated: it
+// hides weight numbers on Today and BMI with Goal Line off too (med-njny), so
+// its Safety group stays reachable.
 function updateWeeklyDigestVisibility(flags) {
     const row = document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
     row?.classList.toggle('wg-settings-hidden', !flags.gamification);
-    for (const key of GAMIFICATION_MODE_KEYS) {
-        if (key === 'ed_safe') continue;
-        document.querySelector(`mt-setting-toggle[input-id="${gamificationModeToggleId(key)}"]`)
-            ?.classList.toggle('wg-settings-hidden', !flags.gamification);
-    }
-    // Features page: the folded Journey-extras row shares the gate, so no
-    // empty row lingers.
-    document.querySelectorAll('.wg-settings-journey-extras')
-        .forEach((el) => el.classList.toggle('wg-settings-hidden', !flags.gamification));
 }
 
-// ---- Journey mode switches (med-8tur.12, docs/gamification.md §0.5) ---------
-// Per-mechanic switches + ED-safe, stored on the gamificationmode record via
-// GET/PUT /api/gamification/mode.
-const GAMIFICATION_MODE_KEYS = ['experiments', 'traits', 'narration', 'ed_safe'];
+// ---- Gamification mode (med-8tur.12, docs/gamification.md §0.5) -------------
+// ED-safe, stored on the gamificationmode record via GET/PUT
+// /api/gamification/mode. The Experiments / Traits / AI story switches went with
+// the Journey screen (bd med-8xw5); their stored values are left as they are.
+const GAMIFICATION_MODE_KEYS = ['ed_safe'];
 
 function gamificationModeToggleId(key) {
     return `gam-mode-${key.replace(/_/g, '-')}-toggle`;
@@ -2015,9 +2004,6 @@ async function toggleFeatureSetting(feature, enabled) {
         console.warn(`Failed to invalidate settings cache after toggling ${feature}:`, e);
     }
     updateFeatureTabVisibility();
-    // The Journey mode switches are revealed with gamification; a Settings load
-    // made while it was off never hydrated them.
-    if (feature === 'gamification' && enabled) await loadGamificationMode();
 }
 
 function updateFeatureTabVisibility() {
@@ -2027,8 +2013,7 @@ function updateFeatureTabVisibility() {
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
-        workouts: 'workout',
-        journey: 'gamification'
+        workouts: 'workout'
     };
 
     const currentTab = window.AppStore && window.AppStore.get('currentTab');
