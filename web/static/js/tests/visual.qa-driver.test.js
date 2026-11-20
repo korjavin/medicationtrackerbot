@@ -146,6 +146,24 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.document.querySelectorAll('#wg-qa-ready')).toHaveLength(1);
     });
 
+    it('the food portion scenes (PS1/PS2) show the seeded food from the real food.search: its last portion, chips from its history', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+
+        const results = await load('food-portion-results');
+        expect(results).toMatchObject({ scene: 'food-portion-results', ok: true, failed: [] });
+        const rows = Array.from(window.document.querySelectorAll('#food-add-results .wg-food-add__result'));
+        expect(rows.map((r) => r.querySelector('.wg-row__meta').textContent)).toEqual([
+            '200 g · 130 kcalMine', '150 g · 110 kcal · Food database',
+        ]);
+
+        // The golden vault logged Greek yogurt 2% once at 200 g: last = 200, ½× and 1.5× fill.
+        expect(await load('food-portion-history')).toMatchObject({ ok: true, failed: [] });
+        const chips = Array.from(window.document.querySelectorAll('#food-add-results .wg-pick'));
+        expect(chips.map((b) => `${b.dataset.grams}:${b.getAttribute('aria-pressed')}`)).toEqual(['100:false', '200:true', '300:false']);
+        expect(window.document.getElementById('food-add-primary-btn').textContent).toBe('Add 200 g · 130 kcal');
+    });
+
     it('audits an empty vault without seeding it', async () => {
         const { window } = env;
         const empty = await load('backup-audit');

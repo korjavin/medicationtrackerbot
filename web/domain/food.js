@@ -872,7 +872,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     if (!product) return null;
     const key = foodKey(name);
     const same = free.filter((p) => foodKey(p.name) === key || (Array.isArray(p.aliases) && p.aliases.includes(key)));
-    return same.length > 1 ? null : toProductResponse(product);
+    // With its portions (med-8npm.2): "Your food" is the preselected pick.
+    return same.length > 1 ? null : (await withPortions([toProductResponse(product)]))[0];
   }
 
   async function listProducts({ isMeal, q, offset = 0, limit = 100, sort } = {}) {
@@ -1009,7 +1010,11 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // the starting portion and three chips the add sheet renders. One read of
   // the food logs per call; no write.
   async function search(q, opts) {
-    const results = await searchProducts(q, opts);
+    return withPortions(await searchProducts(q, opts));
+  }
+
+  // withPortions annotates product responses with their `portions`.
+  async function withPortions(results) {
     if (!results.length) return results;
     const byProduct = new Map();
     const logs = (await records.list(LOG_RECORD_TYPE))
