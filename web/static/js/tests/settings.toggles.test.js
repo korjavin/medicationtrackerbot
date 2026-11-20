@@ -21,7 +21,7 @@ const featuresPage = (doc) => doc.querySelector('[data-settings-page="features"]
 const eyebrows = (section) => section.querySelector('.wg-section__head .wg-eyebrow')?.textContent.trim();
 
 describe('Settings Features page (kit S2, med-xso6.23)', () => {
-    it('groups the feature toggles by intent: Tracking, Journey, Safety, Labs', () => {
+    it('groups the feature toggles by intent: Tracking, Goal Line, Safety', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
@@ -36,28 +36,32 @@ describe('Settings Features page (kit S2, med-xso6.23)', () => {
                     'medication-feature-toggle', 'workout-feature-toggle', 'health-feature-toggle',
                 ]],
                 ['Medications', []],
-                ['Journey', ['gamification-feature-toggle', 'weekly-digest-feature-toggle']],
+                ['Goal Line', ['gamification-feature-toggle', 'weekly-digest-feature-toggle']],
                 ['Safety', ['gam-mode-ed-safe-toggle']],
             ]);
             for (const s of sections) expect(s.querySelector(':scope > .wg-list')).not.toBeNull();
+            const goalLine = featuresPage(doc).querySelector('mt-setting-toggle[input-id="gamification-feature-toggle"]');
+            expect(goalLine.getAttribute('title')).toBe('Goal Line');
         } finally {
             cleanup();
         }
     });
 
-    it('folds Experiments / Traits / AI story into one Journey row that opens their own page', () => {
+    // bd med-8xw5: the Journey screen is hidden, and with it the Experiments /
+    // Traits / AI story row and page; no "Journey" copy is left in Settings.
+    it('has no Journey extras row or page and no Journey copy in Features or Targets', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
-            const fold = featuresPage(doc).querySelector('[data-settings-open="journey-extras"]');
-            expect(fold).not.toBeNull();
-            expect(fold.classList.contains('wg-setting')).toBe(true);
-            const extras = doc.querySelector('[data-settings-page="journey-extras"]');
-            expect(Array.from(extras.querySelectorAll('mt-setting-toggle')).map((t) => t.getAttribute('input-id')))
-                .toEqual(['gam-mode-experiments-toggle', 'gam-mode-traits-toggle', 'gam-mode-narration-toggle']);
-            // 12 toggles across the two pages.
-            const all = doc.querySelectorAll('[data-settings-page="features"] mt-setting-toggle, [data-settings-page="journey-extras"] mt-setting-toggle');
-            expect(all.length).toBe(12);
+            expect(doc.querySelector('[data-settings-open="journey-extras"]')).toBeNull();
+            expect(doc.querySelector('[data-settings-page="journey-extras"]')).toBeNull();
+            for (const id of ['experiments', 'traits', 'narration']) {
+                expect(doc.getElementById(`gam-mode-${id}-toggle`)).toBeNull();
+            }
+            expect(featuresPage(doc).querySelectorAll('mt-setting-toggle').length).toBe(9);
+            const pages = ['features', 'targets'].map((p) => doc.querySelector(`[data-settings-page="${p}"]`));
+            for (const page of pages) expect(page.outerHTML).not.toMatch(/journey/i);
+            expect(doc.querySelector('#gamification-targets-settings .wg-settings-section__title').textContent).toBe('Target bands');
         } finally {
             cleanup();
         }
@@ -655,44 +659,48 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 
-    // med-8tur.12: the Journey mode switches share the gamification gate, load
-    // from GET /api/gamification/mode, PUT one key per flip, and revert on failure.
-    it('Journey mode switches: gated on gamification, loaded from and written to /api/gamification/mode', async () => {
+    // med-8tur.12 / med-njny: ED-safe stays reachable whatever the Goal Line
+    // flag says, loads from GET /api/gamification/mode, PUTs one key per flip,
+    // and reverts on failure. The other mode switches went with the Journey
+    // screen (bd med-8xw5).
+    it('ED-safe switch: ungated, loaded from and written to /api/gamification/mode', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
-            const row = (id) => document.querySelector(`mt-setting-toggle[input-id="${id}"]`);
-            const ids = ['gam-mode-experiments-toggle', 'gam-mode-traits-toggle', 'gam-mode-narration-toggle', 'gam-mode-ed-safe-toggle'];
+            const row = document.querySelector('mt-setting-toggle[input-id="gam-mode-ed-safe-toggle"]');
+            const digest = document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();
 
             window.featureSettings = { gamification: false };
             window.SettingsView.updateFeatureToggles();
-            // ED-safe is its own promise and stays reachable with Journey off (med-njny).
-            for (const id of ids) {
-                expect(row(id).classList.contains('wg-settings-hidden')).toBe(id !== 'gam-mode-ed-safe-toggle');
-            }
+            expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+            expect(digest.classList.contains('wg-settings-hidden')).toBe(true);
             window.featureSettings = { gamification: true };
             window.SettingsView.updateFeatureToggles();
-            for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(false);
+            expect(row.classList.contains('wg-settings-hidden')).toBe(false);
+            expect(digest.classList.contains('wg-settings-hidden')).toBe(false);
 
+            // Mirrors the domain's GET/PUT /api/gamification/mode answer: the
+            // whole mode record (web/domain/gamification.js getMode/putMode).
             window.apiCall = vi.fn(async (url, method, body) => {
                 if (method === 'GET') return { enabled: true, ed_safe: false, experiments: true, traits: false, narration: true };
                 return { enabled: true, ed_safe: body.ed_safe === true, experiments: true, traits: false, narration: true };
             });
             await window.SettingsView.loadGamificationMode();
-            expect(document.getElementById('gam-mode-traits-toggle').checked).toBe(false);
-            expect(document.getElementById('gam-mode-experiments-toggle').checked).toBe(true);
-
             const edSafe = document.getElementById('gam-mode-ed-safe-toggle');
+            expect(edSafe.checked).toBe(false);
+
             edSafe.checked = true;
             edSafe.dispatchEvent(new window.Event('change'));
             await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/gamification/mode', 'PUT', { ed_safe: true }));
+            await vi.waitFor(() => expect(edSafe.checked).toBe(true));
 
             // A failed write restores the switch.
             window.apiCall = vi.fn(async () => null);
-            await window.SettingsView.saveGamificationMode('narration', false);
-            expect(document.getElementById('gam-mode-narration-toggle').checked).toBe(true);
+            edSafe.checked = false;
+            await window.SettingsView.saveGamificationMode('ed_safe', false);
+            expect(edSafe.checked).toBe(true);
         } finally {
             cleanup();
         }

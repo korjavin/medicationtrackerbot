@@ -32,8 +32,8 @@ export default async function localVisual(ctx) {
     if (scene.nativeOnly ?? scene.name.startsWith('native-')) continue;
     const s = (r[scene.name] = {});
     for (let attempt = 1; attempt <= 2; attempt++) {
-      // A retry starts from the golden vault again: attempt 1 may have changed it (journey turns
-      // gamification on, so its retry could never find the unchecked toggle).
+      // A retry starts from the golden vault again: attempt 1 may have changed it (a scene's
+      // write stays, so its retry could never find the state it starts from).
       if (attempt > 1) await shell(`pm clear ${pkg}`);
       try {
         await runScene(scene);

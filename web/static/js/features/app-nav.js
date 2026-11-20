@@ -8,7 +8,8 @@
 //   • Health tab → bp / weight / health(Vitals) sections behind a shared
 //     .wg-seg strip; the last segment is remembered in mt-health-segment on
 //     EVERY switch to one of the three (deep links included).
-//   • App-bar actions: [data-nav-to] (gear → settings, route → journey),
+//   • App-bar actions: [data-nav-to] (gear → settings; the Journey route
+//     icon is gone, bd med-8xw5 — switchTab sends `journey` to Today),
 //     [data-nav-back] (pagebar Back), [data-health-seg] (segment strip).
 //   • Settings / Journey are pages: AppStore 'previousTab' records the tab
 //     they were opened from, and Back returns there (back-button.js).
@@ -125,9 +126,6 @@ window.AppNav = (function () {
         });
         document.querySelectorAll('[data-today-sub]').forEach((sub) => {
             sub.textContent = todaySubtitle(new Date());
-        });
-        document.querySelectorAll('[data-nav-to="journey"]').forEach((btn) => {
-            btn.hidden = !featureOn('journey');
         });
     }
 

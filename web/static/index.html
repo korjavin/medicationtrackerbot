@@ -47,7 +47,6 @@
         <div id="today-view" class="view active wg-screen-stage">
             <header class="wg-appbar">
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub" data-today-sub></p></div>
-                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="journey" aria-label="Journey"><i class="wg-ico" data-icon="route"></i></button>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
             <div id="today-content"></div>
@@ -413,19 +412,8 @@
             </div>
         </div>
 
-        <div id="journey-view" class="view wg-screen-stage">
-            <!-- Gamification Journey screen (Plan 3). Freshness chip + content
-                 are mounted by features/journey.js (window.Gamification);
-                 gated on features.gamification (the Today route icon hides
-                 when it is off). A page, not a tab: Back returns to the tab it
-                 was opened from (features/app-nav.js). -->
-            <header class="wg-pagebar">
-                <button type="button" class="wg-back" data-nav-back><i class="wg-ico" data-icon="chev-l"></i>Back</button>
-                <div class="wg-pagebar__center"><div class="wg-pagebar__title">Journey</div></div>
-                <span></span>
-            </header>
-            <div id="journey-content"></div>
-        </div>
+        <!-- The Journey screen (#journey-view) is hidden from the UI (bd
+             med-8xw5): switchTab sends the `journey` section id to Today. -->
 
         <div id="settings-view" class="view wg-screen-stage">
             <!-- A page, not a tab: opened from the app-bar gear on every tab;
@@ -657,40 +645,19 @@
                     </div>
                 </section>
                 <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Journey</span></div>
+                    <div class="wg-section__head"><span class="wg-eyebrow">Goal Line</span></div>
                     <div class="wg-list">
-                        <mt-setting-toggle title="Journey &amp; Goal Line" input-id="gamification-feature-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Goal Line" input-id="gamification-feature-toggle"></mt-setting-toggle>
                         <mt-setting-toggle title="Weekly digest" description="Sunday evening summary of your week"
                             input-id="weekly-digest-feature-toggle"></mt-setting-toggle>
-                        <!-- The Journey mechanic switches (med-8tur.12) fold into one row. -->
-                        <button type="button" class="wg-setting wg-settings-journey-extras" data-settings-open="journey-extras">
-                            <span class="wg-setting__body"><span class="wg-setting__title">Experiments · Traits · AI story</span><span class="wg-setting__desc" data-settings-summary="journey-extras"></span></span>
-                            <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
-                        </button>
                     </div>
                 </section>
                 <section class="wg-section wg-settings-features__safety">
                     <div class="wg-section__head"><span class="wg-eyebrow">Safety</span></div>
                     <div class="wg-list">
                         <mt-setting-toggle title="ED-safe mode" icon="shield"
-                            description="Hide the weight goal, milestones and weight numbers from Today and Journey"
+                            description="Hide the weight goal, milestones and weight numbers from Today"
                             input-id="gam-mode-ed-safe-toggle"></mt-setting-toggle>
-                    </div>
-                </section>
-            </div>
-
-            <div class="wg-settings-page" data-settings-page="journey-extras" data-settings-parent="Features">
-                <section class="wg-section">
-                    <div class="wg-list">
-                        <mt-setting-toggle title="Experiments"
-                            description="N-of-1 trials and the Test it button on discoveries"
-                            input-id="gam-mode-experiments-toggle"></mt-setting-toggle>
-                        <mt-setting-toggle title="Traits"
-                            description="Identity traits earned from steady habits"
-                            input-id="gam-mode-traits-toggle"></mt-setting-toggle>
-                        <mt-setting-toggle title="AI story"
-                            description="Optional AI narration of your week"
-                            input-id="gam-mode-narration-toggle"></mt-setting-toggle>
                     </div>
                 </section>
             </div>
@@ -768,7 +735,7 @@
 
             </div>
 
-            <!-- Targets: food + Journey bands share ONE Save — the page-bar
+            <!-- Targets: food + target bands share ONE Save — the page-bar
                  primary added by openSettingsPage (saveTargets). -->
             <div class="wg-settings-page" data-settings-page="targets">
 
@@ -812,8 +779,8 @@
             </section>
 
             <section id="gamification-targets-settings" class="wg-card wg-settings-section wg-gam-targets hidden">
-                <h3 class="wg-settings-section__title">Journey Targets</h3>
-                <p class="wg-settings-section__desc">Self-set healthy bands for your tracked metrics. Leave a field blank to keep the recommended default.</p>
+                <h3 class="wg-settings-section__title">Target bands</h3>
+                <p class="wg-settings-section__desc">Healthy bands for your tracked metrics; they pick the best day in your weekly digest. Leave a field blank to keep the recommended default.</p>
                 <div class="wg-gam-target-metric" data-gam-metric="bp_systolic">
                     <div class="wg-gam-target-metric__head">
                         <span class="wg-settings-number-field__label">BP systolic</span>
