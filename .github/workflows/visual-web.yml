@@ -71,7 +71,8 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The full local pass took 24m59s before #1711's and med-s93c's scenes landed together; 25 cancelled it.
+    timeout-minutes: 35
     # Same Playwright as e2e/ (1.56.0); the image carries WebKit, Chromium and their deps.
     container: mcr.microsoft.com/playwright:v1.56.0-noble
     defaults:
