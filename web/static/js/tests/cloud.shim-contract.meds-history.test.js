@@ -909,7 +909,7 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
     });
 
-    it('a mirror write that fails after the tombstone answers deleted/stale; the repeat call the UI makes rewrites the mirror', async () => {
+    it('a mirror write that fails after the tombstone answers deleted/stale; the journaled repeat rewrites it after a reload', async () => {
         env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ inventory_count: 5 })] } });
         const { window } = env;
         const dose = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: new Date().toISOString() });
@@ -925,18 +925,24 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
             }
             return put.call(env.records, type, rec);
         };
-        const calls = vi.spyOn(window, 'apiCall');
         const res = await window.MedsHistory.unlogPastIntake(dose.id);
         expect(res).toEqual({ status: 'deleted', id: dose.id, mirror: 'stale' });
         expect((await env.records.listRaw('intake')).find((r) => r.recordId === dose.id).deleted).toBe(true);
         expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
         expect(await mirror()).toBe(4);
+        const journal = JSON.parse(window.localStorage.getItem('wg-pending-deletes'));
+        expect(journal.map((e) => [e.fn, e.arg])).toEqual([['_unlogPastIntakeApi', dose.id]]);
 
-        // The background repeat (5 s later) takes the idempotent path and heals it.
-        await vi.waitFor(async () => expect(await mirror()).toBe(5), { timeout: 8000, interval: 100 });
-        const deletes = calls.mock.calls.filter(([, m]) => m === 'DELETE').map(([u]) => u);
-        expect(deletes).toEqual([`/api/medications/log-past/${dose.id}`, `/api/medications/log-past/${dose.id}`]);
-    }, 15000);
+        // The tab closes before its replay; the next boot (same vault, same
+        // localStorage, the entry past its grace) replays the idempotent repeat.
+        const records = env.records;
+        env.cleanup();
+        env = loadCloudShimFrontendEnv({ records });
+        env.window.localStorage.setItem('wg-pending-deletes', JSON.stringify(journal.map((e) => ({ ...e, at: Date.now() - 60000 }))));
+        await env.window.replayPendingDeletes();
+        expect(await mirror()).toBe(5);
+        expect(env.window.localStorage.getItem('wg-pending-deletes')).toBeNull();
+    });
 
     it('DELETE log-past/:id refuses a scheduled dose (not_manual) and writes nothing', async () => {
         const slot = new Date(Math.floor((Date.now() - HOUR_MS) / 1000) * 1000);

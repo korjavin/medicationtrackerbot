@@ -150,7 +150,9 @@ function flushPendingDelete() {
 // record content (localStorage is outside the vault).
 const PENDING_DELETES_KEY = 'wg-pending-deletes';
 const PENDING_DELETE_REPLAY = ['_deleteBPApi', '_deleteWeightApi', '_deleteFoodLogApi',
-    '_deleteNoteApi', '_deleteWorkoutSessionApi', '_archiveMedById'];
+    '_deleteNoteApi', '_deleteWorkoutSessionApi', '_archiveMedById',
+    // Not a delete owed: the stock-mirror repair after a Log sheet Undo (bd med-aa18.5).
+    '_unlogPastIntakeApi'];
 
 function _pendingDeletesRead() {
     try {

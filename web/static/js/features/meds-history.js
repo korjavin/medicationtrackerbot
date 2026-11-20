@@ -1239,8 +1239,13 @@ async function unlogPastIntake(intakeId) {
     }
     await _commitOptimistic(handles);
     // The dose is gone but the old clients' stock copy was not rewritten:
-    // repeat the (idempotent) call in the background until it is.
-    if (res.mirror === 'stale') _healUnlogMirror(intakeId, UNLOG_MIRROR_RETRIES);
+    // journal a repeat of the (idempotent) call, which rewrites it. The delete
+    // journal (core/utils.js) survives a reload: this tab replays it once its
+    // grace passes, and every boot retries it (three tries).
+    if (res.mirror === 'stale' && typeof _pendingDeletesAdd === 'function') {
+        _pendingDeletesAdd({ fn: '_unlogPastIntakeApi', arg: String(intakeId) }, 0);
+        replayPendingDeletes();
+    }
     try {
         if (window.DataStore) {
             await window.DataStore.invalidateByTag('history');
@@ -1255,19 +1260,11 @@ async function unlogPastIntake(intakeId) {
     return res;
 }
 
-// ponytail: in-memory retries only; a reload before they land leaves the
-// mirror to the next stock-moving write (persist the id if that proves rare-but-real).
-const UNLOG_MIRROR_RETRIES = 3;
-const UNLOG_MIRROR_RETRY_MS = 5000;
-function _healUnlogMirror(intakeId, left) {
-    if (left <= 0) return;
-    setTimeout(async () => {
-        let ok = false;
-        try {
-            ok = !!(await apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE', null, { suppressWriteAlert: true }));
-        } catch (_) { /* retried below */ }
-        if (!ok) _healUnlogMirror(intakeId, left - 1);
-    }, UNLOG_MIRROR_RETRY_MS);
+// The delete journal's replay of an Undo whose stock mirror stayed stale
+// (PENDING_DELETE_REPLAY): the repeat answers `unchanged` once the mirror is
+// rewritten, null (apiCall's failed write, no alert) while it still fails.
+async function _unlogPastIntakeApi(intakeId) {
+    return apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE', null, { suppressWriteAlert: true });
 }
 
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their
