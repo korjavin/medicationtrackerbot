@@ -193,16 +193,14 @@ document.getElementById('workout-feature-toggle').addEventListener('change', asy
 document.getElementById('weekly-digest-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('weekly_digest', this.checked);
 });
-// Journey mode switches (med-8tur.12) — saveGamificationMode lives in
-// features/settings.js, which loads after this file (resolved at event time).
-[['gam-mode-experiments-toggle', 'experiments'], ['gam-mode-traits-toggle', 'traits'],
-    ['gam-mode-narration-toggle', 'narration'], ['gam-mode-ed-safe-toggle', 'ed_safe']].forEach(([id, key]) => {
-    document.getElementById(id).addEventListener('change', async function () {
-        await saveGamificationMode(key, this.checked);
-    });
+// ED-safe mode switch — saveGamificationMode lives in features/settings.js,
+// which loads after this file (resolved at event time). The Experiments /
+// Traits / AI story switches went with the Journey screen (bd med-8xw5).
+document.getElementById('gam-mode-ed-safe-toggle').addEventListener('change', async function () {
+    await saveGamificationMode('ed_safe', this.checked);
 });
 
-// Food + Journey targets share one Save: the Settings Targets page's page-bar
+// Food targets + target bands share one Save: the Settings Targets page's page-bar
 // primary (features/settings.js openSettingsPage → saveTargets).
 
 // The weight-unit (kg/lb) preference state machine — the PATCH serial queue,
@@ -310,14 +308,18 @@ const activateTabGroup = (tab, options) => window.TabController.activateTabGroup
 const bindTabGroup = (options) => window.TabController.bindTabGroup(options);
 
 function switchTab(tab) {
+    // The Journey screen is hidden (bd med-8xw5): the `journey` section id stays
+    // known (CLAUDE.md rule 6) and always lands on Today — first and before the
+    // flags load, since #journey-view is gone and a saved `journey` restores
+    // before featureSettingsLoaded (bootstrap.js readSavedActiveTab).
+    if (tab === 'journey') tab = 'today';
     const tabToFeature = {
         food: 'food',
         health: 'health',
         bp: 'bp',
         weight: 'weight',
         meds: 'medication',
-        workouts: 'workout',
-        journey: 'gamification'
+        workouts: 'workout'
     };
     const feature = tabToFeature[tab];
     if (feature && window.featureSettingsLoaded && !window.featureSettings[feature]) {
@@ -364,7 +366,6 @@ function switchTab(tab) {
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
-    else if (tab === 'journey') { if (window.Gamification) window.Gamification.load(); }
     else if (tab === 'settings') { loadSettings(); }
 }
 
@@ -687,7 +688,6 @@ function reloadCurrentTab(meta = {}) {
     else if (tab === 'workouts') { loadWorkouts(); }
     else if (tab === 'food') { loadFoodLogs(); }
     else if (tab === 'today') { loadToday(); }
-    else if (tab === 'journey') { if (window.Gamification) window.Gamification.load(); }
     else if (tab === 'health') {
         const stored = typeof getActiveHealthSubTab === 'function' ? getActiveHealthSubTab() : 'overview';
         switchHealthTab(stored);

@@ -287,22 +287,22 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
         }
     });
 
-    it('the folded Journey row pushes a nested page backed by "Features"', async () => {
+    // The Journey-extras page that used to cover this went with the Journey
+    // screen (bd med-8xw5); Telegram is the nested page under AI & integrations.
+    it('a nested row pushes a page backed by its parent ("AI & integrations")', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();
-            window.featureSettings = { gamification: true };
-            window.SettingsView.updateFeatureToggles();
 
-            row(document, 'features').click();
-            document.querySelector('[data-settings-open="journey-extras"]').click();
+            row(document, 'integrations').click();
+            document.querySelector('[data-settings-open="telegram"]').click();
             const pages = document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]');
             expect(pages.length).toBe(2);
             const nested = pages[1];
-            expect(nested.querySelector('.wg-back').textContent).toContain('Features');
-            expect(nested.querySelector('#gam-mode-traits-toggle')).not.toBeNull();
+            expect(nested.querySelector('.wg-back').textContent).toContain('AI & integrations');
+            expect(nested.querySelector('#telegram-settings-mount')).not.toBeNull();
             nested.querySelector('.wg-back').click();
             pages[0].querySelector('.wg-back').click();
             expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
@@ -322,7 +322,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
 
             window.featureSettings = { bp: true, weight: true, food: false };
             window.SettingsView.updateFeatureToggles();
-            expect(summary('features')).toBe('2 of 12 on');
+            expect(summary('features')).toBe('2 of 9 on');
 
             // Bot build: no cloud delivery channel in the summary.
             document.querySelector('.wg-settings-notifications-cloud').classList.add('wg-settings-hidden');

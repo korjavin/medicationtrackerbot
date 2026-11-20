@@ -7,7 +7,8 @@
  *   - the Health tab reopens the last segment (mt-health-segment);
  *   - the segment strip hides with ≤1 enabled section, the Health tab only
  *     when all three are off, and a feature toggle rebuilds without reload;
- *   - gear → Settings and route → Journey, Back returns to the origin tab;
+ *   - gear → Settings, Back returns to the origin tab; Journey is hidden and
+ *     its section id lands on Today (bd med-8xw5);
  *   - the Meds badge counts every pending dose and clears once taken.
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -167,9 +168,7 @@ describe('Navigation v2 — app-bar actions', () => {
                 expect(title, `${id} app bar`).not.toBeNull();
                 expect(document.querySelector(`#${id}-view [data-nav-to="settings"]`), `${id} gear`).not.toBeNull();
             }
-            for (const id of ['settings', 'journey']) {
-                expect(document.querySelector(`#${id}-view > .wg-pagebar [data-nav-back]`), `${id} back`).not.toBeNull();
-            }
+            expect(document.querySelector('#settings-view > .wg-pagebar [data-nav-back]'), 'settings back').not.toBeNull();
         } finally { cleanup(); }
     });
 
@@ -198,25 +197,44 @@ describe('Navigation v2 — app-bar actions', () => {
         } finally { cleanup(); }
     });
 
-    it('route icon on Today opens Journey; Back returns to Today', async () => {
+});
+
+// The Journey screen is hidden (bd med-8xw5): no route icon, no view, and the
+// still-known `journey` section id always lands on Today — flags loaded or not.
+describe('Navigation v2 — Journey hidden', () => {
+    it('has no Journey route icon or view, and switchTab(journey) lands on Today with Goal Line on', async () => {
         const { window, cleanup } = await boot();
         const { document } = window;
         try {
-            const route = document.querySelector('#today-view [data-nav-to="journey"]');
-            expect(route.hidden).toBe(false);
-            route.click();
-            expect(activeView(document)).toBe('journey-view');
-            expect(lit(document)).toEqual([]);
-            document.querySelector('#journey-view [data-nav-back]').click();
+            expect(document.querySelector('[data-nav-to="journey"]')).toBeNull();
+            expect(document.getElementById('journey-view')).toBeNull();
+            tab(document, 'food').click();
+            window.switchTab('journey');
             expect(activeView(document)).toBe('today-view');
             expect(lit(document)).toEqual(['today']);
+            expect(window.localStorage.getItem('mt-active-tab')).toBe('today');
+            expect(window.Gamification.load).not.toHaveBeenCalled();
         } finally { cleanup(); }
     });
 
-    it('route icon hides when gamification is off', async () => {
-        const { window, cleanup } = await boot({ features: { ...ALL_ON, gamification: false } });
+    it('switchTab(journey) lands on Today before the feature flags load', async () => {
+        const { window, cleanup } = await boot();
+        const { document } = window;
         try {
-            expect(window.document.querySelector('#today-view [data-nav-to="journey"]').hidden).toBe(true);
+            tab(document, 'food').click();
+            window.featureSettingsLoaded = false;
+            window.switchTab('journey');
+            expect(activeView(document)).toBe('today-view');
+        } finally { cleanup(); }
+    });
+
+    it('a saved mt-active-tab=journey restores to Today', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'journey', pageOrigin: 'food' });
+        const { document } = window;
+        try {
+            expect(activeView(document)).toBe('today-view');
+            expect(lit(document)).toEqual(['today']);
+            expect(window.localStorage.getItem('mt-active-tab')).toBe('today');
         } finally { cleanup(); }
     });
 });

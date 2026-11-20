@@ -6,7 +6,7 @@ Open and use: an installed app (and a claimed account) shows the `WGFirstRun` ov
 
 ## Today Dashboard
 
-Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The home view on cold start — `features/bootstrap.js` opens Today after auth unless the user was active in another section within the last 30 minutes. Section views are reached via the five-tab bar (Today · Food · Meds · Train · Health, where Health switches between BP / Weight / Vitals), the app-bar gear (Settings) and Today route icon (Journey), card deep-links, or URL hash / messenger start param — see [frontend.md → Navigation](frontend.md#navigation).
+Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The home view on cold start — `features/bootstrap.js` opens Today after auth unless the user was active in another section within the last 30 minutes. Section views are reached via the five-tab bar (Today · Food · Meds · Train · Health, where Health switches between BP / Weight / Vitals), the app-bar gear (Settings; the Journey route icon is gone — the screen is hidden since bd med-8xw5), card deep-links, or URL hash / messenger start param — see [frontend.md → Navigation](frontend.md#navigation).
 
 **DOM skeleton** (`#today-content` render order, via `features/today.js`):
 
