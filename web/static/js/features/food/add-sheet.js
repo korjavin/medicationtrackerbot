@@ -465,7 +465,6 @@
 
     function renderResults() {
         const list = $('food-add-results');
-        const recent = $('food-add-recent-section');
         if (!list) return;
         list.replaceChildren();
         const q = (($('food-add-search') || {}).value || '').trim();
@@ -482,6 +481,16 @@
             more.addEventListener('click', () => runSearch(q, true));
             list.appendChild(more);
         }
+        renderSections();
+    }
+
+    // Shows / hides the panes around the results without rebuilding them, so a
+    // late read (Recent) never replaces a focused grams field mid-typing.
+    function renderSections() {
+        const list = $('food-add-results');
+        const recent = $('food-add-recent-section');
+        if (!list) return;
+        const searching = ((($('food-add-search') || {}).value || '').trim()).length >= 2;
         list.classList.toggle('hidden', !list.children.length);
         // Typing reclaims the tiles' height for results; clearing brings them back.
         const tiles = $('food-add-tiles');
@@ -634,18 +643,8 @@
     async function stapleOffer(hit) {
         const s = window.CloudFoodSearch;
         if (hit.id || !s || typeof s.stapleOffer !== 'function') return null;
-        let mine = null;
-        try { mine = (await s.stapleOffer(hit.name, hit.barcode)) || null; } catch (_) { return null; }
-        if (!mine || mine.portions) return mine;
-        // stapleOffer carries no portions: the same food from a local search
-        // does (food.search), so "Your food" gets its own chips (PS, FC1).
-        try {
-            const rows = await s.search(mine.name, { remote: false });
-            const row = (rows || []).find((r) => r && r.id === mine.id);
-            return row && row.portions ? { ...mine, portions: row.portions } : mine;
-        } catch (_) {
-            return mine;
-        }
+        // It carries the food's portions, as search does (food.js withPortions).
+        try { return (await s.stapleOffer(hit.name, hit.barcode)) || null; } catch (_) { return null; }
     }
 
     function logPicked() {
@@ -771,7 +770,7 @@
             if (recent.length >= RECENT_MAX) break;
         }
         list.replaceChildren(...recent.map(recentRow));
-        renderResults();
+        renderSections();
     }
 
     function recentRow(log) {

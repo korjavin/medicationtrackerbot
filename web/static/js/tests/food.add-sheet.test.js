@@ -209,6 +209,34 @@ describe('Food Add sheet', () => {
         expect(window.safePrompt).not.toHaveBeenCalled();
     });
 
+    it('PS3: Recent landing late keeps the grams field the user is typing in (Argus 29824)', async () => {
+        const { window, document } = env;
+        // apiCall's GET /api/food/log (loadRecent) answers after the pick.
+        let answerRecent;
+        apiCall.mockImplementation((url, method) => {
+            if ((method || 'GET') === 'GET' && String(url).startsWith('/api/food/log?')) {
+                return new Promise((resolve) => { answerRecent = () => resolve(RECENT_GROUPS); });
+            }
+            return Promise.resolve(null);
+        });
+        window.CloudFoodSearch.search = vi.fn(async () => [{ ...OAT }]);
+        window.FoodLog.addSheet.open();
+        document.getElementById('food-add-search').value = 'oat';
+        await window.FoodLog.addSheet.runSearch('oat', false);
+        const results = document.getElementById('food-add-results');
+        results.querySelector('.wg-food-add__result').click();
+        const input = field(results);
+        input.focus();
+        type(input, '45');
+
+        answerRecent();
+        await settle();
+        expect(field(results)).toBe(input);
+        expect(document.activeElement).toBe(input);
+        expect(input.value).toBe('45');
+        expect(document.getElementById('food-add-recent').children.length).toBeGreaterThan(0);
+    });
+
     it('PS4: a pack chip reads "g pack"; a food-DB hit says so in the meta', async () => {
         const results = await searchFor([{
             name: 'Greek yogurt 2% - Fage - 150 g', carbs_100g: 4, protein_100g: 9, fat_100g: 2, energy_kcal_100g: 73,
@@ -336,16 +364,13 @@ describe('Food Add sheet', () => {
     describe('a scanned staple you already have (kit FC1, med-5jq.7)', () => {
         const SCANNED = { name: 'Broccoli - K-Classic - 450 g', barcode: '4600000000116', carbs_100g: 3, protein_100g: 3, fat_100g: 0, energy_kcal_100g: 28 };
         const MINE = { id: 'p-broc', name: 'Broccoli', carbs_100g: 7, protein_100g: 3, fat_100g: 0, energy_kcal_100g: 34 };
-        // food.stapleOffer returns the bare product (toProductResponse, no
-        // portions); food.search's local row for it carries them.
+        // food.stapleOffer returns the product with its portions, the same
+        // payload search gives it (web/domain/food.js withPortions).
         const MINE_PORTIONS = { start_g: 150, chips: [{ g: 80 }, { g: 150 }, { g: 300 }] };
         const scan = async (mine) => {
             const { window } = env;
             window.CloudFoodSearch.remoteConfigured = vi.fn(async () => true);
-            window.CloudFoodSearch.search = vi.fn(async (q, o) => {
-                if (o && o.remote) return [{ ...SCANNED }];
-                return q === MINE.name ? [{ ...MINE, portions: MINE_PORTIONS }] : [];
-            });
+            window.CloudFoodSearch.search = vi.fn(async (q, o) => (o && o.remote ? [{ ...SCANNED }] : []));
             window.CloudFoodSearch.stapleOffer = vi.fn(async () => mine);
             window.FoodLog.addSheet.open();
             await settle();
@@ -356,7 +381,7 @@ describe('Food Add sheet', () => {
 
         it('two choices replace the picked row, your food preselected; logging links the barcode to it', async () => {
             const { window, document } = env;
-            await scan({ ...MINE });
+            await scan({ ...MINE, portions: MINE_PORTIONS });
             expect(window.CloudFoodSearch.stapleOffer).toHaveBeenCalledWith(SCANNED.name, SCANNED.barcode);
             expect(document.getElementById('food-add-offer').classList.contains('hidden')).toBe(false);
             expect(document.querySelector('#food-add-offer .wg-section__head').textContent).toBe('Scannedlog it as');
