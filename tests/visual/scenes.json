@@ -266,7 +266,7 @@
     { "name": "food-last-row-menu",
       "steps": [{ "tab": "food" }, { "scroll": "#food-list > :last-child .wg-food-item-row:last-child" },
         { "click": "#food-list > :last-child .wg-food-item-row:last-child .wg-swipe__more" }],
-      "ready": ["#food-list .wg-swipe__menu:not([hidden])"],
+      "ready": ["#food-list .wg-swipe__menu:not([hidden]):not(.wg-swipe__menu--up)"],
       "inView": ["#food-list .wg-swipe__menu:not([hidden])"] },
     { "name": "meds-timeline",
       "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }, { "click": ".med-tab[data-tab=\"timeline\"]" }],

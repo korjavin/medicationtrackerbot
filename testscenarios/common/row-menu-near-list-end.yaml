@@ -14,7 +14,9 @@ covered_by:
   # Invariant 1: tests/visual/scenes.json weight/bp/food-last-row-menu (real layout at phone size,
   # inView probe: the open menu sits wholly above the tab bar) and #weight-last-row-delete (a real
   # tap on the last row's Delete: XCUITest tap / Playwright hit-tested click, then the "Weight
-  # deleted" toast's Undo must show and is tapped). Invariant 2 and the flip logic:
+  # deleted" toast's Undo must show and is tapped). Invariant 2 in a real layout:
+  # #food-last-row-menu (the Food log's last row has room below; its ready selector requires the
+  # open menu without .wg-swipe__menu--up). Flip logic on stubbed geometry:
   # web/static/js/tests/weight.history.test.js ("the last row's menu opens above the row").
   web: tests/visual/scenes.json#weight-last-row-delete
   ios: tests/visual/scenes.json#weight-last-row-delete
