@@ -444,8 +444,11 @@ function _todayGoalLineFromPastDay(swrCaches) {
 }
 
 // Same idea for the trackers list: each item carries the account-local day
-// (and zone) its progress/todayLogs describe.
+// (and zone) its progress/todayLogs describe. Never "past day" while Trackers
+// is off (med-s93c): the list is not refetched then, so a stale one would ask
+// for a loadToday on every repaint tick, forever.
 function _todayTrackersFromPastDay(swrCaches) {
+    if (window.featureSettings && window.featureSettings.trackers !== true) return false;
     const list = swrCaches && swrCaches.trackers;
     const t = Array.isArray(list) ? list.find((x) => x && typeof x.day === 'string' && x.timeZone) : null;
     if (!t) return false;

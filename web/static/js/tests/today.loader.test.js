@@ -347,6 +347,33 @@ describe('Today loader — features/today-loader.js', () => {
     // caches already in hand. These tests capture the interval callback by
     // stubbing the JSDOM window's setInterval (vitest fake timers patch the
     // outer realm, not this nested window).
+    // med-s93c (breakage review): a trackers list cached on an earlier day is
+    // refetched only while the Trackers feature is on. Off, the list is never
+    // replaced, so treating it as "past day" re-ran loadToday on every tick.
+    describe('past-day trackers list', () => {
+        const pastDayTrackers = () => ({
+            data: [{ id: 't1', name: 'Water', day: '2020-01-01', timeZone: 'UTC' }],
+            timestamp: Date.now() - 60 * 1000
+        });
+
+        it.each([[true, 1], [false, 0]])('trackers %s → %i offline refetch of the stale list', async (on, calls) => {
+            setOnline(window, false);
+            window.featureSettings = { ...FEATURES_MED_ONLY, trackers: on };
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: { featureSettings: { ...FEATURES_MED_ONLY, trackers: on }, foodTargets: {}, tabOrder: ['today'], weightUnitPreference: 'kg' },
+                    timestamp: Date.now()
+                },
+                trackers: pastDayTrackers()
+            });
+
+            await window.loadToday();
+
+            const trackerFetches = window.DataStore.fetchFresh.mock.calls.filter((c) => c[0] === 'trackers');
+            expect(trackerFetches).toHaveLength(calls);
+        });
+    });
+
     describe('wall-clock repaint tick', () => {
         // Renders Today offline from a warm cache and returns the captured tick
         // callback plus a spy wrapping renderToday (installed after the first
