@@ -93,7 +93,8 @@ export function displayName(name) {
 // brand once, never repeated), an unbranded item or a store's house label on a
 // listed staple (STAPLES) reads as the food alone. OFF names are product names, not user
 // notes, so displayName's annotation strip does not apply ("Snack bar" stays).
-const WEIGHT = /(?:^|\s)(?:\d+(?:[.,]\d+)?\s*[x×]\s*)?\d+(?:[.,]\d+)?\s*(?:g|gr|kg|mg|ml|cl|dl|l|oz|lb)\.?$/i;
+// Groups (read by packSizeG): 1 the pack count, 2 the amount, 3 the unit.
+const WEIGHT = /(?:^|\s)(?:(\d+(?:[.,]\d+)?)\s*[x×]\s*)?(\d+(?:[.,]\d+)?)\s*(g|gr|kg|mg|ml|cl|dl|l|oz|lb)\.?$/i;
 // ponytail: a short list of store house labels; extend it when a scanned
 // staple keeps its store name.
 const HOUSE_LABELS = new Set(['k classic', 'kaufland', 'lidl', 'milbona', 'aldi', 'gut gunstig', 'ja', 'rewe',
@@ -128,6 +129,21 @@ export function offDisplayName(name) {
     ? product
     : `${unshout(brands[0])} ${product}`;
   return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+// packSizeG (med-8npm.1): the grams of one pack from a food-DB name's quantity
+// segment, the one WEIGHT strips above: "400 g" → 400, "4 x 125 g" → 125 (one
+// unit of the multipack), "330 ml" → 330 (ml as g), kg/l ×1000, oz/lb
+// converted; no segment → null. A Mine name had its weight stripped at first
+// scan, so it gets null (it has history instead).
+const UNIT_G = { g: 1, gr: 1, kg: 1000, mg: 0.001, ml: 1, cl: 10, dl: 100, l: 1000, oz: 28.35, lb: 453.6 };
+export function packSizeG(name) {
+  const parts = String(name ?? '').trim().split(/\s+[-–—]\s+/).reverse();
+  for (const p of parts) {
+    const m = WEIGHT.exec(p.trim());
+    if (m) return Math.round(Number(m[2].replace(',', '.')) * UNIT_G[m[3].toLowerCase()]) || null;
+  }
+  return null;
 }
 
 // Levenshtein over code points, capped: returns max + 1 as soon as the

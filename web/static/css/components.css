@@ -26,7 +26,7 @@
 - .wg-btn--ghost:hover sits under @media (hover:hover): a touch tap left the app-bar gear with a sticky
   hover background after navigating away (med-av5l).
 - The app-only first-run overlay (.wg-firstrun-*) rules sit at the end of this file. */
-.wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-menu,button.wg-card{box-sizing:border-box}
+.wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-pickfield,.wg-menu,button.wg-card{box-sizing:border-box}
 .wg-app{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--wg-bg-screen);color:var(--wg-fg-1);font-family:var(--wg-font-ui);font-size:var(--wg-fs-md);-webkit-font-smoothing:antialiased}
 .wg-app *,.wg-app *::before,.wg-app *::after{box-sizing:border-box}
 .wg-app h1,.wg-app h2,.wg-app h3,.wg-app p{margin:0}
@@ -119,6 +119,13 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 .wg-pick{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:var(--wg-h-sm);min-width:44px;padding:0 12px;border-radius:var(--wg-r-sm);border:1px solid var(--wg-line-strong);background:rgba(255,255,255,.04);color:var(--wg-fg-2);font:600 var(--wg-fs-sm)/1 var(--wg-font-mono);cursor:pointer}
 .wg-pick[aria-pressed=true]{background:var(--wg-warn-bg);border-color:rgba(251,189,13,.55);color:var(--wg-sun-soft)}
 .wg-pick small{font:600 10px var(--wg-font-ui);color:inherit;opacity:.75}
+/* pick field — an inline grams field in a .wg-picks row (kit PS2–PS6, med-8npm.2) */
+.wg-pickfield{display:inline-flex;align-items:center;gap:4px;height:var(--wg-h-sm);min-width:76px;padding:0 10px;border-radius:var(--wg-r-sm);border:1px solid var(--wg-line-strong);background:var(--wg-inset);box-shadow:var(--wg-sh-inset);color:var(--wg-fg-1);font:600 var(--wg-fs-sm)/1 var(--wg-font-mono);flex-shrink:0;cursor:text}
+.wg-pickfield input{width:5ch;min-width:0;margin:0;border:0;padding:0;background:transparent;color:inherit;font:inherit;text-align:center;outline:0}
+.wg-pickfield input::placeholder{color:var(--wg-fg-4)}
+.wg-pickfield small{font:600 10px var(--wg-font-ui);opacity:.75}
+.wg-pickfield--on{background:var(--wg-warn-bg);border-color:color-mix(in srgb,var(--wg-sun) 55%,transparent);color:var(--wg-sun-soft)}
+.wg-pickfield:focus-within{border-color:color-mix(in srgb,var(--wg-sun) 60%,transparent);box-shadow:var(--wg-sh-inset),var(--wg-focus)}
 /* choice list (single-select cards) */
 .wg-choices{display:flex;flex-direction:column;gap:6px}
 .wg-choice{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:10px 14px;border-radius:14px;border:1px solid var(--wg-line-strong);background:var(--wg-bg-card);color:var(--wg-fg-1);font:500 var(--wg-fs-md)/1.35 var(--wg-font-ui);text-align:left;cursor:pointer}

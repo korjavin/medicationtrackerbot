@@ -1,7 +1,8 @@
 // Food Add sheet (kit F4–F5, med-xso6.17): one .wg-sheet behind every Add
 // (Food app bar, Today's Log food, empty-day shortcuts) with search, the
 // Scan / Photo / Describe tiles and a Recent list. Recent re-logs in one
-// write; a search pick shows portion picks and an "Add <g> g · <kcal> kcal"
+// write; a search result logs its starting portion with a +, a row tap shows
+// the adaptive chips + grams field (PS1–PS6) and an "Add <g> g · <kcal> kcal"
 // primary; a scanned barcode with no match falls back to the manual form.
 // The Photo / Describe review flow is covered by food.ai-mode.test.js.
 
@@ -97,39 +98,165 @@ describe('Food Add sheet', () => {
         expect(window.safeToast).toHaveBeenCalledWith(expect.stringContaining('Greek yogurt'), 'success');
     });
 
-    it('search shows results in the sheet; a pick shows portion picks and an "Add <g> g · <kcal> kcal" primary that writes once', async () => {
+    // Food portions (kit PS1–PS6, med-8npm.2). The fake search mirrors the
+    // real CloudFoodSearch.search = food.search (web/domain/food.js): every
+    // result carries `portions: { start_g, chips: [{ g, label? }] }` from
+    // portionsFor (web/domain/foodportion.js) — three chips ascending, start_g
+    // one of them, label 'pack' only on a pack chip. A food-DB hit has no id.
+    const OAT = {
+        id: 'p-oat', name: 'Oat flakes', carbs_100g: 60, protein_100g: 12, fat_100g: 7, energy_kcal_100g: 360,
+        portions: { start_g: 60, chips: [{ g: 30 }, { g: 60 }, { g: 90 }] },
+    };
+    const searchFor = async (rows) => {
         const { window, document } = env;
-        window.CloudFoodSearch.search = vi.fn(async () => [
-            { id: 'p-oat', name: 'Oat flakes', carbs_100g: 60, protein_100g: 12, fat_100g: 7, energy_kcal_100g: 360 },
-        ]);
+        window.CloudFoodSearch.search = vi.fn(async () => rows.map((r) => ({ ...r })));
         window.FoodLog.addSheet.open();
         await settle();
-
         document.getElementById('food-add-search').value = 'oat';
         await window.FoodLog.addSheet.runSearch('oat', false);
-        const results = document.getElementById('food-add-results');
+        return document.getElementById('food-add-results');
+    };
+    const chips = (root) => Array.from(root.querySelectorAll('.wg-food-add__portions .wg-pick'));
+    const pressed = (root) => chips(root).map((b) => b.getAttribute('aria-pressed'));
+    const field = (root) => root.querySelector('.wg-food-add__portions .wg-pickfield input');
+    const type = (input, value) => {
+        input.value = value;
+        input.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    };
+
+    it('PS1: a result shows its starting portion and kcal with a +; the + logs exactly that in one write, then closes', async () => {
+        const { window, document } = env;
+        const results = await searchFor([OAT]);
         expect(results.classList.contains('hidden')).toBe(false);
         expect(document.getElementById('food-add-recent-section').classList.contains('hidden')).toBe(true);
         expect(document.getElementById('food-add-foot').classList.contains('hidden')).toBe(true);
+        const row = results.querySelector('.wg-food-add__result');
+        expect(row.querySelector('.wg-row__meta').textContent).toBe('60 g · 216 kcal' + 'Mine');
 
-        results.querySelector('button.wg-food-add__result').click();
-        const picks = Array.from(results.querySelectorAll('.wg-food-add__portions .wg-pick')).map((b) => b.dataset.grams);
-        expect(picks).toEqual(['100', '150', '200', 'other']);
+        row.querySelector('button[aria-label="Add Oat flakes 60 g"]').click();
+        await settle(10);
+
+        expect(posts()).toHaveLength(1);
+        expect(posts()[0][2]).toEqual(expect.objectContaining({
+            name: 'Oat flakes', product_id: 'p-oat', weight: 60, carbs: 36, protein: 7, fat: 4, calories: 216, per_100g: false,
+        }));
+        expect(sheet().classList.contains('hidden')).toBe(true);
+        expect(window.safeToast).toHaveBeenCalledWith('Logged Oat flakes · 60 g', 'success');
+    });
+
+    it('PS2: a row tap shows the payload\'s three chips with the start selected, an empty grams field and the primary; a chip then writes once', async () => {
+        const { document } = env;
+        const results = await searchFor([OAT]);
+        results.querySelector('.wg-food-add__result').click();
+
+        expect(chips(results).map((b) => b.dataset.grams)).toEqual(['30', '60', '90']);
+        expect(pressed(results)).toEqual(['false', 'true', 'false']);
+        expect(results.querySelector('.wg-food-add__result .wg-row__meta').textContent).toBe('360 kcal / 100 g' + 'Mine');
+        expect(field(results).value).toBe('');
+        expect(field(results).placeholder).toBe('other');
+        expect(field(results).inputMode).toBe('decimal');
         const primary = document.getElementById('food-add-primary-btn');
         expect(document.getElementById('food-add-foot').classList.contains('hidden')).toBe(false);
-        expect(primary.textContent).toBe('Add 100 g · 360 kcal');
+        expect(primary.textContent).toBe('Add 60 g · 216 kcal');
 
-        results.querySelector('.wg-pick[data-grams="150"]').click();
-        expect(primary.textContent).toBe('Add 150 g · 540 kcal');
-
+        results.querySelector('.wg-pick[data-grams="90"]').click();
+        expect(primary.textContent).toBe('Add 90 g · 324 kcal');
         primary.click();
         await settle(10);
 
         expect(posts()).toHaveLength(1);
         expect(posts()[0][2]).toEqual(expect.objectContaining({
-            name: 'Oat flakes', product_id: 'p-oat', weight: 150, carbs: 90, protein: 18, fat: 11, calories: 540,
+            name: 'Oat flakes', product_id: 'p-oat', weight: 90, carbs: 54, protein: 11, fat: 6, calories: 324,
         }));
         expect(sheet().classList.contains('hidden')).toBe(true);
+    });
+
+    it('PS3: typing any amount updates the primary and never writes; empty or 0 → "Enter grams" disabled; a chip re-selects and the field keeps its text; no dialog', async () => {
+        const { window, document } = env;
+        // The dialog the old "Other" chip opened (core/utils.js safePrompt).
+        window.safePrompt = vi.fn(async () => null);
+        const results = await searchFor([OAT]);
+        results.querySelector('.wg-food-add__result').click();
+        const primary = document.getElementById('food-add-primary-btn');
+
+        type(field(results), '45');
+        expect(primary.textContent).toBe('Add 45 g · 162 kcal');
+        expect(primary.disabled).toBe(false);
+        expect(pressed(results)).toEqual(['false', 'false', 'false']);
+        expect(field(results).closest('.wg-pickfield').classList.contains('wg-pickfield--on')).toBe(true);
+        // Enter / Done only closes the pad.
+        field(results).dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        type(field(results), '52,5');
+        expect(primary.textContent).toBe('Add 53 g · 191 kcal');
+
+        type(field(results), '');
+        expect(primary.textContent).toBe('Enter grams');
+        expect(primary.disabled).toBe(true);
+        type(field(results), '0');
+        expect(primary.disabled).toBe(true);
+        primary.click();
+        await settle(10);
+        expect(posts()).toHaveLength(0);
+
+        type(field(results), '45');
+        results.querySelector('.wg-pick[data-grams="30"]').click();
+        expect(pressed(results)).toEqual(['true', 'false', 'false']);
+        expect(field(results).value).toBe('45');
+        expect(field(results).closest('.wg-pickfield').classList.contains('wg-pickfield--on')).toBe(false);
+        expect(primary.textContent).toBe('Add 30 g · 108 kcal');
+        expect(primary.disabled).toBe(false);
+        expect(posts()).toHaveLength(0);
+        expect(window.safePrompt).not.toHaveBeenCalled();
+    });
+
+    it('PS3: Recent landing late keeps the grams field the user is typing in (Argus 29824)', async () => {
+        const { window, document } = env;
+        // apiCall's GET /api/food/log (loadRecent) answers after the pick.
+        let answerRecent;
+        apiCall.mockImplementation((url, method) => {
+            if ((method || 'GET') === 'GET' && String(url).startsWith('/api/food/log?')) {
+                return new Promise((resolve) => { answerRecent = () => resolve(RECENT_GROUPS); });
+            }
+            return Promise.resolve(null);
+        });
+        window.CloudFoodSearch.search = vi.fn(async () => [{ ...OAT }]);
+        window.FoodLog.addSheet.open();
+        document.getElementById('food-add-search').value = 'oat';
+        await window.FoodLog.addSheet.runSearch('oat', false);
+        const results = document.getElementById('food-add-results');
+        results.querySelector('.wg-food-add__result').click();
+        const input = field(results);
+        input.focus();
+        type(input, '45');
+
+        answerRecent();
+        await settle();
+        expect(field(results)).toBe(input);
+        expect(document.activeElement).toBe(input);
+        expect(input.value).toBe('45');
+        expect(document.getElementById('food-add-recent').children.length).toBeGreaterThan(0);
+    });
+
+    it('PS4: a pack chip reads "g pack"; a food-DB hit says so in the meta', async () => {
+        const results = await searchFor([{
+            name: 'Greek yogurt 2% - Fage - 150 g', carbs_100g: 4, protein_100g: 9, fat_100g: 2, energy_kcal_100g: 73,
+            portions: { start_g: 150, chips: [{ g: 80 }, { g: 150, label: 'pack' }, { g: 300 }] },
+        }]);
+        expect(results.querySelector('.wg-food-add__result .wg-row__meta').textContent).toBe('150 g · 110 kcal · Food database');
+        results.querySelector('.wg-food-add__result').click();
+        expect(chips(results).map((b) => b.querySelector('small').textContent)).toEqual(['g', 'g pack', 'g']);
+        expect(pressed(results)).toEqual(['false', 'true', 'false']);
+        expect(env.document.getElementById('food-add-primary-btn').textContent).toBe('Add 150 g · 110 kcal');
+    });
+
+    it('an older payload without portions starts at 100 g with that one chip', async () => {
+        const bare = { ...OAT };
+        delete bare.portions;
+        const results = await searchFor([bare]);
+        expect(results.querySelector('.wg-food-add__result .wg-row__meta').textContent).toBe('100 g · 360 kcal' + 'Mine');
+        results.querySelector('.wg-food-add__result').click();
+        expect(chips(results).map((b) => b.dataset.grams)).toEqual(['100']);
+        expect(env.document.getElementById('food-add-primary-btn').textContent).toBe('Add 100 g · 360 kcal');
     });
 
     it('the search field is pinned above the scrolling body; typing hides the tiles, clearing brings them back; off-home views hide the search', async () => {
@@ -237,6 +364,9 @@ describe('Food Add sheet', () => {
     describe('a scanned staple you already have (kit FC1, med-5jq.7)', () => {
         const SCANNED = { name: 'Broccoli - K-Classic - 450 g', barcode: '4600000000116', carbs_100g: 3, protein_100g: 3, fat_100g: 0, energy_kcal_100g: 28 };
         const MINE = { id: 'p-broc', name: 'Broccoli', carbs_100g: 7, protein_100g: 3, fat_100g: 0, energy_kcal_100g: 34 };
+        // food.stapleOffer returns the product with its portions, the same
+        // payload search gives it (web/domain/food.js withPortions).
+        const MINE_PORTIONS = { start_g: 150, chips: [{ g: 80 }, { g: 150 }, { g: 300 }] };
         const scan = async (mine) => {
             const { window } = env;
             window.CloudFoodSearch.remoteConfigured = vi.fn(async () => true);
@@ -251,7 +381,7 @@ describe('Food Add sheet', () => {
 
         it('two choices replace the picked row, your food preselected; logging links the barcode to it', async () => {
             const { window, document } = env;
-            await scan({ ...MINE });
+            await scan({ ...MINE, portions: MINE_PORTIONS });
             expect(window.CloudFoodSearch.stapleOffer).toHaveBeenCalledWith(SCANNED.name, SCANNED.barcode);
             expect(document.getElementById('food-add-offer').classList.contains('hidden')).toBe(false);
             expect(document.querySelector('#food-add-offer .wg-section__head').textContent).toBe('Scannedlog it as');
@@ -261,14 +391,20 @@ describe('Food Add sheet', () => {
             ]);
             expect(choices().map((c) => c.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
             const primary = document.getElementById('food-add-primary-btn');
-            document.querySelector('#food-add-offer-portions .wg-pick[data-grams="150"]').click();
+            // Your food's own chips (its search row's portions), the start selected.
+            const offerChips = Array.from(document.querySelectorAll('#food-add-offer-portions .wg-pick'));
+            expect(offerChips.map((b) => b.dataset.grams)).toEqual(['80', '150', '300']);
+            expect(offerChips.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
+            expect(document.querySelector('#food-add-offer-portions .wg-pickfield input')).not.toBeNull();
             expect(primary.textContent).toBe('Add 150 g · 51 kcal');
+            document.querySelector('#food-add-offer-portions .wg-pick[data-grams="300"]').click();
+            expect(primary.textContent).toBe('Add 300 g · 102 kcal');
 
             primary.click();
             await settle(10);
             expect(posts()).toHaveLength(1);
             expect(posts()[0][2]).toEqual(expect.objectContaining({
-                name: 'Broccoli', product_id: 'p-broc', barcode: SCANNED.barcode, scanned_name: SCANNED.name, weight: 150,
+                name: 'Broccoli', product_id: 'p-broc', barcode: SCANNED.barcode, scanned_name: SCANNED.name, weight: 300,
             }));
         });
 

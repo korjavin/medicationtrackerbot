@@ -701,6 +701,16 @@ describe('food logs reconcile against the catalog (med-5jq.3)', () => {
         expect(batter.barcode).toBeNull();
     });
 
+    // med-8npm.2 (Argus 29824): "Your food" is the preselected pick, so the
+    // offer carries the same portions search gives that food (its history).
+    it('staple offer: the offered food carries its portions, from its own logs', async () => {
+        const offer = env.window.CloudFoodSearch.stapleOffer;
+        await env.records.put('foodproduct', product('p-broc', 'Broccoli', { energy_kcal_100g: 34 }));
+        await env.window.apiCall('/api/food/log', 'POST', { ...body('Broccoli'), product_id: 'p-broc', weight: 120 });
+        expect((await offer('Broccoli - K-Classic - 450 g', '4600000000116')).portions)
+            .toEqual({ start_g: 120, chips: [{ g: 60 }, { g: 120 }, { g: 180 }] });
+    });
+
     it('staple offer: none when two products match, or when a plain log already links', async () => {
         const offer = env.window.CloudFoodSearch.stapleOffer;
         // "Banana" is in the catalog: the scanned name keys the same, so logging it as scanned links anyway.

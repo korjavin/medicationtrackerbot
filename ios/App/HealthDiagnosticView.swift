@@ -183,8 +183,6 @@ struct HealthDiagnosticView: View {
             // in the same launch never presents and never returns. So the sheet
             // is the one health.authorize would ask (its share set is
             // write.flatMap(shareTypes) and readTypes), asked here directly.
-            // (The sheet left BP members notDetermined, so calling
-            // health.authorize again would be that second request.)
             step("authorize")
             check("hr shares heart rate", Health.shareTypes("hr") == [Health.heartRate])
             check("workout shares workouts", Health.shareTypes("workout") == [HKObjectType.workoutType()])
@@ -210,33 +208,17 @@ struct HealthDiagnosticView: View {
             check("readableFromMs takes the later date", Health.readableFromMs([Health.bodyMass: Date(timeIntervalSince1970: 1_000), Health.heartRate: Date(timeIntervalSince1970: 2_000.5)]) == 2_000_500)
             check("readableFrom 0", (access["readableFrom"] as? NSNumber)?.intValue == 0, access["readableFrom"] ?? "absent")
             check("weight writable", granted.contains("weight"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
-            // Heart rate and workouts are plain types: unlike bp they must grant here.
+            // Heart rate, workouts and blood pressure must all grant here.
             check("hr writable", granted.contains("hr"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
             check("workout writable", granted.contains("workout"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
-            // ponytail: on the iOS 26.5 Simulator the share sheet grants the
-            // blood-pressure correlation type (status 2) but leaves systolic and
-            // diastolic notDetermined, re-asking is a no-op and every BP save
-            // fails "Authorization is not determined". writeAccess then honestly
-            // omits bp; the BP half runs only where the store grants it, and the
-            // report names the skip. Drop the gate once a runtime grants BP share.
-            let bpOn = granted.contains("bp")
-            if !bpOn {
-                result["bpSkipped"] = "sys/dia/corr " + ([Health.systolic, Health.diastolic, bpType] as [HKObjectType])
-                    .map { "\(store.authorizationStatus(for: $0).rawValue)" }.joined(separator: "/")
-                var refused = false
-                do { _ = try await Health.handle("health.write", ["type": "bp", "id": "bp-qa-gate", "version": 1, "at": 0.0, "systolic": 120.0, "diastolic": 80.0]) }
-                catch { refused = error.localizedDescription == "denied" }
-                check("bp write refused without access", refused)
-            }
+            check("bp writable", granted.contains("bp"), "\(granted) status sys/dia/kg/hr/workout \(statuses)")
             let run = UUID().uuidString
             let bp = "bp-qa-\(run)", weight = "weight-qa-\(run)"
             let at = ((Date().timeIntervalSince1970 - 3600) * 1000).rounded()
             // The second write (same ids, higher version) replaces the first.
             for (version, sys) in [(1_000, 120.0), (2_000, 131.0)] {
-                if bpOn {
-                    _ = try await Health.handle("health.write", ["type": "bp", "id": bp, "version": version, "at": at,
-                                                                 "systolic": sys, "diastolic": 80.0])
-                }
+                _ = try await Health.handle("health.write", ["type": "bp", "id": bp, "version": version, "at": at,
+                                                             "systolic": sys, "diastolic": 80.0])
                 _ = try await Health.handle("health.write", ["type": "weight", "id": weight, "version": version, "at": at, "kg": sys / 2])
             }
             // Replays: equal version (same payload), then lower (the old one).
@@ -245,10 +227,8 @@ struct HealthDiagnosticView: View {
             step("replay")
             let kgBefore = try await synced(Health.bodyMass, weight).first?.uuid
             for (version, sys) in [(2_000, 131.0), (1_000, 120.0)] {
-                if bpOn {
-                    await replay("bp v\(version)", ["type": "bp", "id": bp, "version": version, "at": at,
-                                                    "systolic": sys, "diastolic": 80.0])
-                }
+                await replay("bp v\(version)", ["type": "bp", "id": bp, "version": version, "at": at,
+                                                "systolic": sys, "diastolic": 80.0])
                 await replay("weight v\(version)", ["type": "weight", "id": weight, "version": version, "at": at, "kg": sys / 2])
             }
             let kgs = try await synced(Health.bodyMass, weight)
@@ -256,18 +236,15 @@ struct HealthDiagnosticView: View {
             check("one weight", kgs.count == 1 && abs(value(kgs.first, kg) - 65.5) < 0.01, "\(kgs.count) \(value(kgs.first, kg))")
             check("weight version", (kgs.first?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
             check("weight our source", kgs.first.map { Health.ours($0) } == true)
-            var corr: [HKSample] = []
-            if bpOn {
-                corr = try await synced(bpType, bp)
-                let sys = try await synced(Health.systolic, bp + "/sys"), dia = try await synced(Health.diastolic, bp + "/dia")
-                check("one correlation", corr.count == 1, corr.count)
-                check("one systolic", sys.count == 1 && value(sys.first, mmHg) == 131, "\(sys.count) \(value(sys.first, mmHg))")
-                check("one diastolic", dia.count == 1 && value(dia.first, mmHg) == 80, dia.count)
-                check("bp version", (corr.first?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
-                check("bp our source", corr.first.map { Health.ours($0) } == true)
-                let members = (corr.first as? HKCorrelation)?.objects.map { $0.metadata?[HKMetadataKeySyncIdentifier] as? String ?? "" } ?? []
-                check("member ids", Set(members) == [bp + "/sys", bp + "/dia"], members)
-            }
+            let corr = try await synced(bpType, bp)
+            let sys = try await synced(Health.systolic, bp + "/sys"), dia = try await synced(Health.diastolic, bp + "/dia")
+            check("one correlation", corr.count == 1, corr.count)
+            check("one systolic", sys.count == 1 && value(sys.first, mmHg) == 131, "\(sys.count) \(value(sys.first, mmHg))")
+            check("one diastolic", dia.count == 1 && value(dia.first, mmHg) == 80, dia.count)
+            check("bp version", (corr.first?.metadata?[HKMetadataKeySyncVersion] as? NSNumber)?.intValue == 2_000)
+            check("bp our source", corr.first.map { Health.ours($0) } == true)
+            let members = (corr.first as? HKCorrelation)?.objects.map { $0.metadata?[HKMetadataKeySyncIdentifier] as? String ?? "" } ?? []
+            check("member ids", Set(members) == [bp + "/sys", bp + "/dia"], members)
 
             // An unmarked same-bundle sample (a QA writer) still imports; ours does not.
             let t = Date(timeIntervalSince1970: at / 1000 - 60)
@@ -275,27 +252,25 @@ struct HealthDiagnosticView: View {
             let pd = HKQuantitySample(type: Health.diastolic, quantity: HKQuantity(unit: mmHg, doubleValue: 71), start: t, end: t)
             let plainBP = HKCorrelation(type: bpType, start: t, end: t, objects: [ps, pd])
             let plainKg = HKQuantitySample(type: Health.bodyMass, quantity: HKQuantity(unit: kg, doubleValue: 60), start: t, end: t)
-            let unmarked: [HKObject] = bpOn ? [plainBP, plainKg] : [plainKg]
+            let unmarked: [HKObject] = [plainBP, plainKg]
             try await store.save(unmarked)
-            plain = bpOn ? [plainBP, ps, pd, plainKg] : [plainKg]
+            plain = [plainBP, ps, pd, plainKg]
             let kgSeen = try await imported("weight")
             check("unmarked weight imports", kgSeen.contains(plainKg.uuid.uuidString))
             check("own weight filtered", kgs.first.map { !kgSeen.contains($0.uuid.uuidString) } == true)
-            if bpOn {
-                let bpSeen = try await imported("bp")
-                check("unmarked bp imports", bpSeen.contains(plainBP.uuid.uuidString))
-                check("own bp filtered", corr.first.map { !bpSeen.contains($0.uuid.uuidString) } == true)
-            }
+            let bpSeen = try await imported("bp")
+            check("unmarked bp imports", bpSeen.contains(plainBP.uuid.uuidString))
+            check("own bp filtered", corr.first.map { !bpSeen.contains($0.uuid.uuidString) } == true)
 
             // An imported row's delete (its HK uuid as the id) deletes nothing.
             var probes = [("weight", "weight-hk-\(plainKg.uuid.uuidString)"), ("weight", plainKg.uuid.uuidString)]
-            if bpOn { probes += [("bp", "bp-hk-\(plainBP.uuid.uuidString)"), ("bp", "bp-qa-never-written")] }
+            probes += [("bp", "bp-hk-\(plainBP.uuid.uuidString)"), ("bp", "bp-qa-never-written")]
             for (kind, id) in probes {
                 check("delete \(id)", try await Health.handle("health.delete", ["type": kind, "id": id]) as? Bool == true)
             }
             var left = try await find(Health.bodyMass, HKQuery.predicateForObject(with: plainKg.uuid)).count
-            if bpOn { left += try await find(bpType, HKQuery.predicateForObject(with: plainBP.uuid)).count }
-            check("imported rows kept", left == (bpOn ? 2 : 1), left)
+            left += try await find(bpType, HKQuery.predicateForObject(with: plainBP.uuid)).count
+            check("imported rows kept", left == 2, left)
 
             // Deletions ride the anchored page (bd med-w6gx.18.1): keep each
             // kind's last anchor, delete the unmarked weight sample, the BP
@@ -315,7 +290,7 @@ struct HealthDiagnosticView: View {
                 return anchor
             }
             var gone: [(kind: String, object: HKObject)] = [("weight", plainKg)]
-            if bpOn { gone.append(("bp", plainBP)) }
+            gone.append(("bp", plainBP))
             if store.authorizationStatus(for: Health.sleepAnalysis) == .sharingAuthorized {
                 let night = HKCategorySample(type: Health.sleepAnalysis, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
                                              start: t.addingTimeInterval(-3600), end: t)
@@ -346,11 +321,9 @@ struct HealthDiagnosticView: View {
 
             check("delete weight", try await Health.handle("health.delete", ["type": "weight", "id": weight]) as? Bool == true)
             var stray = try await synced(Health.bodyMass, weight).count
-            if bpOn {
-                check("delete bp", try await Health.handle("health.delete", ["type": "bp", "id": bp]) as? Bool == true)
-                stray += try await synced(bpType, bp).count + synced(Health.systolic, bp + "/sys").count
-                    + synced(Health.diastolic, bp + "/dia").count
-            }
+            check("delete bp", try await Health.handle("health.delete", ["type": "bp", "id": bp]) as? Bool == true)
+            stray += try await synced(bpType, bp).count + synced(Health.systolic, bp + "/sys").count
+                + synced(Health.diastolic, bp + "/dia").count
             check("nothing left", stray == 0, stray)
 
             // Pulse write-back (bd med-8f4s.8): the page sends <bp id>/pulse as
@@ -479,11 +452,8 @@ struct HealthDiagnosticView: View {
                 entries.append(["type": "workout", "id": id, "version": 1_000, "start": s, "end": s + 1_800_000, "activity": 50])
                 written.append(("workout", id, wt))
             }
-            if bpOn {
-                let id = "bp-\(b)-bp"
-                entries.append(["type": "bp", "id": id, "version": 1_000, "at": at, "systolic": 118.0, "diastolic": 76.0])
-                written.append(("bp", id, bpType))
-            }
+            entries.append(["type": "bp", "id": "bp-\(b)-bp", "version": 1_000, "at": at, "systolic": 118.0, "diastolic": 76.0])
+            written.append(("bp", "bp-\(b)-bp", bpType))
             func results(_ reply: Any) -> [String] {
                 (reply as? [Any] ?? []).map { $0 as? Bool == true ? "true" : ($0 as? String ?? "\($0)") }
             }
@@ -517,20 +487,6 @@ struct HealthDiagnosticView: View {
             var bare = ""
             do { _ = try await Health.handle("health.write", [:]) } catch { bare = error.localizedDescription }
             check("bare write unchanged", bare == "bad write", bare)
-            // Denied is a whole-call failure, not an entry string: the Simulator
-            // leaves BP share notDetermined, so a batch carrying bp throws.
-            if !bpOn {
-                let deniedKg = "weight-\(b)-denied"
-                written.append(("weight", deniedKg, Health.bodyMass))  // saved before bp throws; cleaned below
-                var denied = "resolved"
-                do {
-                    _ = try await Health.handle("health.write", ["entries": [
-                        ["type": "weight", "id": deniedKg, "version": 1_000, "at": at, "kg": 70.0],
-                        ["type": "bp", "id": "bp-\(b)-denied", "version": 1_000, "at": at, "systolic": 118.0, "diastolic": 76.0],
-                    ]])
-                } catch { denied = error.localizedDescription }
-                check("batch denied throws", denied == "denied", denied)
-            }
             for w in written { _ = try await Health.handle("health.delete", ["type": w.kind, "id": w.id]) }
             var strayBatch = 0
             for w in written { strayBatch += try await synced(w.type, w.id).count }
