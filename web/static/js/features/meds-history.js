@@ -1219,6 +1219,39 @@ async function logPastIntake(medId, takenAt, onLogged) {
     return res;
 }
 
+// The Undo of logPastIntake (Log sheet Take, bd med-aa18.5): DELETE
+// /log-past/:id tombstones that one manual intake by its id and the domain
+// returns its stock. Optimistic: the row leaves the timeline first; then meds
+// + timeline re-read as logPastIntake does. Returns the response, or null
+// when nothing was written; a thrown write rolls back and rethrows.
+async function unlogPastIntake(intakeId) {
+    const handles = [await _applyOptimisticTimeline((rows) => rows.filter((r) => String(r.occId) !== String(intakeId)))];
+    let res;
+    try {
+        res = await apiCall(`/api/medications/log-past/${encodeURIComponent(intakeId)}`, 'DELETE');
+    } catch (e) {
+        await _rollbackOptimistic(handles);
+        throw e;
+    }
+    if (!res) {
+        await _rollbackOptimistic(handles);
+        return null;
+    }
+    await _commitOptimistic(handles);
+    try {
+        if (window.DataStore) {
+            await window.DataStore.invalidateByTag('history');
+            await window.DataStore.invalidateByTag('medications');
+            await window.DataStore.invalidateByTag('gamification');
+        }
+        await loadMeds();
+        if (typeof loadTimeline === 'function') await loadTimeline();
+    } catch (e) {
+        console.warn('unlog: refresh after the write failed', e);
+    }
+    return res;
+}
+
 // "Snooze 10m" (bd med-4j49): the checked doses get snoozed_until on their
 // own occIds; the row shows "Snoozed until HH:MM" and leaves the due list
 // until the snooze ends (the dose clock repaints it then).
@@ -1286,5 +1319,6 @@ window.MedsHistory = {
     updateIntakeHistory,
     confirmLogPast,
     logPastIntake,
+    unlogPastIntake,
     snoozeMedicationConfirm
 };

@@ -1145,6 +1145,18 @@ export function createApiRouter(ctx, {
         return res;
       }
     }
+    // The Log sheet Take's Undo (bd med-aa18.5): tombstone that one manual log.
+    if (method === 'DELETE') {
+      const m = /^\/api\/medications\/log-past\/([^/]+)$/.exec(path);
+      if (m) {
+        const res = await intake.unlog(decodeURIComponent(m[1])).catch((err) => {
+          if (err && err.code === 'not_manual') err.status = 409;
+          return withDuplicateStatus(err);
+        });
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
     if (path === '/api/intakes/update' && method === 'POST') {
       const res = await intake.updateIntakes((body && body.updates) || []);
       scheduleReminderRecompute(ctx, { records, timeZone });

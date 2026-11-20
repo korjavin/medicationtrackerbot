@@ -11,6 +11,7 @@ import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 vi.mock('../../../cloud/js/push.js', () => ({ pushSchedule: vi.fn() }));
 // eslint-disable-next-line import/first
@@ -884,6 +885,66 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
 
         const meds = await window.apiCall('/api/medications');
         expect(meds[0].inventory_count).toBe(4);
+    });
+
+    // bd med-aa18.5: the Log sheet Take's Undo.
+    it('DELETE log-past/:id tombstones that manual intake and returns its stock; a repeat is unchanged', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ inventory_count: 5 })] } });
+        const { window } = env;
+        const takenAt = new Date().toISOString();
+        const first = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: takenAt });
+        const kept = await window.apiCall('/api/medications/log-past', 'POST', { medication_id: 1, taken_at: takenAt });
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(3);
+
+        const res = await window.apiCall(`/api/medications/log-past/${first.id}`, 'DELETE');
+        expect(res).toEqual({ status: 'deleted', id: first.id });
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
+        const ids = (await window.apiCall(`/api/doses?from=${new Date(Date.now() - DAY_MS).toISOString()}`)).map((r) => r.occId);
+        expect(ids).toContain(kept.id);
+        expect(ids).not.toContain(first.id);
+        const raw = (await env.records.listRaw('intake')).find((r) => r.recordId === first.id);
+        expect(raw.deleted).toBe(true);
+
+        expect(await window.apiCall(`/api/medications/log-past/${first.id}`, 'DELETE')).toEqual({ status: 'unchanged', id: first.id });
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(4);
+    });
+
+    it('DELETE log-past/:id refuses a scheduled dose (not_manual) and writes nothing', async () => {
+        const slot = new Date(Math.floor((Date.now() - HOUR_MS) / 1000) * 1000);
+        const id = `intake-1-${slot.getTime() / 1000}`;
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ inventory_count: 5 })],
+                intake: [seedIntake({ recordId: id, scheduled_at: slot.toISOString(), status: 'TAKEN', taken_at: slot.toISOString() })]
+            }
+        });
+        const { window } = env;
+        allowConsoleNoise(); // apiCall logs the refused write before its alert-and-null path
+        window.safeAlert = vi.fn();
+        expect(await window.apiCall(`/api/medications/log-past/${id}`, 'DELETE')).toBeNull();
+        const row = (await env.records.listRaw('intake')).find((r) => r.recordId === id);
+        expect(row.deleted).toBe(false);
+        expect(row.status).toBe('TAKEN');
+        expect((await window.apiCall('/api/medications'))[0].inventory_count).toBe(5);
+    });
+
+    it('Log sheet Take → toast Undo: the row leaves the timeline and the stock comes back', async () => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { medication: [seedMedication({ name: 'Ibuprofen', inventory_count: 5 })] } });
+        const { window, document } = env;
+        const toast = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+        await window.loadMeds();
+        window.showAddFoodModal({ from: 'today', food: false, kinds: [{ id: 'med', icon: 'pill', label: 'Med' }], view: 'med' });
+        document.querySelector('#food-add-med-list .wg-row[data-med-id="1"] .wg-btn').click();
+        await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Ibuprofen taken', 'success', expect.any(Object)));
+        const [logged] = (await env.records.list('intake'));
+        expect(window.medications[0].inventory_count).toBe(4);
+        expect((await window.loadTimeline()).map((r) => String(r.occId))).toContain(logged.recordId);
+
+        toast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2].action.onClick();
+        await vi.waitFor(() => expect(toast).toHaveBeenCalledWith('Ibuprofen dose removed', 'info', { detail: '5 left' }));
+        expect(window.medications[0].inventory_count).toBe(5);
+        expect((await window.loadTimeline()).map((r) => String(r.occId))).not.toContain(logged.recordId);
+        expect(await env.records.list('intake')).toEqual([]);
     });
 
     it('cancel-intake reverts a TAKEN intake back to PENDING and restores inventory', async () => {

@@ -1048,6 +1048,28 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     return toResponse(record);
   }
 
+  // The Undo of a logPast (bd med-aa18.5, the Log sheet's Take): tombstones
+  // that exact manual row by recordId — never "the last intake" — and returns
+  // its stock. Only an `intake-manual-` id: a scheduled dose's undo is act's
+  // `undo` (UNTAKEN keeps its slot). A user action at now(), not a derived
+  // write (no floor). The tombstone is terminal in mergeIntake, every reader
+  // already skips `deleted` rows, and stock derives from live TAKEN evidence,
+  // so the mirror is all that moves. An already-tombstoned id is `unchanged`.
+  async function unlog(id) {
+    if (!String(id).startsWith(MANUAL_ID_PREFIX)) {
+      throw Object.assign(new Error('only a manual log can be removed; undo a scheduled dose instead'), { code: 'not_manual' });
+    }
+    const raw = records.listRaw ? await records.listRaw(INTAKE_RECORD_TYPE) : await records.list(INTAKE_RECORD_TYPE);
+    const row = raw.find((i) => String(i.recordId) === String(id));
+    if (!row) throw notFound('intake not found');
+    if (row.deleted) return { status: 'unchanged', id: row.recordId };
+    // Seed (pre-write state) → tombstone → mirror (post-write state), as putIntake.
+    if (row.status === 'TAKEN') await stock.ensureSeed(row.medication_id);
+    await records.del(INTAKE_RECORD_TYPE, row.recordId);
+    if (row.status === 'TAKEN') await stock.mirror(row.medication_id);
+    return { status: 'deleted', id: row.recordId };
+  }
+
   // Ported from handleUpdateIntake (POST /api/intakes/update): per-row
   // {updated, failed, failures[]} so the frontend can roll back only the rows
   // that failed. Cloud mode has no tz-plan gating yet (Task 4), so the only
@@ -1480,6 +1502,7 @@ export function createIntakeDomain({ records, now, timeZone, via = 'app', onBoun
     skip,
     snooze,
     logPast,
+    unlog,
     updateIntakes,
     confirmSchedule,
     act,

@@ -590,7 +590,7 @@ describe('Food Add sheet', () => {
             expect(hidden('food-add-also')).toBe(false);
         });
 
-        it('LS2 Take: one log-past write at now, the sheet closed first, toast with the re-read count; no Undo', async () => {
+        it('LS2 Take: one log-past write at now, the sheet closed first, toast with the re-read count and an 8 s Undo', async () => {
             const { window, document } = env;
             let openAtPost = null;
             apiCall.mockImplementation(async (url, method) => {
@@ -618,9 +618,38 @@ describe('Food Add sheet', () => {
             expect(openAtPost).toBe(false);
             const opts = window.safeToast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2];
             expect(opts.detail).toMatch(/^Logged \d\d:\d\d · 11 left$/);
-            expect(opts.action).toBeUndefined();
-            expect(opts.actions).toBeUndefined();
+            expect(opts.action.label).toBe('Undo');
+            expect(opts.duration).toBe(8000);
             expect(apiCall.mock.calls.some(([u]) => String(u).startsWith('/api/doses/act'))).toBe(false);
+        });
+
+        it('LS2 Undo: removes exactly the logged intake by its id, then toasts the restored count (bd med-aa18.5)', async () => {
+            const { window, document } = env;
+            let undone = false;
+            // Fakes apishim: POST /log-past answers the new manual intake (medintake.js
+            // logPast → toResponse), DELETE /log-past/:id answers unlog's
+            // { status: 'deleted', id }, and GET /api/medications the derived stock.
+            apiCall.mockImplementation(async (url, method) => {
+                if (url === '/api/medications/log-past' && method === 'POST') return { id: 'intake-manual-7-1', status: 'TAKEN' };
+                if (url === '/api/medications/log-past/intake-manual-7-1' && method === 'DELETE') {
+                    undone = true;
+                    return { status: 'deleted', id: 'intake-manual-7-1' };
+                }
+                if (String(url).startsWith('/api/medications')) {
+                    return MEDS.map((m) => (m.id === 1 && !undone ? { ...m, inventory_count: 11, last_taken_at: new Date().toISOString() } : m));
+                }
+                if (String(url).startsWith('/api/food/log?')) return RECENT_GROUPS;
+                return null;
+            });
+            fromToday();
+            await settle();
+            document.querySelector('#food-add-also-row [data-log="med"]').click();
+            document.querySelector('#food-add-med-list .wg-row[data-med-id="1"] .wg-btn').click();
+            await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Ibuprofen taken', 'success', expect.any(Object)));
+            window.safeToast.mock.calls.find(([m]) => m === 'Ibuprofen taken')[2].action.onClick();
+            await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Ibuprofen dose removed', 'info', { detail: '12 left' }));
+            const deletes = apiCall.mock.calls.filter(([, m]) => m === 'DELETE');
+            expect(deletes.map(([u]) => u)).toEqual(['/api/medications/log-past/intake-manual-7-1']);
         });
 
         it('LS2 Take: a refresh that fails after the write still reads as taken, with no unconfirmed count', async () => {
